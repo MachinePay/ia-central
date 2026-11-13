@@ -32,7 +32,9 @@ services:
         - workflows/**
     plan: 1c-2g               # n8n + IA nao cabe em 512 MB (testado: cai por falta de memoria)
     region: virginia
-    healthCheckPath: /healthz/readiness   # inclui o banco: se o n8n perder o Postgres, o Render reinicia sozinho
+    # /healthz so ve se o n8n esta de pe. O /healthz/readiness inclui o banco: com o Postgres pequeno (256 MB)
+    # ocupado, ele demora/falha e o Render reiniciava o n8n a toa (o painel caia com 502).
+    healthCheckPath: /healthz
     envVars:
       - fromGroup: ia-central-segredos
       - key: PORT
