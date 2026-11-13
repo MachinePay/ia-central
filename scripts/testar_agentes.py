@@ -110,13 +110,15 @@ try:
     zap("gabriel", AMIGO, "Fechou. Que horas?", nome="Amigo Teste")
     zap("gabriel", AMIGO, "Umas 13h ta suave. Chega cedo pra ajudar no fogo hein kkk", de_mim=True)
     api("admin_aprender_agora")
-    leo_sug = api("admin_observacao")["leo_sugestoes"]
-    for s in leo_sug:
-        print(f"    leo/gabriel aprendeu: [{s['titulo']}] {s['conteudo']}")
+    # o Gabriel aprende com o numero DELE, na inteligencia dele (nada vai para o Leo)
+    g_sug = [i for i in api("admin_agente_feed", {"agente": "gabriel"})["aprendizado"] if not i["aprovado"]]
+    for s in g_sug:
+        print(f"    gabriel aprendeu: [{s['titulo']}] {s['conteudo']}")
         api("admin_leo_sugestao_aprovar", {"id": s["id"], "titulo": s["titulo"], "conteudo": s["conteudo"]})
-    confere("aprendeu o jeito (classificado como 'Jeito de falar')", any((s["titulo"] or "").lower().startswith("jeito de falar") for s in leo_sug), leo_sug)
-    estilo = sql(f"SELECT nucleo.estilo_dono({admin_id})")
-    confere("jeito aprovado chega ao Gabriel (estilo)", "kkk" in estilo.lower() or "mano" in estilo.lower(), estilo)
+    confere("aprendeu o jeito (classificado como 'Jeito de falar')", any((s["titulo"] or "").lower().startswith("jeito de falar") for s in g_sug), g_sug)
+    estilo = sql("SELECT nucleo.estilo_gabriel()")
+    confere("jeito aprovado fica com o Gabriel (estilo)", "kkk" in estilo.lower() or "mano" in estilo.lower(), estilo)
+    confere("nada disso foi para o Leo", sql(f"SELECT count(*) FROM nucleo.conhecimento WHERE agente = 'leo' AND criado_em >= '{inicio}'") == "0")
 
     zap("gabriel", AMIGO, "Mano, me empresta 500 reais ate sexta?", nome="Amigo Teste")
     confere("observando: Gabriel nao respondeu", sql("SELECT count(*) FROM nucleo.atendimento_fila WHERE agente = 'gabriel'") == "0")

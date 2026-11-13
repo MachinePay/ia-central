@@ -361,8 +361,8 @@ function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed 
             recarregar(); setTimeout(() => setRodando(''), 4000)
           }}><RefreshCw size={12} className={rodando === '…' ? 'girando' : ''} /> {rodando || 'aprender agora'}</BotaoMini>}>
           <div className="etiqueta" style={{ marginBottom: 6 }}>
-            {a === 'gabriel' ? 'O Gabriel usa o que o Leo aprende sobre você. Revise aqui ou na página do Leo (é a mesma lista).'
-              : 'O que a IA tirou das conversas (a cada 15 min). Só passa a valer depois que você confirma. Corrija o texto se precisar.'}
+            O que {AGENTES[a].nome} tirou das conversas do número dele (a cada 15 min, áudios incluídos). Só passa a valer depois que você confirma.
+            Cada IA tem a própria inteligência: nada daqui vai para outra IA, a não ser que você copie.
           </div>
           {revisar.length === 0 && <div className="vazio">Nada novo para revisar ✓</div>}
           {revisar.map(i => <ItemRevisar key={i.id} a={a} i={i} recarregar={recarregar} />)}
@@ -379,6 +379,7 @@ function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed 
               {itens.map(i => (
                 <div className="item" key={i.id}>
                   <div><div className="item-titulo">{i.titulo || 'sem título'}</div><div className="item-texto">{i.conteudo}</div></div>
+                  <CopiarPara a={a} id={i.id} />
                   <button aria-label={`Esquecer ${i.titulo || ''}`} title="Esquecer" onClick={async () => {
                     if (!confirm('Fazer a IA esquecer isso?')) return
                     if (a === 'leo' || a === 'gabriel') await api.esquecer(i.id); else await api.baseApagar(i.id)
@@ -391,6 +392,24 @@ function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed 
         </Hud>
       </div>
     </div>
+  )
+}
+
+// passar um conhecimento para outra IA: so quando voce escolhe
+function CopiarPara({ a, id }: { a: AgenteId; id: number }) {
+  const [feito, setFeito] = useState('')
+  if (feito) return <span className="copiado">{feito}</span>
+  return (
+    <select className="copiar-para" aria-label="Ensinar também para outra IA" title="Ensinar também para outra IA" value=""
+      onChange={async e => {
+        const para = e.target.value as AgenteId
+        if (!para) return
+        await api.conhecimentoCopiar(id, para)
+        setFeito(`✓ ${AGENTES[para].nome}`)
+      }}>
+      <option value="">copiar para…</option>
+      {ORDEM.filter(x => x !== a).map(x => <option key={x} value={x}>{AGENTES[x].nome}</option>)}
+    </select>
   )
 }
 

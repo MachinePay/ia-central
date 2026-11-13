@@ -186,3 +186,9 @@
   .menu-baixo button.ativo { color: var(--ciano); background: color-mix(in srgb, var(--ciano) 13%, transparent); box-shadow: inset 0 0 0 1px var(--linha-forte); }
   .menu-baixo .menu-luz { position: absolute; top: 5px; right: calc(50% - 15px); }
 }
+
+/* copiar conhecimento para outra IA */
+.copiar-para { align-self: center; flex: 0 0 auto !important; max-width: 118px; font-size: 11px; color: var(--texto-3); background: rgba(3, 5, 11, 0.6);
+  border: 1px solid var(--linha); border-radius: 7px; padding: 3px 4px; cursor: pointer; }
+.copiar-para:hover { color: var(--ciano); border-color: var(--linha-forte); }
+.copiado { align-self: center; flex: 0 0 auto !important; font-family: var(--f-mono); font-size: 10px; color: var(--verde); white-space: nowrap; }

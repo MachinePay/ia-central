@@ -306,9 +306,15 @@ BEGIN
         IF coalesce(d->>'conteudo','') = '' OR d->>'area' NOT IN ('suporte','comercial','geral') THEN
             RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Informe area e conteudo'));
         END IF;
-        INSERT INTO nucleo.conhecimento (usuario_id, dominio, titulo, conteudo, origem)
-        VALUES (NULL, d->>'area', nullif(d->>'titulo',''), d->>'conteudo', 'manual');
+        -- vai SO para a IA da pagina onde voce ensinou (joao | suporte)
+        INSERT INTO nucleo.conhecimento (usuario_id, dominio, titulo, conteudo, origem, metadata)
+        VALUES (NULL, d->>'area', nullif(d->>'titulo',''), d->>'conteudo', 'manual',
+                CASE WHEN d->>'agente' IN ('joao','suporte') THEN jsonb_build_object('agente', d->>'agente') ELSE '{}'::jsonb END);
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_conhecimento_copiar' THEN   -- passar algo de uma IA para outra (so quando voce pede)
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo',
+            jsonb_build_object('id', nucleo.conhecimento_copiar((d->>'id')::bigint, d->>'para', u.id)));
 
     ELSIF p_acao = 'admin_base_apagar' THEN
         DELETE FROM nucleo.conhecimento WHERE id = (d->>'id')::bigint AND usuario_id IS NULL;

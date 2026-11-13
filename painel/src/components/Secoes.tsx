@@ -74,7 +74,7 @@ export function EnsinarManual({ d, agente, carregar }: Sec) {
   const [nova, setNova] = useState<{ area: Area; titulo: string; conteudo: string }>({ area: agente === 'suporte' ? 'suporte' : 'comercial', titulo: '', conteudo: '' })
   return (
     <Hud titulo="Ensinar manualmente" icone={<BookOpen size={14} />}>
-      <form onSubmit={async e => { e.preventDefault(); await api.baseSalvar(nova.area, nova.titulo, nova.conteudo); setNova({ ...nova, titulo: '', conteudo: '' }); carregar() }}>
+      <form onSubmit={async e => { e.preventDefault(); await api.baseSalvar(nova.area, nova.titulo, nova.conteudo, agente); setNova({ ...nova, titulo: '', conteudo: '' }); carregar() }}>
         <div className="linha-2">
           <div className="campo"><label htmlFor="b-area">Área</label>
             <select id="b-area" value={nova.area} onChange={e => setNova({ ...nova, area: e.target.value as Area })}>

@@ -789,20 +789,26 @@ if (deMim) await new Promise(r => setTimeout(r, 2500));    // da tempo de regist
 const m = d.message || {};
 const texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)
   || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';
-const audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;
-if (!texto && !audio) return [];
+let audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;
+if (m.audioMessage && !audio) {   // webhook sem base64: pede para a Evolution
+  try {
+    const r = await evo('POST', `/chat/getBase64FromMediaMessage/${b.instance || INST}`, { message: { key: d.key }, convertToMp4: false });
+    audio = (r && (r.base64 || r.media)) || null;
+  } catch (e) { /* segue sem audio */ }
+}
+if (!texto && !audio && !m.audioMessage) return [];
 return [{ json: {
   numero: jid.split('@')[0], nome: d.pushName || '', texto,
-  tipo: audio ? 'audio' : 'texto', audio_b64: audio,
+  tipo: m.audioMessage ? 'audio' : 'texto', audio_b64: audio,
   de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,
   instancia: b.instance || $env.EVOLUTION_INSTANCIA || 'nucleo', dono,
 } }];
 """
 
 JS_PREPARAR = r"""
-const msg = $('Ler mensagem').first().json;
+const msg = $('Mensagem').first().json;
 const quem = $('Quem e').first().json.r;
-const texto = msg.tipo === 'audio' ? ($input.first().json.text || '') : (quem.texto || msg.texto);
+const texto = msg.tipo === 'audio' ? (msg.transcricao || '') : (quem.texto || msg.texto);
 return [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender)' } }];
 """
 
@@ -865,20 +871,46 @@ def canal_whatsapp():
             "httpMethod": "POST", "path": "whatsapp", "responseMode": "onReceived", "options": {},
         }, webhookId="9b1f6c2e-1a00-4000-8000-000000000004"),
         node("Ler mensagem", "n8n-nodes-base.code", 2, [220, 0], {
-            "mode": "runOnceForAllItems", "jsCode": JS_LER_MENSAGEM,
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_LER_MENSAGEM,
         }),
-        node("Quem e", "n8n-nodes-base.postgres", 2.6, [440, 0], {
+        # audio: so transcreve se alguma IA vai ler essa conversa (nao manda audio pessoal para a OpenAI a toa)
+        node("Vai ler?", "n8n-nodes-base.postgres", 2.6, [330, 200], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7, $8, $9) AS r",
-            "options": {"queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, "
-                                            "$json.de_mim, $json.conversa_propria, $json.msg_id, $json.instancia, $json.dono] }}"},
-        }, credentials=PG),
-        node("Rota", "n8n-nodes-base.switch", 3.2, [660, 0], {
-            "mode": "expression", "numberOutputs": 3,
-            # 0 = desconhecido (para aqui) | 1 = texto | 2 = audio
-            "output": "={{ $json.r.saida === 0 ? 0 : ($('Ler mensagem').first().json.tipo === 'audio' ? 2 : 1) }}",
+            "query": "SELECT nucleo.whatsapp_vai_ler($1, $2, $3::boolean, $4::boolean) AS ler",
+            "options": {"queryReplacement": "={{ [$json.instancia, $json.numero, $json.de_mim, $json.conversa_propria] }}"},
+        }, credentials=PG, alwaysOutputData=True),
+        node("Ouvir?", "n8n-nodes-base.switch", 3.2, [440, 200], {
+            "mode": "expression", "numberOutputs": 2,
+            "output": "={{ $('Ler mensagem').first().json.tipo === 'audio' && $json.ler && $('Ler mensagem').first().json.audio_b64 ? 1 : 0 }}",
         }),
-        node("Dados do audio", "n8n-nodes-base.code", 2, [880, 200], {
+        node("Mensagem", "n8n-nodes-base.code", 2, [1100, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "// junta o texto final: no audio, a transcricao vira o texto (e o que as IAs leem e aprendem)\n"
+                      "const m = $('Ler mensagem').first().json;\n"
+                      "const t = $input.first().json;\n"
+                      "let transcricao = '', falha = '';\n"
+                      "if (m.tipo === 'audio') {\n"
+                      "  if (typeof t.text === 'string') transcricao = t.text.trim();\n"
+                      "  else if (t.error) falha = typeof t.error === 'string' ? t.error : (t.error.message || JSON.stringify(t.error));\n"
+                      "  else if (!m.audio_b64) falha = 'o WhatsApp nao entregou o arquivo do audio';\n"
+                      "}\n"
+                      "const texto = m.tipo === 'audio' ? (transcricao ? '🎤 ' + transcricao : '') : m.texto;\n"
+                      "return [{ json: { ...m, audio_b64: undefined, texto, transcricao, falha_audio: falha } }];",
+        }),
+        node("Quem e", "n8n-nodes-base.postgres", 2.6, [1320, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7, $8, $9) AS r,\n"
+                     "  CASE WHEN $10 <> '' THEN nucleo.registrar_evento(nucleo.papel_instancia($8), 'aviso',\n"
+                     "    'Nao consegui transcrever um audio: ' || nucleo.motivo_erro($10), $10, jsonb_build_object('numero', $1)) END AS evento",
+            "options": {"queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, "
+                                            "$json.de_mim, $json.conversa_propria, $json.msg_id, $json.instancia, $json.dono, $json.falha_audio || ''] }}"},
+        }, credentials=PG),
+        node("Rota", "n8n-nodes-base.switch", 3.2, [1440, 0], {
+            "mode": "expression", "numberOutputs": 2,
+            # 0 = so leu / nao e com ninguem (para aqui) | 1 = alguma IA responde
+            "output": "={{ $json.r.saida === 0 ? 0 : 1 }}",
+        }),
+        node("Dados do audio", "n8n-nodes-base.code", 2, [550, 300], {
             "mode": "runOnceForAllItems",
             # descobre o formato pelos primeiros bytes (OGG do WhatsApp, MP3, M4A...)
             "jsCode": (
@@ -893,13 +925,13 @@ def canal_whatsapp():
                 "return [{ json: { audio_b64: b64, ext, mime } }];"
             ),
         }),
-        node("Audio em arquivo", "n8n-nodes-base.convertToFile", 1.2, [1100, 200], {
+        node("Audio em arquivo", "n8n-nodes-base.convertToFile", 1.2, [700, 300], {
             "operation": "toBinary",
             "sourceProperty": "audio_b64",
             "binaryPropertyName": "data",
             "options": {"encoding": "base64", "fileName": "={{ 'fala.' + $json.ext }}", "mimeType": "={{ $json.mime }}"},
         }),
-        node("Transcrever (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [1320, 200], {
+        node("Transcrever (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [880, 300], {
             "method": "POST",
             "url": "https://api.openai.com/v1/audio/transcriptions",
             "authentication": "predefinedCredentialType",
@@ -913,7 +945,7 @@ def canal_whatsapp():
             ]},
             "options": {},
         }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueRegularOutput"),
-        node("Preparar", "n8n-nodes-base.code", 2, [1540, 0], {
+        node("Preparar", "n8n-nodes-base.code", 2, [1540, 140], {
             "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_PREPARAR,
         }),
         node("Guardar no lote", "n8n-nodes-base.postgres", 2.6, [1600, -140], {
@@ -992,9 +1024,10 @@ return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagen
             "options": {"queryReplacement": "={{ [$json.usuario_id, $json.numero, $json.resposta, $json.ids, $json.falha || '', $json.erro || ''] }}"},
         }, credentials=PG),
     ]
-    con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Quem e"), ("Quem e", "Rota"),
+    con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Vai ler?"), ("Vai ler?", "Ouvir?"),
                 ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (OpenAI)"),
-                ("Transcrever (OpenAI)", "Preparar"), ("Preparar", "Guardar no lote"),
+                ("Transcrever (OpenAI)", "Mensagem"), ("Mensagem", "Quem e"), ("Quem e", "Rota"),
+                ("Preparar", "Guardar no lote"),
                 ("Guardar no lote", "Esperar a pessoa terminar"), ("Esperar a pessoa terminar", "Fechar lote"),
                 ("Fechar lote", "Lote pronto"), ("Lote pronto", "Quem responde"),
                 ("Atendente", "Registrar atendimento"), ("Registrar atendimento", "Entregar atendimento"),
@@ -1007,6 +1040,9 @@ return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagen
     con["Rota"] = {"main": [
         [],
         [{"node": "Preparar", "type": "main", "index": 0}],
+    ]}
+    con["Ouvir?"] = {"main": [
+        [{"node": "Mensagem", "type": "main", "index": 0}],
         [{"node": "Dados do audio", "type": "main", "index": 0}],
     ]}
     return workflow("canalWhatsapp01", "Canal WhatsApp", nodes, con)
@@ -1587,10 +1623,9 @@ def gabriel():
         gatilho_subworkflow(["cliente_id", "nome", "chatInput", "sessionId", "numero"]),
         node("Contexto", "n8n-nodes-base.postgres", 2.6, [200, -160], {
             "operation": "executeQuery",
-            "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome, nucleo.estilo_dono(u.id) AS estilo,\n"
-                     "  (SELECT coalesce(string_agg('- ' || coalesce(k.titulo, '') || ': ' || left(k.conteudo, 200), E'\\n'), '(vazia)')\n"
-                     "     FROM (SELECT * FROM nucleo.conhecimento WHERE usuario_id = u.id AND aprovado\n"
-                     "            ORDER BY criado_em DESC LIMIT 60) k) AS memoria\n"
+            # SO o que o Gabriel aprendeu (nada da memoria do Leo)
+            "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome,\n"
+                     "  nucleo.estilo_gabriel() AS estilo, nucleo.memoria_gabriel(60) AS memoria\n"
                      "FROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
             "options": {},
         }, credentials=PG),
@@ -1608,8 +1643,8 @@ def gabriel():
         }, credentials=PG),
         ferramenta_sql(
             "buscar_memoria", "buscar_memoria",
-            "procura na memoria do dono (fatos, pessoas, preferencias, jeito de resolver).",
-            "SELECT titulo, conteudo FROM nucleo.buscar_memoria($1::int, $2, 'minha')",
+            "procura no que voce (Gabriel) aprendeu: fatos, pessoas, preferencias, jeito de resolver.",
+            "SELECT titulo, conteudo FROM nucleo.buscar_memoria_gabriel($2) WHERE $1::text IS NOT NULL",
             ["$('Contexto').first().json.dono_id", ia("busca", "palavras-chave simples")], [600, 240]),
     ]
     modelos, lig = modelos_do_agente("Gabriel", "orquestrador", 200, 240)
@@ -1732,7 +1767,7 @@ const itemLeo = { type: 'object', additionalProperties: false, required: ['tipo'
   tipo: { type: 'string', enum: ['jeito_de_falar', 'como_resolve', 'fato'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };
 const schemaLeo = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: itemLeo } } };
 const PROMPT_JOAO = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.
-Extraia SO conhecimento reutilizavel que o atendente humano informou ou praticou: precos, prazos, condicoes, politicas,
+Extraia SO conhecimento reutilizavel que o atendente humano informou ou praticou (mensagens com "🎤" eram audios transcritos): precos, prazos, condicoes, politicas,
 horarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o jeito de escrever
 (SEMPRE que der para perceber, num item com titulo comecando por "Jeito de responder", na area do agente: __AREA__).
 Regras:
@@ -1759,14 +1794,27 @@ Regras:
   compromisso recorrente). Nao repita a memoria atual. Se nao houver nada novo e util, devolva itens vazio.
 Memoria atual do dono:
 `;
+const PROMPT_GABRIEL = `Voce e o aprendiz do Gabriel, o clone do DONO que responde no WhatsApp do Gabriel como se fosse o dono.
+Observe a conversa do DONO com um contato NESSE numero e aprenda para o Gabriel agir como ele:
+- tipo "jeito_de_falar": vocabulario, girias, tom, tamanho das mensagens, como cumprimenta e se despede, risadas, emojis.
+- tipo "como_resolve": como negocia, cobra, combina, responde pedidos e reclamacoes, como enrola quando nao quer decidir.
+- tipo "fato": quem e quem para ele (papel da pessoa), compromissos, preferencias, assuntos recorrentes.
+Regras:
+- Aprenda do que o DONO escreveu; o CONTATO serve so de contexto.
+- NUNCA guarde senhas, codigos, dados bancarios/cartao, documentos, saude, vida intima ou segredos de terceiros.
+- Cada item: tipo, titulo curto, conteudo autoexplicativo (1 a 3 frases). Sempre que houver mensagens do DONO,
+  inclua pelo menos um item "jeito_de_falar". Mensagens com "🎤" eram audios transcritos: aprenda com elas tambem.
+- Aprenda MUITO: ate 10 itens por conversa. Nao repita o que o Gabriel ja sabe. Se nao houver nada novo, itens vazio.
+O que o Gabriel ja sabe:
+`;
 const saida = [];
 for (const p of pendentes) {
   try {
     const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 120000,
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
       body: { model: '__MODELO__', reasoning_effort: 'low',
-        response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: p.tipo === 'leo' ? schemaLeo : schema } },
-        messages: [{ role: 'system', content: (p.tipo === 'leo' ? PROMPT_LEO : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
+        response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: (p.tipo === 'leo' || p.tipo === 'gabriel') ? schemaLeo : schema } },
+        messages: [{ role: 'system', content: (p.tipo === 'leo' ? PROMPT_LEO : p.tipo === 'gabriel' ? PROMPT_GABRIEL : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
                                                + (p.contexto || '(vazia)') },
                    { role: 'user', content: p.transcricao }] } });
     const itens = JSON.parse(r.choices[0].message.content).itens || [];
@@ -1791,7 +1839,8 @@ def aprendiz():
         node("Conversas novas", "n8n-nodes-base.postgres", 2.6, [460, 180], {
             "operation": "executeQuery",
             "query": "SELECT tipo, chave, dono_id, transcricao,\n"
-                     "  CASE WHEN tipo = 'leo' THEN nucleo.memoria_resumo(dono_id) ELSE nucleo.base_resumo() END AS contexto\n"
+                     "  CASE tipo WHEN 'leo' THEN nucleo.memoria_resumo(dono_id) WHEN 'gabriel' THEN nucleo.memoria_gabriel(80)\n"
+                     "       ELSE nucleo.base_resumo_agente(tipo) END AS contexto\n"
                      "FROM nucleo.aprendiz_pendentes_todos(25)", "options": {},
         }, credentials=PG, alwaysOutputData=True),
         node("Extrair conhecimento", "n8n-nodes-base.code", 2, [680, 180], {
@@ -1802,9 +1851,10 @@ def aprendiz():
             "operation": "executeQuery",
             "query": "SELECT CASE\n"
                      "  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
+                     "  WHEN $3 = 'gabriel' THEN nucleo.aprendiz_gabriel_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 IN ('joao', 'suporte') THEN nucleo.aprendiz_salvar_agente(nullif($1, '')::int, $2::jsonb, $3)\n"
                      "  ELSE 0 END AS salvos,\n"
-                     "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte') THEN $3 ELSE 'aprendiz' END,\n"
+                     "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte', 'gabriel') THEN $3 ELSE 'aprendiz' END,\n"
                      "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento",
             "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || ''] }}"},
         }, credentials=PG),

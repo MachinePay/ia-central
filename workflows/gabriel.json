@@ -51,7 +51,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome, nucleo.estilo_dono(u.id) AS estilo,\n  (SELECT coalesce(string_agg('- ' || coalesce(k.titulo, '') || ': ' || left(k.conteudo, 200), E'\\n'), '(vazia)')\n     FROM (SELECT * FROM nucleo.conhecimento WHERE usuario_id = u.id AND aprovado\n            ORDER BY criado_em DESC LIMIT 60) k) AS memoria\nFROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
+        "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome,\n  nucleo.estilo_gabriel() AS estilo, nucleo.memoria_gabriel(60) AS memoria\nFROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
         "options": {}
       },
       "credentials": {
@@ -114,9 +114,9 @@
       ],
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "buscar_memoria: procura na memoria do dono (fatos, pessoas, preferencias, jeito de resolver).",
+        "toolDescription": "buscar_memoria: procura no que voce (Gabriel) aprendeu: fatos, pessoas, preferencias, jeito de resolver.",
         "operation": "executeQuery",
-        "query": "SELECT titulo, conteudo FROM nucleo.buscar_memoria($1::int, $2, 'minha')",
+        "query": "SELECT titulo, conteudo FROM nucleo.buscar_memoria_gabriel($2) WHERE $1::text IS NOT NULL",
         "options": {
           "queryReplacement": "={{ [$('Contexto').first().json.dono_id, $fromAI('busca', 'palavras-chave simples', 'string')] }}"
         }
