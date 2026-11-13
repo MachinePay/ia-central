@@ -35,6 +35,18 @@ export interface WhatsappStatus {
   config?: { modo: 'pessoal' | 'dedicado'; gatilho: string }
 }
 
+
+export type Area = 'suporte' | 'comercial' | 'geral'
+export interface Empresa { nome: string; descricao: string; horario: string; tom: string }
+export interface AtendimentoPainel {
+  config: { modo: 'desligado' | 'aprovacao' | 'automatico'; empresa: Empresa }
+  fila: { id: number; pergunta: string; rascunho: string; criado_em: string; nome: string | null; whatsapp: string | null }[]
+  chamados: { id: number; area: string; titulo: string; descricao: string | null; prioridade: string; criado_em: string; nome: string | null; whatsapp: string | null }[]
+  clientes: { id: number; nome: string | null; whatsapp: string; empresa: string | null; interesse: string | null; etapa: string; ultimo_contato: string }[]
+  base: { id: number; dominio: Area; titulo: string | null; conteudo: string; origem: string; criado_em: string }[]
+  sistemas: { id: number; nome: string; publico: boolean }[]
+}
+
 export class ErroApi extends Error {
   constructor(public status: number, mensagem: string) { super(mensagem) }
 }
@@ -69,6 +81,15 @@ export const api = {
   historico: (sessao: string) => chamar<{ mensagens: Mensagem[] }>('historico', { sessao }),
   chat: (mensagem: string, sessao: string) => chamar<{ resposta: string }>('chat', { mensagem, sessao }),
   verificar: () => chamar<{ ok: boolean }>('verificar'),
+  atendimento: () => chamar<AtendimentoPainel>('admin_atendimento'),
+  atendimentoConfig: (d: { modo?: string; empresa?: Empresa }) => chamar('admin_atendimento_config', d),
+  baseSalvar: (area: Area, titulo: string, conteudo: string) => chamar('admin_base_salvar', { area, titulo, conteudo }),
+  baseApagar: (id: number) => chamar('admin_base_apagar', { id }),
+  chamadoResolver: (id: number) => chamar('admin_chamado_resolver', { id }),
+  sistemaPublico: (id: number, publico: boolean) => chamar('admin_sistema_publico', { id, publico }),
+  filaRejeitar: (id: number) => chamar('admin_fila_rejeitar', { id }),
+  filaAprovar: (id: number, texto: string, area: Area) => chamar<{ ok: boolean; enviado: boolean; motivo?: string }>('admin_fila_aprovar', { id, texto, area }),
+  atendimentoTeste: (mensagem: string, sessao: string) => chamar<{ resposta: string }>('admin_atendimento_teste', { mensagem, sessao }),
   participar: (compartilha: boolean) => chamar('participar', { compartilha }),
   esquecer: (id: number) => chamar('esquecer', { id }),
   perfil: (dados: { telegram_chat_id?: string; whatsapp?: string }) => chamar('perfil', dados),

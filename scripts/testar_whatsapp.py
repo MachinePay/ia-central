@@ -17,8 +17,8 @@ import urllib.request
 PROJ = pathlib.Path(__file__).resolve().parent.parent
 env = dict(l.split("=", 1) for l in (PROJ / ".env").read_text(encoding="utf-8").splitlines() if "=" in l and not l.startswith("#"))
 N8N = "http://localhost:5678/webhook"
-NUM = "5511900001234"       # usuario de teste (ficticio)
-DONO_IA = "5511922223333"   # numero ficticio "conectado" (o celular onde a IA roda)
+NUM = "5500900001234"       # usuario de teste (ficticio)
+DONO_IA = "5500922223333"   # numero ficticio "conectado" (o celular onde a IA roda)
 falhas = 0
 
 
@@ -109,11 +109,11 @@ try:
     post(f"{N8N}/whatsapp", evento(NUM, {"conversation": "mensagem forjada"}, segredo="segredo-errado"))
     time.sleep(4)
     confere("mensagem sem o segredo e descartada", sql("SELECT count(*) FROM nucleo.conversas WHERE canal='whatsapp'") == n0)
-    post(f"{N8N}/whatsapp", evento("5521988887777", {"conversation": "quero saber o preco"}))
+    post(f"{N8N}/whatsapp", evento("5500988887777", {"conversation": "quero saber o preco"}))
     time.sleep(5)
     confere("dedicado: desconhecido registrado e sem resposta",
-            sql("SELECT count(*) FROM nucleo.conversas WHERE contato LIKE '5521988887777%' AND papel='usuario'") == "1"
-            and sql("SELECT count(*) FROM nucleo.conversas WHERE contato LIKE '5521988887777%' AND papel='ia'") == "0")
+            sql("SELECT count(*) FROM nucleo.conversas WHERE contato LIKE '5500988887777%' AND papel='usuario'") == "1"
+            and sql("SELECT count(*) FROM nucleo.conversas WHERE contato LIKE '5500988887777%' AND papel='ia'") == "0")
 
     print("\n######## MODO PESSOAL (IA no celular do dono)")
     modo("pessoal")
@@ -135,8 +135,8 @@ try:
 
     print("\n== dono conversando com amigo / familia mandando mensagem")
     total = sql("SELECT count(*) FROM nucleo.conversas")
-    post(f"{N8N}/whatsapp", evento("5511944445555", {"conversation": "bora almocar amanha?"}, de_mim=True))
-    post(f"{N8N}/whatsapp", evento("5511966667777", {"conversation": "oi filho, me liga"}))
+    post(f"{N8N}/whatsapp", evento("5500944445555", {"conversation": "bora almocar amanha?"}, de_mim=True))
+    post(f"{N8N}/whatsapp", evento("5500966667777", {"conversation": "oi filho, me liga"}))
     time.sleep(8)
     confere("conversas pessoais ignoradas e nada guardado", sql("SELECT count(*) FROM nucleo.conversas") == total)
 
@@ -166,7 +166,7 @@ finally:
         if i:
             sql(f"DELETE FROM nucleo_memoria_chat WHERE session_id = 'u{i}:whatsapp'")
     sql(f"DELETE FROM nucleo.conversas WHERE canal='whatsapp' AND (contato LIKE '%{NUM[-8:]}%' OR contato LIKE '%{DONO_IA[-8:]}%' "
-        "OR contato LIKE '5521988887777%')")
+        "OR contato LIKE '5500988887777%')")
     sql("DELETE FROM nucleo.usuarios WHERE login IN ('teste_zap', 'teste_dono')")
     modo(modo_antes)
     print(f"    modo restaurado: {modo_antes}")

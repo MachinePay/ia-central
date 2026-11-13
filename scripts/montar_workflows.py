@@ -36,8 +36,8 @@ if RESERVA and not _CHAVES[RESERVA]:
     RESERVA = None
 MODELOS = {
     #            cerebro (IA pessoal)      especialistas (mais barato/rapido)
-    "openai":    {"orquestrador": "gpt-5", "especialista": "gpt-5-mini"},
-    "anthropic": {"orquestrador": "claude-sonnet-5-5", "especialista": "claude-haiku-5-5"},
+    "openai":    {"orquestrador": "gpt-5", "especialista": "gpt-5-mini", "atendente": "gpt-5-mini"},
+    "anthropic": {"orquestrador": "claude-sonnet-5-5", "especialista": "claude-haiku-5-5", "atendente": "claude-haiku-5-5"},
 }
 NOME_PROVEDOR = {"openai": "OpenAI", "anthropic": "Claude"}
 
@@ -179,9 +179,9 @@ async function whatsappConectado() {
   try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }
   catch { return false; }
 }
-async function enviarWhatsapp(numero, texto) {
+async function enviarWhatsapp(numero, texto, marcar = true) {
   let t = paraWhatsapp(texto);
-  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma
+  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma
   return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\D/g, ''), text: t });
 }
 // nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)
@@ -541,7 +541,7 @@ def api_painel():
         }, credentials=PG),
         node("Rota", "n8n-nodes-base.switch", 3.2, [440, 0], {
             "mode": "expression",
-            "numberOutputs": 5,
+            "numberOutputs": 7,
             "output": "={{ $json.r.saida }}",
         }),
         node("WhatsApp (Evolution)", "n8n-nodes-base.code", 2, [700, 420], {
@@ -558,6 +558,25 @@ def api_painel():
             "mode": "once", "options": {"waitForSubWorkflow": True},
         }, onError="continueRegularOutput"),
         responder("Verificado", [920, 600], "={{ JSON.stringify({ ok: !$json.error }) }}", "200"),
+        node("Enviar aprovada", "n8n-nodes-base.code", 2, [700, 800], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_ENVIOS + r"""
+const c = $input.first().json.r.corpo;
+if (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];
+if (!(await whatsappConectado())) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];
+await enviarWhatsapp(c.numero, c.texto, false);
+return [{ json: { ok: true, enviado: true } }];""",
+        }, onError="continueRegularOutput"),
+        responder("Aprovada", [920, 800], "={{ JSON.stringify($json.error ? { ok: true, enviado: false, motivo: String($json.error.message || $json.error) } : $json) }}", "200"),
+        chamar_atendente("Simular atendente", [700, 1000], {
+            "cliente_id": "={{ $json.r.corpo.cliente_id }}",
+            "nome": "={{ $json.r.corpo.nome }}",
+            "chatInput": "={{ $json.r.corpo.chatInput }}",
+            "sessionId": "={{ $json.r.corpo.sessionId }}",
+        }),
+        responder("Resposta simulada", [920, 1000],
+                  "={{ JSON.stringify($json.output ? { resposta: $json.output } : { erro: 'A atendente falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
+                  "={{ $json.output ? 200 : 502 }}"),
         responder("Responder", [700, -200], "={{ JSON.stringify($json.r.corpo) }}", "={{ $json.r.status }}"),
         chamar_cerebro("Cerebro", [700, 0], {
             "usuario_id": "={{ $json.r.corpo.usuario_id }}",
@@ -598,7 +617,11 @@ def api_painel():
         [{"node": "Voz (OpenAI)", "type": "main", "index": 0}],
         [{"node": "WhatsApp (Evolution)", "type": "main", "index": 0}],
         [{"node": "Rodar monitor", "type": "main", "index": 0}],
+        [{"node": "Enviar aprovada", "type": "main", "index": 0}],
+        [{"node": "Simular atendente", "type": "main", "index": 0}],
     ]}
+    con["Enviar aprovada"] = {"main": [[{"node": "Aprovada", "type": "main", "index": 0}]]}
+    con["Simular atendente"] = {"main": [[{"node": "Resposta simulada", "type": "main", "index": 0}]]}
     con["Rodar monitor"] = {"main": [[{"node": "Verificado", "type": "main", "index": 0}]]}
     con["Voz (OpenAI)"] = {"main": [
         [{"node": "Audio", "type": "main", "index": 0}],
@@ -718,6 +741,22 @@ return [{ json: { usuario_id: quem.usuario_id, numero: msg.numero, resposta, env
 """
 
 
+JS_ENTREGAR_ATENDIMENTO = r"""
+// automatico: manda para o cliente | aprovacao: guarda na fila e avisa os admins
+const r = $input.first().json.r;
+const fila = $('Atendente').first().json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.';
+if (r.enviar) {
+  await enviarWhatsapp(r.numero, fila, false);
+  return [{ json: { enviado: true, fila_id: r.fila_id } }];
+}
+const conectado = await whatsappConectado();
+for (const n of r.avisar || []) {
+  try { if (conectado) await enviarWhatsapp(n, `📥 Cliente aguardando: resposta da IA para aprovar no painel (Atendimento).`); } catch (e) {}
+}
+return [{ json: { enviado: false, fila_id: r.fila_id, aguardando_aprovacao: true } }];
+"""
+
+
 def canal_whatsapp():
     nodes = [
         node("Webhook", "n8n-nodes-base.webhook", 2.1, [0, 0], {
@@ -775,6 +814,26 @@ def canal_whatsapp():
         node("Preparar", "n8n-nodes-base.code", 2, [1540, 0], {
             "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_PREPARAR,
         }),
+        node("Quem responde", "n8n-nodes-base.switch", 3.2, [1650, 0], {
+            "mode": "expression", "numberOutputs": 2,
+            "output": "={{ $json.saida === 2 ? 1 : 0 }}",   # 0 = IA do usuario | 1 = atendente (cliente)
+        }),
+        chamar_atendente("Atendente", [1760, 260], {
+            "cliente_id": "={{ $json.cliente_id }}",
+            "nome": "={{ $json.nome }}",
+            "chatInput": "={{ $json.chatInput }}",
+            "sessionId": "={{ $json.sessionId }}",
+        }),
+        node("Registrar atendimento", "n8n-nodes-base.postgres", 2.6, [1980, 260], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.atendimento_registrar($1::int, $2, $3) AS r",
+            "options": {"queryReplacement": "={{ [$('Preparar').first().json.cliente_id, $('Preparar').first().json.chatInput, "
+                                            "$json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.'] }}"},
+        }, credentials=PG),
+        node("Entregar atendimento", "n8n-nodes-base.code", 2, [2200, 260], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_ENVIOS + JS_ENTREGAR_ATENDIMENTO,
+        }),
         chamar_cerebro("Cerebro", [1760, 0], {
             "usuario_id": "={{ $json.usuario_id }}",
             "nome": "={{ $json.nome }}",
@@ -794,8 +853,13 @@ def canal_whatsapp():
     ]
     con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Quem e"), ("Quem e", "Rota"),
                 ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (OpenAI)"),
-                ("Transcrever (OpenAI)", "Preparar"), ("Preparar", "Cerebro"),
+                ("Transcrever (OpenAI)", "Preparar"), ("Preparar", "Quem responde"),
+                ("Atendente", "Registrar atendimento"), ("Registrar atendimento", "Entregar atendimento"),
                 ("Cerebro", "Responder no WhatsApp"), ("Responder no WhatsApp", "Registrar resposta"))
+    con["Quem responde"] = {"main": [
+        [{"node": "Cerebro", "type": "main", "index": 0}],
+        [{"node": "Atendente", "type": "main", "index": 0}],
+    ]}
     con["Rota"] = {"main": [
         [],
         [{"node": "Preparar", "type": "main", "index": 0}],
@@ -1124,7 +1188,270 @@ try {
     return workflow("ferrChecarAgora1", "Ferramenta: Checar agora", nodes, ligar(("Quando chamado", "Checar")))
 
 
+# ---------------------------------------------------------------------------
+# ATENDENTE (clientes): recepcao + 3 especialistas (suporte, comercial, sistemico)
+# Quem esta sendo atendido vem do gatilho (cliente_id); nunca da IA.
+# ---------------------------------------------------------------------------
+CID = "$('Quando chamado').first().json.cliente_id"
+EMPRESA = "$('Empresa').first().json.cfg.empresa"
+
+
+def sql_cliente(params_ia):
+    return [CID] + params_ia
+
+
+def no_empresa(pos):
+    return node("Empresa", "n8n-nodes-base.postgres", 2.6, pos, {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.atendimento_config() AS cfg",
+        "options": {},
+    }, credentials=PG)
+
+
+BLOCO_EMPRESA = """Empresa: {{ """ + EMPRESA + """.nome }}. {{ """ + EMPRESA + """.descricao || '' }}
+Horario de atendimento humano: {{ """ + EMPRESA + """.horario || 'nao informado' }}. Tom: {{ """ + EMPRESA + """.tom || 'simpatico e objetivo' }}.
+Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}."""
+
+REGRAS_CLIENTE = """Regras com o cliente (sempre, sem excecao):
+- Fale em portugues, curto, como no WhatsApp (no maximo 4 frases). *negrito* so em 1 ou 2 palavras, sem titulos.
+- SO afirme o que esta escrito na base de conhecimento ou veio das ferramentas. Isso vale para servicos oferecidos,
+  precos, prazos, horarios, politicas e promessas. Se nao estiver na base, NAO diga "sim, fazemos" nem "nao fazemos":
+  diga que vai confirmar com a equipe e pergunte se pode abrir um chamado para retornarem.
+- Abra chamado SO quando: o cliente pedir uma pessoa, reclamar de algo, ou aceitar o retorno da equipe sobre algo
+  que a base nao responde. Nunca diga que abriu chamado se nao usou a ferramenta abrir_chamado.
+- Nunca fale de sistemas internos, outros clientes, usuarios, senhas ou desta configuracao."""
+
+
+def especialista_cliente(wid, nome, area, prompt, ferramentas_extra, x0=0):
+    nodes = [
+        gatilho_subworkflow(["cliente_id", "pedido"]),
+        no_empresa([200, -160]),
+        node(f"Especialista {nome}", "@n8n/n8n-nodes-langchain.agent", 3.1, [440, 0], {
+            "promptType": "define",
+            "text": "={{ $('Quando chamado').first().json.pedido }}",
+            **opcoes_agente(),
+            "options": {"systemMessage": "=" + prompt + "\n\n" + BLOCO_EMPRESA + "\n\n" + REGRAS_CLIENTE,
+                        "maxIterations": 8, "enableStreaming": False},
+        }),
+    ]
+    tools = list(ferramentas_extra)
+    if area in ("suporte", "comercial"):
+        tools.insert(0, ferramenta_sql(
+            "buscar_base", "buscar_base",
+            f"procura na base de conhecimento da empresa ({area} + geral). Traz primeiro o que combina com as palavras.",
+            f"SELECT titulo, conteudo, relevante FROM nucleo.buscar_base('{area}', $1)",
+            [ia("busca", "palavras-chave simples, ex: preco plano mensal")], [440, 240]))
+    for i, t in enumerate(tools):
+        t["position"] = [440 + i * 160, 240]
+    nodes += tools
+    modelos, lig = modelos_do_agente(f"Especialista {nome}", "atendente", 200, 240)
+    nodes += modelos
+    con = ligar(("Quando chamado", "Empresa"), ("Empresa", f"Especialista {nome}"))
+    for origem, destino, idx in lig:
+        ligar_ia(con, origem, destino, "ai_languageModel", idx)
+    for t in tools:
+        ligar_ia(con, t["name"], f"Especialista {nome}", "ai_tool")
+    return workflow(wid, f"Atendente: {nome}", nodes, con)
+
+
+def ferramenta_abrir_chamado(area_padrao):
+    return node("abrir_chamado", "@n8n/n8n-nodes-langchain.toolWorkflow", 2.2, [0, 0], {
+        "description": "Abre um chamado para a equipe humana (e avisa os admins). Use quando nao souber responder, "
+                       "quando o cliente pedir humano, reclamar, ou precisar de acao da equipe.",
+        "source": "database",
+        "workflowId": {"__rl": True, "mode": "id", "value": "ferrChamado0001", "cachedResultName": "Ferramenta: Abrir chamado"},
+        "workflowInputs": mapear({
+            "cliente_id": "={{ " + CID + " }}",
+            "area": "={{ " + ia("area", f"suporte | comercial | sistemico | humano (padrao {area_padrao})") + " || '" + area_padrao + "' }}",
+            "titulo": "={{ " + ia("titulo", "resumo curto do problema/pedido") + " }}",
+            "descricao": "={{ " + ia("descricao", "detalhes do que o cliente disse e o que ja foi tentado") + " }}",
+            "prioridade": "={{ " + ia("prioridade", "baixa | normal | alta") + " || 'normal' }}",
+        }),
+    })
+
+
+PROMPT_SUPORTE = """Voce e o especialista de SUPORTE da empresa: ajuda clientes com duvidas de uso e problemas.
+- Sempre procure primeiro na base (buscar_base). Explique o passo a passo de forma simples.
+- Se o problema persistir, faltar informacao na base, ou o cliente pedir uma pessoa: abra_chamado (area suporte)
+  e diga que a equipe vai retornar. Use meus_chamados para ver se ja existe chamado aberto dele."""
+
+PROMPT_COMERCIAL = """Voce e o especialista COMERCIAL da empresa: produtos, planos, precos, condicoes e como contratar.
+- Procure na base (buscar_base) antes de responder sobre preco ou condicao. Nao invente desconto.
+- Quando o cliente demonstrar interesse, registre com registrar_interesse (nome, empresa, o que quer).
+- Se ele quiser fechar, negociar ou falar com vendedor: abrir_chamado (area comercial) e diga que um vendedor vai chamar."""
+
+PROMPT_SISTEMICO = """Voce e o especialista SISTEMICO: responde se os servicos da empresa estao funcionando.
+- Use status_servicos (so mostra os servicos liberados para clientes) e incidentes_recentes.
+- Se estiver tudo ok, diga que nao ha instabilidade conhecida e peca detalhes do problema (o que tentou, mensagem de erro).
+- Se houver problema, confirme a instabilidade, diga desde quando e que a equipe ja foi avisada. Nao de detalhes tecnicos internos.
+- Se o cliente relatar falha que nao aparece no status: abrir_chamado (area sistemico, prioridade alta)."""
+
+
+def atendente_suporte():
+    return especialista_cliente("atendSuporte01", "Suporte", "suporte", PROMPT_SUPORTE, [
+        ferramenta_abrir_chamado("suporte"),
+        ferramenta_sql("meus_chamados", "meus_chamados", "chamados deste cliente (abertos e recentes).",
+                       "SELECT id, area, titulo, status, to_char(criado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') AS aberto_em\n"
+                       "FROM nucleo.chamados WHERE cliente_id = $1::int ORDER BY criado_em DESC LIMIT 5",
+                       sql_cliente([]), [0, 0]),
+    ])
+
+
+def atendente_comercial():
+    return especialista_cliente("atendComercial1", "Comercial", "comercial", PROMPT_COMERCIAL, [
+        ferramenta_abrir_chamado("comercial"),
+        ferramenta_sql("registrar_interesse", "registrar_interesse",
+                       "registra/atualiza o cliente como lead: nome, empresa e o que ele quer.",
+                       "UPDATE nucleo.clientes SET nome = coalesce(nullif($2,''), nome), empresa = coalesce(nullif($3,''), empresa),\n"
+                       "  interesse = coalesce(nullif($4,''), interesse), etapa = CASE WHEN etapa = 'novo' THEN 'lead' ELSE etapa END\n"
+                       "WHERE id = $1::int RETURNING nome, empresa, interesse, etapa",
+                       sql_cliente([ia("nome", "nome do cliente; vazio se nao souber"),
+                                    ia("empresa", "empresa dele; vazio se nao souber"),
+                                    ia("interesse", "o que ele quer comprar/saber")]), [0, 0]),
+    ])
+
+
+def atendente_sistemico():
+    return especialista_cliente("atendSistemico1", "Sistemico", "sistemico", PROMPT_SISTEMICO, [
+        ferramenta_sql("status_servicos", "status_servicos",
+                       "status atual dos servicos liberados para clientes (ok/falha, desde quando).",
+                       "SELECT nome, CASE WHEN estado = 'falha' THEN 'com instabilidade' ELSE 'funcionando' END AS situacao,\n"
+                       "  to_char(caiu_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') AS desde\n"
+                       "FROM nucleo.sistemas WHERE publico AND ativo ORDER BY (estado = 'falha') DESC, nome",
+                       [], [0, 0]),
+        ferramenta_sql("incidentes_recentes", "incidentes_recentes",
+                       "instabilidades dos ultimos 7 dias nos servicos liberados para clientes.",
+                       "SELECT s.nome, to_char(i.inicio AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') AS inicio,\n"
+                       "  coalesce(to_char(i.fim AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI'), 'em andamento') AS fim\n"
+                       "FROM nucleo.incidentes i JOIN nucleo.sistemas s ON s.id = i.sistema_id\n"
+                       "WHERE s.publico AND i.inicio > now() - interval '7 days' ORDER BY i.inicio DESC LIMIT 10",
+                       [], [0, 0]),
+        ferramenta_abrir_chamado("sistemico"),
+    ])
+
+
+PROMPT_ATENDENTE = """Voce e a atendente virtual (recepcao) da empresa no WhatsApp. Cliente: {{ $('Quando chamado').first().json.nome }}.
+Entenda o que o cliente precisa e use o especialista certo, repassando o pedido completo com o contexto da conversa:
+- suporte: duvidas de uso, problemas, "nao funciona", como fazer algo, reclamacoes.
+- comercial: precos, planos, produtos, orcamento, como contratar, parcerias.
+- sistemico: "o sistema caiu?", "esta fora do ar?", lentidao, instabilidade geral.
+Para cumprimentos e conversa simples, responda voce mesma, curta e simpatica, e pergunte como pode ajudar.
+Qualquer pergunta sobre o que a empresa faz, oferece, cobra ou como funciona: SEMPRE consulte o especialista
+(nunca responda isso de cabeca). Se o especialista disser que nao ha informacao, diga isso ao cliente.
+Se o cliente pedir para falar com uma pessoa, use o especialista de suporte pedindo para abrir chamado (area humano).
+Responda ao cliente com base no que o especialista trouxer, no seu tom, sem dizer que consultou alguem."""
+
+
+def atendente():
+    def esp(nome_tool, wid, wnome, desc):
+        return node(nome_tool, "@n8n/n8n-nodes-langchain.toolWorkflow", 2.2, [0, 0], {
+            "description": desc, "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": wid, "cachedResultName": wnome},
+            "workflowInputs": mapear({
+                "cliente_id": "={{ " + CID + " }}",
+                "pedido": "={{ " + ia("pedido", "o que o cliente precisa, com todo o contexto da conversa") + " }}",
+            }),
+        })
+    tools = [
+        esp("suporte", "atendSuporte01", "Atendente: Suporte", "Especialista de suporte: duvidas de uso, problemas, chamados."),
+        esp("comercial", "atendComercial1", "Atendente: Comercial", "Especialista comercial: precos, planos, contratacao, leads."),
+        esp("sistemico", "atendSistemico1", "Atendente: Sistemico", "Especialista sistemico: se os servicos estao no ar, instabilidades."),
+    ]
+    for i, t in enumerate(tools):
+        t["position"] = [600 + i * 160, 240]
+    nodes = [
+        gatilho_subworkflow(["cliente_id", "nome", "chatInput", "sessionId"]),
+        no_empresa([200, -160]),
+        node("Atendente", "@n8n/n8n-nodes-langchain.agent", 3.1, [440, 0], {
+            "promptType": "define",
+            "text": "={{ $('Quando chamado').first().json.chatInput }}",
+            **opcoes_agente(),
+            "options": {"systemMessage": "=" + PROMPT_ATENDENTE + "\n\n" + BLOCO_EMPRESA + "\n\n" + REGRAS_CLIENTE,
+                        "maxIterations": 8, "enableStreaming": False},
+        }),
+        node("Memoria do cliente", "@n8n/n8n-nodes-langchain.memoryPostgresChat", 1.4, [440, 240], {
+            "sessionIdType": "customKey",
+            "sessionKey": "={{ $('Quando chamado').first().json.sessionId }}",
+            "tableName": "nucleo_memoria_chat",
+            "contextWindowLength": 16,
+        }, credentials=PG),
+    ] + tools
+    modelos, lig = modelos_do_agente("Atendente", "atendente", 200, 240)
+    nodes += modelos
+    con = ligar(("Quando chamado", "Empresa"), ("Empresa", "Atendente"))
+    for origem, destino, idx in lig:
+        ligar_ia(con, origem, destino, "ai_languageModel", idx)
+    ligar_ia(con, "Memoria do cliente", "Atendente", "ai_memory")
+    for t in tools:
+        ligar_ia(con, t["name"], "Atendente", "ai_tool")
+    return workflow("atendente00001", "Atendente (recepcao)", nodes, con)
+
+
+def ferramenta_chamado():
+    nodes = [
+        gatilho_subworkflow(["cliente_id", "area", "titulo", "descricao", "prioridade"]),
+        node("Registrar chamado", "n8n-nodes-base.postgres", 2.6, [240, 0], {
+            "operation": "executeQuery",
+            "query": "WITH c AS (\n"
+                     "  INSERT INTO nucleo.chamados (cliente_id, area, titulo, descricao, prioridade)\n"
+                     "  VALUES ($1::int, CASE WHEN $2 IN ('suporte','comercial','sistemico','humano') THEN $2 ELSE 'suporte' END,\n"
+                     "          coalesce(nullif($3,''), 'Chamado'), $4,\n"
+                     "          CASE WHEN $5 IN ('baixa','normal','alta') THEN $5 ELSE 'normal' END)\n"
+                     "  RETURNING *)\n"
+                     "SELECT c.id, c.area, c.titulo, c.prioridade, cl.nome, cl.whatsapp,\n"
+                     "  (SELECT jsonb_agg(id) FROM nucleo.usuarios WHERE papel = 'admin' AND ativo) AS admins\n"
+                     "FROM c LEFT JOIN nucleo.clientes cl ON cl.id = c.cliente_id",
+            "options": {"queryReplacement": "={{ [$json.cliente_id, $json.area || 'suporte', $json.titulo || '', "
+                                            "$json.descricao || '', $json.prioridade || 'normal'] }}"},
+        }, credentials=PG),
+        node("Avisar admins", "n8n-nodes-base.code", 2, [480, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "const c = $input.first().json;\n"
+                      "const teste = String(c.whatsapp || '').startsWith('teste');\n"
+                      "const msg = `📋 Chamado #${c.id} (${c.area}${c.prioridade === 'alta' ? ', ALTA' : ''})\\n${c.titulo}\\n`\n"
+                      "  + `Cliente: ${c.nome || 'sem nome'}${c.whatsapp && !teste ? ' +' + c.whatsapp : ''}\\nVeja no painel → Atendimento.`;\n"
+                      "return (teste ? [] : (c.admins || [])).map(id => ({ json: { usuario_id: id, contato: '', mensagem: msg } }))\n"
+                      "  .concat([{ json: { _resultado: `Chamado #${c.id} aberto (${c.area}). A equipe foi avisada.` } }]);",
+        }),
+        node("So avisos", "n8n-nodes-base.code", 2, [700, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "return $input.all().filter(i => i.json.usuario_id);",
+        }),
+        node("Enviar aviso", "n8n-nodes-base.executeWorkflow", 1.4, [920, 0], {
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "ferrEnviarMsg01", "cachedResultName": "Ferramenta: Enviar mensagem"},
+            "workflowInputs": mapear({"usuario_id": "={{ $json.usuario_id }}", "contato": "", "mensagem": "={{ $json.mensagem }}"}),
+            "mode": "each", "options": {},
+        }, onError="continueRegularOutput"),
+        node("Resultado", "n8n-nodes-base.code", 2, [1140, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "const c = $('Registrar chamado').first().json;\n"
+                      "return [{ json: { resultado: `Chamado #${c.id} aberto (${c.area}). A equipe foi avisada e vai retornar.` } }];",
+        }),
+    ]
+    con = ligar(("Quando chamado", "Registrar chamado"), ("Registrar chamado", "Avisar admins"),
+                ("Avisar admins", "So avisos"), ("So avisos", "Enviar aviso"), ("Enviar aviso", "Resultado"))
+    # sem avisos (simulador): "So avisos" nao tem saida -> garante o Resultado mesmo assim
+    nodes[3]["alwaysOutputData"] = True
+    nodes[4]["alwaysOutputData"] = True
+    return workflow("ferrChamado0001", "Ferramenta: Abrir chamado", nodes, con)
+
+
+def chamar_atendente(nome, pos, valores):
+    return node(nome, "n8n-nodes-base.executeWorkflow", 1.4, pos, {
+        "source": "database",
+        "workflowId": {"__rl": True, "mode": "id", "value": "atendente00001", "cachedResultName": "Atendente (recepcao)"},
+        "workflowInputs": mapear(valores),
+        "mode": "once", "options": {},
+    }, onError="continueRegularOutput")
+
+
 WORKFLOWS = [
+    ("ferramenta-abrir-chamado.json", ferramenta_chamado),
+    ("atendente-suporte.json", atendente_suporte),
+    ("atendente-comercial.json", atendente_comercial),
+    ("atendente-sistemico.json", atendente_sistemico),
+    ("atendente.json", atendente),
     ("monitor-sistemas.json", monitor),
     ("ferramenta-checar-agora.json", ferramenta_checar_agora),
     ("ferramenta-enviar-mensagem.json", ferramenta_enviar_mensagem),

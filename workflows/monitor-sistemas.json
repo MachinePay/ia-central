@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000001",
+      "id": "c0000000-0000-4000-8000-000000000036",
       "name": "A cada minuto",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000002",
+      "id": "c0000000-0000-4000-8000-000000000037",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000003",
+      "id": "c0000000-0000-4000-8000-000000000038",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -56,7 +56,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000004",
+      "id": "c0000000-0000-4000-8000-000000000039",
       "name": "Plataformas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -71,7 +71,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000005",
+      "id": "c0000000-0000-4000-8000-000000000040",
       "name": "Sincronizar",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000006",
+      "id": "c0000000-0000-4000-8000-000000000041",
       "name": "Buscar sistemas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -116,7 +116,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000007",
+      "id": "c0000000-0000-4000-8000-000000000042",
       "name": "Checar tudo",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -130,7 +130,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000008",
+      "id": "c0000000-0000-4000-8000-000000000043",
       "name": "Registrar e decidir alertas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -153,7 +153,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000009",
+      "id": "c0000000-0000-4000-8000-000000000044",
       "name": "Avisar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -163,11 +163,11 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto) {\n  let t = paraWhatsapp(texto);\n  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// Entrega cada aviso pelo canal da linha (WhatsApp ou Telegram).\nconst conectado = await whatsappConectado();\nconst saida = [];\nfor (const it of $input.all()) {\n  const a = it.json;\n  if (!a.destino) continue;\n  let enviado = false, erro = null;\n  try {\n    if (a.canal === 'whatsapp' && conectado) { await enviarWhatsapp(a.destino, a.mensagem); enviado = true; }\n    else if (a.canal === 'telegram' && $env.TELEGRAM_BOT_TOKEN) { await enviarTelegram.call(this, a.destino, a.mensagem); enviado = true; }\n    else erro = a.canal === 'whatsapp' ? 'WhatsApp desconectado' : 'Telegram sem token';\n  } catch (e) { erro = e.message; }\n  saida.push({ json: { sistema: a.sistema, evento: a.evento, canal: a.canal, enviado, erro } });\n}\nreturn saida;\n"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// Entrega cada aviso pelo canal da linha (WhatsApp ou Telegram).\nconst conectado = await whatsappConectado();\nconst saida = [];\nfor (const it of $input.all()) {\n  const a = it.json;\n  if (!a.destino) continue;\n  let enviado = false, erro = null;\n  try {\n    if (a.canal === 'whatsapp' && conectado) { await enviarWhatsapp(a.destino, a.mensagem); enviado = true; }\n    else if (a.canal === 'telegram' && $env.TELEGRAM_BOT_TOKEN) { await enviarTelegram.call(this, a.destino, a.mensagem); enviado = true; }\n    else erro = a.canal === 'whatsapp' ? 'WhatsApp desconectado' : 'Telegram sem token';\n  } catch (e) { erro = e.message; }\n  saida.push({ json: { sistema: a.sistema, evento: a.evento, canal: a.canal, enviado, erro } });\n}\nreturn saida;\n"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000010",
+      "id": "c0000000-0000-4000-8000-000000000045",
       "name": "Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

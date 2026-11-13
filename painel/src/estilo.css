@@ -362,3 +362,31 @@ input, textarea, select { font: inherit; color: inherit; }
 .girando { animation: gira 0.9s linear infinite; }
 @keyframes gira { to { transform: rotate(360deg); } }
 .medidor > div { min-width: 0; }
+
+/* ------------------------------------------------------------ atendimento */
+.seletor-tela { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--vidro); border: 1px solid var(--linha); }
+.seletor-tela button { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9px; font-family: var(--f-titulo); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--texto-3); }
+.seletor-tela button.ativo { color: var(--ciano); background: rgba(54, 241, 255, 0.1); box-shadow: inset 0 0 0 1px var(--linha-forte); }
+.atendimento { flex: 1; min-height: 0; overflow-y: auto; display: grid; gap: 16px; padding: 0 20px 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.atend-coluna { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.modos { display: flex; gap: 6px; flex-wrap: wrap; }
+.modos button { flex: 1; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--linha); font-size: 12px; color: var(--texto-2); text-transform: capitalize; }
+.modos button.ativo { color: var(--fundo); background: var(--ciano); border-color: var(--ciano); box-shadow: var(--brilho); }
+.campo textarea { background: rgba(3, 5, 11, 0.6); border: 1px solid var(--linha); border-radius: 10px; padding: 10px 12px; outline: 0; font-size: 15px; width: 100%; resize: vertical; color: var(--texto); line-height: 1.4; }
+.campo textarea:focus { border-color: var(--ciano); box-shadow: var(--brilho); }
+.fila-item { padding: 12px 0; border-bottom: 1px dashed rgba(54, 241, 255, 0.15); }
+.fila-item:last-child { border-bottom: 0; }
+.fila-pergunta { font-size: 14px; margin-top: 4px; color: var(--texto); }
+.sim-mensagens { max-height: 320px; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.sim-msg { max-width: 88%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
+.sim-msg.cliente { align-self: flex-end; background: rgba(61, 255, 168, 0.12); border: 1px solid rgba(61, 255, 168, 0.3); }
+.sim-msg.ia { align-self: flex-start; background: rgba(54, 241, 255, 0.06); border: 1px solid var(--linha); }
+.sim-msg.erro { align-self: flex-start; color: #ffc2d0; border: 1px solid rgba(255, 61, 110, 0.35); }
+.aprendido { font-family: var(--f-mono); font-size: 9px; color: var(--verde); margin-left: 6px; letter-spacing: 0.1em; text-transform: uppercase; }
+.origem.alta { color: var(--vermelho); border-color: rgba(255, 61, 110, 0.5); }
+@media (max-width: 1100px) { .atendimento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .atendimento { grid-template-columns: minmax(0, 1fr); padding: 0 12px 12px; }
+  .topo-meio { display: none; }
+}

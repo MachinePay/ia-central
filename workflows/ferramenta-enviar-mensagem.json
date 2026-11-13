@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000013",
+      "id": "c0000000-0000-4000-8000-000000000048",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -33,7 +33,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000014",
+      "id": "c0000000-0000-4000-8000-000000000049",
       "name": "Achar destino",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -57,7 +57,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000015",
+      "id": "c0000000-0000-4000-8000-000000000050",
       "name": "Enviar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -67,7 +67,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto) {\n  let t = paraWhatsapp(texto);\n  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst pedido = $('Quando chamado').first().json;\nconst c = $input.first().json;\nlet resultado;\nif (!c.nome) resultado = `Contato \"${pedido.contato}\" nao encontrado.`;\nelse {\n  const erros = [];\n  if (c.whatsapp && await whatsappConectado()) {\n    try { await enviarWhatsapp(c.whatsapp, pedido.mensagem); resultado = `Mensagem enviada para ${c.nome} pelo WhatsApp.`; }\n    catch (e) { erros.push('WhatsApp: ' + e.message); }\n  }\n  if (!resultado && c.telegram_chat_id && $env.TELEGRAM_BOT_TOKEN) {\n    try { await enviarTelegram.call(this, c.telegram_chat_id, pedido.mensagem); resultado = `Mensagem enviada para ${c.nome} pelo Telegram.`; }\n    catch (e) { erros.push('Telegram: ' + e.message); }\n  }\n  if (!resultado) resultado = erros.length ? `Falha ao enviar para ${c.nome}: ${erros.join(' | ')}`\n    : `${c.nome} nao tem WhatsApp conectado nem Telegram cadastrado.`;\n}\nreturn [{ json: { resultado } }];"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst pedido = $('Quando chamado').first().json;\nconst c = $input.first().json;\nlet resultado;\nif (!c.nome) resultado = `Contato \"${pedido.contato}\" nao encontrado.`;\nelse {\n  const erros = [];\n  if (c.whatsapp && await whatsappConectado()) {\n    try { await enviarWhatsapp(c.whatsapp, pedido.mensagem); resultado = `Mensagem enviada para ${c.nome} pelo WhatsApp.`; }\n    catch (e) { erros.push('WhatsApp: ' + e.message); }\n  }\n  if (!resultado && c.telegram_chat_id && $env.TELEGRAM_BOT_TOKEN) {\n    try { await enviarTelegram.call(this, c.telegram_chat_id, pedido.mensagem); resultado = `Mensagem enviada para ${c.nome} pelo Telegram.`; }\n    catch (e) { erros.push('Telegram: ' + e.message); }\n  }\n  if (!resultado) resultado = erros.length ? `Falha ao enviar para ${c.nome}: ${erros.join(' | ')}`\n    : `${c.nome} nao tem WhatsApp conectado nem Telegram cadastrado.`;\n}\nreturn [{ json: { resultado } }];"
       }
     }
   ],

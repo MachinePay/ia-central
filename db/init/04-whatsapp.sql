@@ -80,7 +80,20 @@ BEGIN
     SELECT * INTO u FROM nucleo.usuario_por_whatsapp(p_numero);
 
     IF u.id IS NULL THEN
-        IF modo = 'dedicado' THEN   -- no chip dedicado, guarda para o admin ver (futuro: atendimento)
+        -- chip dedicado + atendente ligada: cliente vai para a ATENDENTE (suporte/comercial/sistemico)
+        IF modo = 'dedicado' AND NOT p_de_mim
+           AND coalesce((SELECT valor #>> '{}' FROM nucleo.config WHERE chave = 'atendimento_modo'), 'aprovacao') <> 'desligado' THEN
+            DECLARE cli record;
+            BEGIN
+                cli := nucleo.cliente_por_whatsapp(p_numero, p_nome);
+                INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem)
+                VALUES ('whatsapp', nucleo.so_digitos(p_numero) || coalesce(' (' || nullif(p_nome,'') || ')', ''),
+                        'atendente', 'usuario', coalesce(nullif(texto,''), '[' || p_tipo || ']'));
+                RETURN jsonb_build_object('saida', 2, 'cliente_id', cli.id, 'nome', coalesce(cli.nome, p_nome, 'cliente'),
+                    'texto', texto, 'sessionId', 'c' || cli.id || ':whatsapp');
+            END;
+        END IF;
+        IF modo = 'dedicado' THEN   -- atendente desligada: so guarda para o admin ver
             INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem, precisa_revisao)
             VALUES ('whatsapp', nucleo.so_digitos(p_numero) || coalesce(' (' || nullif(p_nome,'') || ')', ''),
                     'nenhum', 'usuario', coalesce(nullif(texto,''), '[' || p_tipo || ']'), true);

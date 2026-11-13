@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogOut, MessageSquare, LayoutGrid } from 'lucide-react'
+import { LogOut, MessageSquare, LayoutGrid, Headset } from 'lucide-react'
 import { api, ErroApi, token, type Resumo, type Usuario } from './api'
 import { Login } from './components/Login'
 import { Orbe, type EstadoOrbe } from './components/Orbe'
 import { Conversa } from './components/Conversa'
 import { PainelControle, PainelPessoal, PainelSistemas } from './components/Paineis'
+import { Atendimento } from './components/Atendimento'
 
 function Fundo() {
   return <div className="fundo" aria-hidden="true"><div className="estrelas" /><div className="grade" /><div className="scan" /></div>
@@ -31,7 +32,7 @@ export default function App() {
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [verificando, setVerificando] = useState(!!token.get())
   const [estado, setEstado] = useState<EstadoOrbe>('parado')
-  const [aba, setAba] = useState<'ia' | 'painel'>('ia')
+  const [aba, setAba] = useState<'ia' | 'painel' | 'atend'>('ia')
   const largura = useLargura()
 
   const sair = useCallback(() => {
@@ -73,7 +74,14 @@ export default function App() {
             <img className="marca-logo" src="/icone.svg" alt="" />
             <div className="marca-nome">N<span>Ú</span>CLEO</div>
           </div>
-          <div className="topo-meio"><Relogio /></div>
+          <div className="topo-meio">
+            {usuario.papel === 'admin' ? (
+              <div className="seletor-tela">
+                <button className={aba !== 'atend' ? 'ativo' : ''} onClick={() => setAba('ia')}><MessageSquare size={13} /> IA Pessoal</button>
+                <button className={aba === 'atend' ? 'ativo' : ''} onClick={() => setAba('atend')}><Headset size={13} /> Atendimento</button>
+              </div>
+            ) : <Relogio />}
+          </div>
           <div className="chip-usuario">
             <span className="nome-usuario">{usuario.nome}</span>
             <span className={`papel ${usuario.papel}`}>{usuario.papel}</span>
@@ -81,6 +89,7 @@ export default function App() {
           </div>
         </header>
 
+        {aba === 'atend' && usuario.papel === 'admin' ? <Atendimento aoSair={sair} /> : (
         <main className="grade-principal" data-aba={aba}>
           <aside className="coluna esquerda">{resumo && <PainelSistemas r={resumo} aoMudar={atualizar} />}</aside>
 
@@ -99,10 +108,12 @@ export default function App() {
             )}
           </aside>
         </main>
+        )}
 
         <nav className="abas">
           <button className={aba === 'ia' ? 'ativa' : ''} onClick={() => setAba('ia')}><MessageSquare size={14} /> IA</button>
           <button className={aba === 'painel' ? 'ativa' : ''} onClick={() => setAba('painel')}><LayoutGrid size={14} /> PAINEL</button>
+          {usuario.papel === 'admin' && <button className={aba === 'atend' ? 'ativa' : ''} onClick={() => setAba('atend')}><Headset size={14} /> ATEND.</button>}
         </nav>
       </div>
     </>

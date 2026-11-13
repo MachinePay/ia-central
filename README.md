@@ -124,6 +124,26 @@ O que acontece:
 > um chip dedicado. Para atendimento de clientes em escala, o caminho é a WhatsApp Cloud
 > API oficial (Meta) — o workflow já separa leitura da mensagem e envio, dá para trocar a ponta.
 
+## Atendente (clientes no WhatsApp)
+
+```
+Cliente ──► ATENDENTE (recepção) ──┬── Suporte    → base de conhecimento (suporte), chamados
+                                   ├── Comercial  → base (comercial), registra lead, chama vendedor
+                                   └── Sistêmico  → status dos serviços liberados para clientes
+```
+
+- Só atende de verdade com o WhatsApp no **modo dedicado** (chip só da IA). No modo pessoal os
+  desconhecidos continuam ignorados. Para testar sem chip: painel → **Atendimento → Simular cliente**.
+- **Modos:** *desligada* · *com aprovação* (padrão: a IA sugere, você aprova/edita e só então vai para
+  o cliente) · *automática*.
+- **Aprendizado:** cada resposta aprovada vira conhecimento da empresa ("aprendido" na base) e passa a ser
+  usada nas próximas perguntas parecidas.
+- **Regras fixas:** só afirma o que está na base (serviços, preços, prazos); se não souber, oferece abrir
+  chamado. Chamado só quando o cliente pede uma pessoa, reclama ou aceita retorno — e os admins são avisados.
+- Painel → Atendimento: modo, dados da empresa, fila para aprovar, base de conhecimento, chamados,
+  clientes (leads) e quais serviços os clientes podem saber se estão fora.
+- Teste completo: `python scripts/testar_atendente.py` (usa números que não existem no WhatsApp).
+
 ## Painel
 
 - **Voz:** toque no botão rosa para falar e toque de novo para enviar — ou segure enquanto fala
@@ -201,8 +221,6 @@ sh scripts/ver-execucao.sh apiPainel00001 v        # depurar a última execuçã
 
 ## Próximas etapas
 
-1. IA de **atendimento** no WhatsApp para números desconhecidos (clientes), com base de conhecimento,
-   aprovação humana e aprendizado com as respostas aprovadas.
 2. Telegram como canal de conversa (hoje só envia avisos).
 3. Escalonamento de alertas (se ninguém reconhecer em X min, avisa o próximo).
 4. Busca semântica (embeddings) na memória.

@@ -255,6 +255,66 @@ BEGIN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
     END IF;
 
+    -- ---------------------------------------------------------------- ATENDIMENTO (admin)
+    IF p_acao = 'admin_atendimento' THEN
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.atendimento_painel());
+
+    ELSIF p_acao = 'admin_atendimento_config' THEN
+        IF d->>'modo' IN ('desligado','aprovacao','automatico') THEN
+            INSERT INTO nucleo.config VALUES ('atendimento_modo', to_jsonb(d->>'modo'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        IF jsonb_typeof(d->'empresa') = 'object' THEN
+            INSERT INTO nucleo.config VALUES ('atendimento_empresa', d->'empresa')
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.atendimento_config());
+
+    ELSIF p_acao = 'admin_base_salvar' THEN
+        IF coalesce(d->>'conteudo','') = '' OR d->>'area' NOT IN ('suporte','comercial','geral') THEN
+            RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Informe area e conteudo'));
+        END IF;
+        INSERT INTO nucleo.conhecimento (usuario_id, dominio, titulo, conteudo, origem)
+        VALUES (NULL, d->>'area', nullif(d->>'titulo',''), d->>'conteudo', 'manual');
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_base_apagar' THEN
+        DELETE FROM nucleo.conhecimento WHERE id = (d->>'id')::bigint AND usuario_id IS NULL;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_chamado_resolver' THEN
+        UPDATE nucleo.chamados SET status = 'resolvido', resolvido_em = now() WHERE id = (d->>'id')::int;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_sistema_publico' THEN
+        UPDATE nucleo.sistemas SET publico = (d->>'publico')::boolean WHERE id = (d->>'id')::int;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_fila_rejeitar' THEN
+        UPDATE nucleo.atendimento_fila SET status = 'rejeitada', revisado_por = u.id, revisado_em = now()
+         WHERE id = (d->>'id')::int AND status = 'pendente';
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_fila_aprovar' THEN   -- marca, aprende e manda o n8n enviar no WhatsApp
+        DECLARE r jsonb;
+        BEGIN
+            r := nucleo.atendimento_aprovar((d->>'id')::int, u.id, d->>'texto', d->>'area');
+            IF r IS NULL THEN
+                RETURN jsonb_build_object('saida',0,'status',404,'corpo',jsonb_build_object('erro','Ja foi revisada'));
+            END IF;
+            RETURN jsonb_build_object('saida',5,'status',200,'corpo', r);
+        END;
+
+    ELSIF p_acao = 'admin_atendimento_teste' THEN  -- simulador: o admin finge ser um cliente
+        DECLARE cli record;
+        BEGIN
+            cli := nucleo.cliente_por_whatsapp('teste-u' || u.id, 'Cliente de teste');
+            RETURN jsonb_build_object('saida',6,'status',200,'corpo',jsonb_build_object(
+                'cliente_id', cli.id, 'nome', 'Cliente de teste', 'chatInput', coalesce(d->>'mensagem',''),
+                'sessionId', 'c' || cli.id || ':teste-' || coalesce(nullif(d->>'sessao',''), '1')));
+        END;
+    END IF;
+
     RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Acao desconhecida: ' || coalesce(p_acao,'')));
 END $$;
 

@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000073",
+      "id": "c0000000-0000-4000-8000-000000000116",
       "name": "A cada minuto",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000074",
+      "id": "c0000000-0000-4000-8000-000000000117",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000075",
+      "id": "c0000000-0000-4000-8000-000000000118",
       "name": "Pegar vencidos",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -56,7 +56,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000076",
+      "id": "c0000000-0000-4000-8000-000000000119",
       "name": "So lembretes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -70,7 +70,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000077",
+      "id": "c0000000-0000-4000-8000-000000000120",
       "name": "Enviar",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,

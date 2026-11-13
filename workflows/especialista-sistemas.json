@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000016",
+      "id": "c0000000-0000-4000-8000-000000000051",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -29,7 +29,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000017",
+      "id": "c0000000-0000-4000-8000-000000000052",
       "name": "Especialista Sistemas",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -49,7 +49,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000018",
+      "id": "c0000000-0000-4000-8000-000000000053",
       "name": "listar_sistemas",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -72,7 +72,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000019",
+      "id": "c0000000-0000-4000-8000-000000000054",
       "name": "historico_incidentes",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -97,7 +97,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000020",
+      "id": "c0000000-0000-4000-8000-000000000055",
       "name": "cadastrar_sistema",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -122,7 +122,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000021",
+      "id": "c0000000-0000-4000-8000-000000000056",
       "name": "ativar_desativar_sistema",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -147,7 +147,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000022",
+      "id": "c0000000-0000-4000-8000-000000000057",
       "name": "OpenAI (especialista, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,
@@ -175,7 +175,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000023",
+      "id": "c0000000-0000-4000-8000-000000000058",
       "name": "checar_agora",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,

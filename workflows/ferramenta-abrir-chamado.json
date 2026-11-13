@@ -1,0 +1,238 @@
+{
+  "id": "ferrChamado0001",
+  "name": "Ferramenta: Abrir chamado",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "cliente_id",
+              "type": "string"
+            },
+            {
+              "name": "area",
+              "type": "string"
+            },
+            {
+              "name": "titulo",
+              "type": "string"
+            },
+            {
+              "name": "descricao",
+              "type": "string"
+            },
+            {
+              "name": "prioridade",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "name": "Registrar chamado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH c AS (\n  INSERT INTO nucleo.chamados (cliente_id, area, titulo, descricao, prioridade)\n  VALUES ($1::int, CASE WHEN $2 IN ('suporte','comercial','sistemico','humano') THEN $2 ELSE 'suporte' END,\n          coalesce(nullif($3,''), 'Chamado'), $4,\n          CASE WHEN $5 IN ('baixa','normal','alta') THEN $5 ELSE 'normal' END)\n  RETURNING *)\nSELECT c.id, c.area, c.titulo, c.prioridade, cl.nome, cl.whatsapp,\n  (SELECT jsonb_agg(id) FROM nucleo.usuarios WHERE papel = 'admin' AND ativo) AS admins\nFROM c LEFT JOIN nucleo.clientes cl ON cl.id = c.cliente_id",
+        "options": {
+          "queryReplacement": "={{ [$json.cliente_id, $json.area || 'suporte', $json.titulo || '', $json.descricao || '', $json.prioridade || 'normal'] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "name": "Avisar admins",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const c = $input.first().json;\nconst teste = String(c.whatsapp || '').startsWith('teste');\nconst msg = `📋 Chamado #${c.id} (${c.area}${c.prioridade === 'alta' ? ', ALTA' : ''})\\n${c.titulo}\\n`\n  + `Cliente: ${c.nome || 'sem nome'}${c.whatsapp && !teste ? ' +' + c.whatsapp : ''}\\nVeja no painel → Atendimento.`;\nreturn (teste ? [] : (c.admins || [])).map(id => ({ json: { usuario_id: id, contato: '', mensagem: msg } }))\n  .concat([{ json: { _resultado: `Chamado #${c.id} aberto (${c.area}). A equipe foi avisada.` } }]);"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000004",
+      "name": "So avisos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().filter(i => i.json.usuario_id);"
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000005",
+      "name": "Enviar aviso",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        920,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ferrEnviarMsg01",
+          "cachedResultName": "Ferramenta: Enviar mensagem"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "usuario_id": "={{ $json.usuario_id }}",
+            "contato": "",
+            "mensagem": "={{ $json.mensagem }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "usuario_id",
+              "displayName": "usuario_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "contato",
+              "displayName": "contato",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "mensagem",
+              "displayName": "mensagem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000006",
+      "name": "Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const c = $('Registrar chamado').first().json;\nreturn [{ json: { resultado: `Chamado #${c.id} aberto (${c.area}). A equipe foi avisada e vai retornar.` } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "Registrar chamado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar chamado": {
+      "main": [
+        [
+          {
+            "node": "Avisar admins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar admins": {
+      "main": [
+        [
+          {
+            "node": "So avisos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "So avisos": {
+      "main": [
+        [
+          {
+            "node": "Enviar aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar aviso": {
+      "main": [
+        [
+          {
+            "node": "Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}
