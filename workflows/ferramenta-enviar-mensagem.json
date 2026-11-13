@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000074",
+      "id": "c0000000-0000-4000-8000-000000000076",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -33,7 +33,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000075",
+      "id": "c0000000-0000-4000-8000-000000000077",
       "name": "Achar destino",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -57,7 +57,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000076",
+      "id": "c0000000-0000-4000-8000-000000000078",
       "name": "Enviar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

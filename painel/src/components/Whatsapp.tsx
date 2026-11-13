@@ -9,7 +9,7 @@ const ROTULO: Record<WhatsappStatus['estado'], string> = {
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 // ------------------------------------------------------------------ uma conexao (Leo ou Joao)
-function Conexao({ instancia, titulo, dica }: { instancia: 'nucleo' | 'joao' | 'suporte'; titulo: string; dica: string }) {
+export function Conexao({ instancia, titulo, dica }: { instancia: 'nucleo' | 'joao' | 'suporte'; titulo: string; dica: string }) {
   const [st, setSt] = useState<WhatsappStatus | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')

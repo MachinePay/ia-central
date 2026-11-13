@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000102",
+      "id": "c0000000-0000-4000-8000-000000000104",
       "name": "Chat",
       "type": "@n8n/n8n-nodes-langchain.chatTrigger",
       "typeVersion": 1.5,
@@ -23,7 +23,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000001"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000103",
+      "id": "c0000000-0000-4000-8000-000000000105",
       "name": "Admin",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -44,7 +44,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000104",
+      "id": "c0000000-0000-4000-8000-000000000106",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -168,7 +168,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner"
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "errosGerais001"
   },
   "pinData": {}
 }

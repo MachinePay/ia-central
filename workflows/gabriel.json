@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000009",
+      "id": "c0000000-0000-4000-8000-000000000011",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -41,7 +41,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000010",
+      "id": "c0000000-0000-4000-8000-000000000012",
       "name": "Contexto",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -62,7 +62,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000011",
+      "id": "c0000000-0000-4000-8000-000000000013",
       "name": "Gabriel",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -82,7 +82,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000012",
+      "id": "c0000000-0000-4000-8000-000000000014",
       "name": "Memoria da conversa",
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.4,
@@ -104,7 +104,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000013",
+      "id": "c0000000-0000-4000-8000-000000000015",
       "name": "buscar_memoria",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -129,7 +129,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000014",
+      "id": "c0000000-0000-4000-8000-000000000016",
       "name": "OpenAI (orquestrador, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,

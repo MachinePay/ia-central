@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000057",
+      "id": "c0000000-0000-4000-8000-000000000059",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -37,7 +37,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000058",
+      "id": "c0000000-0000-4000-8000-000000000060",
       "name": "Empresa",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000059",
+      "id": "c0000000-0000-4000-8000-000000000061",
       "name": "Atendente",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -78,7 +78,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000060",
+      "id": "c0000000-0000-4000-8000-000000000062",
       "name": "Memoria do cliente",
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.4,
@@ -100,7 +100,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000055",
+      "id": "c0000000-0000-4000-8000-000000000057",
       "name": "comercial",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -152,7 +152,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000056",
+      "id": "c0000000-0000-4000-8000-000000000058",
       "name": "abrir_chamado",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -237,7 +237,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000061",
+      "id": "c0000000-0000-4000-8000-000000000063",
       "name": "OpenAI (atendente, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,

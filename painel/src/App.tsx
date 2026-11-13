@@ -1,26 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogOut, MessageSquare, LayoutGrid, Headset, LifeBuoy, UserRound } from 'lucide-react'
-import { api, ErroApi, token, type Resumo, type Usuario } from './api'
+import { LogOut, MessageSquare, LayoutGrid, Gauge, Server, Settings } from 'lucide-react'
+import { api, ErroApi, token, type AgenteId, type Resumo, type Saude, type Usuario } from './api'
 import { Login } from './components/Login'
 import { Orbe, type EstadoOrbe } from './components/Orbe'
 import { Conversa } from './components/Conversa'
 import { PainelControle, PainelPessoal, PainelSistemas } from './components/Paineis'
-import { Atendimento } from './components/Atendimento'
-import { LeoAprendeu } from './components/Whatsapp'
-import { Gabriel } from './components/Gabriel'
+import { Inicio, PaginaAgente, CartaoEvento, type Aba, type StatusWa } from './components/Agentes'
+import { AGENTES, ORDEM, Avatar, Hud, corDe, estadoDe } from './components/ui'
 
 function Fundo() {
   return <div className="fundo" aria-hidden="true"><div className="estrelas" /><div className="grade" /><div className="scan" /></div>
-}
-
-function Relogio() {
-  const [agora, setAgora] = useState(new Date())
-  useEffect(() => { const t = setInterval(() => setAgora(new Date()), 1000); return () => clearInterval(t) }, [])
-  return (
-    <div className="relogio">
-      {agora.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' }).toUpperCase()} · <b>{agora.toLocaleTimeString('pt-BR')}</b>
-    </div>
-  )
 }
 
 function useLargura() {
@@ -29,13 +18,24 @@ function useLargura() {
   return l
 }
 
+type Pagina = 'inicio' | AgenteId | 'sistemas' | 'config'
+const lerPagina = (): Pagina => { try { return (localStorage.getItem('nucleo.pagina') as Pagina) || 'inicio' } catch { return 'inicio' } }
+
 export default function App() {
   const [usuario, setUsuario] = useState<Usuario | null>(null)
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [verificando, setVerificando] = useState(!!token.get())
   const [estado, setEstado] = useState<EstadoOrbe>('parado')
-  const [aba, setAba] = useState<'ia' | 'painel' | 'joao' | 'suporte' | 'gabriel'>('ia')
+  const [abaUsuario, setAbaUsuario] = useState<'ia' | 'painel'>('ia')
+  const [pagina, setPaginaBruta] = useState<Pagina>(lerPagina)
+  const [abas, setAbas] = useState<Record<AgenteId, Aba>>({ leo: 'visao', joao: 'visao', suporte: 'visao', gabriel: 'visao' })
+  const [saude, setSaude] = useState<Saude | null>(null)
+  const [wa, setWa] = useState<StatusWa>({})
   const largura = useLargura()
+  const admin = usuario?.papel === 'admin'
+
+  const setPagina = (p: Pagina) => { setPaginaBruta(p); try { localStorage.setItem('nucleo.pagina', p) } catch { /* modo privado */ } }
+  const abrir = (a: AgenteId, aba?: Aba) => { setPagina(a); if (aba) setAbas(x => ({ ...x, [a]: aba })) }
 
   const sair = useCallback(() => {
     api.logout().catch(() => {})
@@ -55,6 +55,14 @@ export default function App() {
       setVerificando(false)
     }
   }, [])
+  const carregarSaude = useCallback(async () => { try { setSaude(await api.saude()) } catch { /* tenta de novo */ } }, [])
+  const carregarWa = useCallback(async () => {
+    const r: StatusWa = {}
+    await Promise.all((['nucleo', 'joao', 'suporte'] as const).map(async i => {
+      try { r[i] = (await api.whatsapp('status', { instancia: i })).estado } catch { r[i] = 'erro' }
+    }))
+    setWa(r)
+  }, [])
 
   useEffect(() => { if (token.get()) void atualizar() }, [atualizar])
   useEffect(() => {
@@ -62,68 +70,140 @@ export default function App() {
     const t = setInterval(atualizar, 30000)
     return () => clearInterval(t)
   }, [usuario, atualizar])
+  useEffect(() => {
+    if (!admin) return
+    void carregarSaude(); void carregarWa()
+    const t1 = setInterval(carregarSaude, 20000), t2 = setInterval(carregarWa, 60000)
+    return () => { clearInterval(t1); clearInterval(t2) }
+  }, [admin, carregarSaude, carregarWa])
 
   if (verificando) return <><Fundo /><div className="login-tela"><Orbe estado="pensando" tamanho={220} /></div></>
   if (!usuario) return <><Fundo /><Login aoEntrar={u => { setUsuario(u); void atualizar() }} /></>
 
-  const tamanhoOrbe = largura < 760 ? (aba === 'ia' ? 160 : 0) : largura < 1100 ? 230 : 270
+  const chip = (
+    <div className="chip-usuario">
+      <span className="nome-usuario">{usuario.nome}</span>
+      <span className={`papel ${usuario.papel}`}>{usuario.papel}</span>
+      <button className="botao-icone" onClick={sair} aria-label="Sair" title="Sair"><LogOut size={16} /></button>
+    </div>
+  )
+
+  // ---------------------------------------------------------------- usuario comum: a tela de conversa de sempre
+  if (!admin) {
+    const tamanhoOrbe = largura < 760 ? (abaUsuario === 'ia' ? 160 : 0) : largura < 1100 ? 230 : 270
+    return (
+      <>
+        <Fundo />
+        <div className="app">
+          <header className="topo">
+            <div className="marca"><img className="marca-logo" src="/icone.svg" alt="" /><div className="marca-nome">N<span>Ú</span>CLEO</div></div>
+            <div className="topo-meio" />
+            {chip}
+          </header>
+          <main className="grade-principal" data-aba={abaUsuario}>
+            <aside className="coluna esquerda">{resumo && <PainelSistemas r={resumo} aoMudar={atualizar} />}</aside>
+            <section className="centro">
+              {tamanhoOrbe > 0 && <div style={{ display: 'grid', placeItems: 'center' }}><Orbe estado={estado} tamanho={tamanhoOrbe} /></div>}
+              <Conversa sessao="painel" estado={estado} setEstado={setEstado} aoSair={sair} aoMudar={atualizar} />
+            </section>
+            <aside className="coluna direita">
+              {resumo && <>
+                <div className="so-estreito" style={{ flexDirection: 'column', gap: 16 }}><PainelSistemas r={resumo} aoMudar={atualizar} /></div>
+                <PainelPessoal r={resumo} aoMudar={atualizar} />
+                <PainelControle r={resumo} aoMudar={atualizar} />
+              </>}
+            </aside>
+          </main>
+          <nav className="abas">
+            <button className={abaUsuario === 'ia' ? 'ativa' : ''} onClick={() => setAbaUsuario('ia')}><MessageSquare size={14} /> IA</button>
+            <button className={abaUsuario === 'painel' ? 'ativa' : ''} onClick={() => setAbaUsuario('painel')}><LayoutGrid size={14} /> PAINEL</button>
+          </nav>
+        </div>
+      </>
+    )
+  }
+
+  // ---------------------------------------------------------------- admin: menu lateral + uma pagina por IA
+  const estadoIa = (a: AgenteId) => estadoDe(saude?.agentes.find(s => s.agente === a), wa[AGENTES[a].instancia])
+  const contador = (a: AgenteId) => {
+    const s = saude?.agentes.find(x => x.agente === a)
+    return s ? (a === 'gabriel' ? 0 : s.sugestoes) + s.pendentes : 0
+  }
+  const agenteAtual = ORDEM.includes(pagina as AgenteId) ? pagina as AgenteId : null
+
   return (
     <>
       <Fundo />
-      <div className="app">
-        <header className="topo">
-          <div className="marca">
-            <img className="marca-logo" src="/icone.svg" alt="" />
-            <div className="marca-nome">N<span>Ú</span>CLEO</div>
-          </div>
-          <div className="topo-meio">
-            {usuario.papel === 'admin' ? (
-              <div className="seletor-tela">
-                <button className={aba === 'ia' || aba === 'painel' ? 'ativo' : ''} onClick={() => setAba('ia')}><MessageSquare size={13} /> Leo 2.0</button>
-                <button className={aba === 'joao' ? 'ativo' : ''} onClick={() => setAba('joao')}><Headset size={13} /> João</button>
-                <button className={aba === 'suporte' ? 'ativo' : ''} onClick={() => setAba('suporte')}><LifeBuoy size={13} /> Suporte24hrs</button>
-                <button className={aba === 'gabriel' ? 'ativo' : ''} onClick={() => setAba('gabriel')}><UserRound size={13} /> Gabriel</button>
-              </div>
-            ) : <Relogio />}
-          </div>
-          <div className="chip-usuario">
-            <span className="nome-usuario">{usuario.nome}</span>
-            <span className={`papel ${usuario.papel}`}>{usuario.papel}</span>
-            <button className="botao-icone" onClick={sair} aria-label="Sair" title="Sair"><LogOut size={16} /></button>
-          </div>
+      <div className="app admin" style={corDe(agenteAtual)}>
+        <aside className="menu-lateral">
+          <div className="marca"><img className="marca-logo" src="/icone.svg" alt="" /><div className="marca-nome">N<span>Ú</span>CLEO</div></div>
+          <nav aria-label="Navegação">
+            <button className={`menu-item ${pagina === 'inicio' ? 'ativo' : ''}`} onClick={() => setPagina('inicio')}><Gauge size={18} /><span>Início</span></button>
+            <div className="menu-secao">Suas IAs</div>
+            {ORDEM.map(a => {
+              const e = estadoIa(a), n = contador(a)
+              return (
+                <button key={a} className={`menu-item ia ${pagina === a ? 'ativo' : ''}`} style={corDe(a)} onClick={() => setPagina(a)}>
+                  <Avatar a={a} tamanho={30} />
+                  <span className="menu-nome"><b>{AGENTES[a].nome}</b><small>{AGENTES[a].papel}</small></span>
+                  {n > 0 && <em className="menu-badge">{n}</em>}
+                  <i className={`menu-luz ${e}`} title={e} />
+                </button>
+              )
+            })}
+            <div className="menu-secao">Geral</div>
+            <button className={`menu-item ${pagina === 'sistemas' ? 'ativo' : ''}`} onClick={() => setPagina('sistemas')}>
+              <Server size={18} /><span>Sistemas</span>{!!saude?.sistemas_fora && <em className="menu-badge erro">{saude.sistemas_fora}</em>}
+            </button>
+            <button className={`menu-item ${pagina === 'config' ? 'ativo' : ''}`} onClick={() => setPagina('config')}><Settings size={18} /><span>Usuários e memória</span></button>
+          </nav>
+          <div className="menu-rodape">{chip}</div>
+        </aside>
+
+        <header className="topo topo-celular">
+          <div className="marca"><img className="marca-logo" src="/icone.svg" alt="" /><div className="marca-nome">N<span>Ú</span>CLEO</div></div>
+          <div className="topo-meio" />
+          {chip}
         </header>
 
-        {(aba === 'joao' || aba === 'suporte') && usuario.papel === 'admin' ? <Atendimento aoSair={sair} agente={aba} />
-          : aba === 'gabriel' && usuario.papel === 'admin' ? <Gabriel aoSair={sair} /> : (
-        <main className="grade-principal" data-aba={aba}>
-          <aside className="coluna esquerda">{resumo && <PainelSistemas r={resumo} aoMudar={atualizar} />}</aside>
-
-          <section className="centro">
-            {tamanhoOrbe > 0 && <div style={{ display: 'grid', placeItems: 'center' }}><Orbe estado={estado} tamanho={tamanhoOrbe} /></div>}
-            <Conversa sessao="painel" estado={estado} setEstado={setEstado} aoSair={sair} aoMudar={atualizar} />
-          </section>
-
-          <aside className="coluna direita">
-            {resumo && (
-              <>
-                <div className="so-estreito" style={{ flexDirection: 'column', gap: 16 }}><PainelSistemas r={resumo} aoMudar={atualizar} /></div>
-                <PainelPessoal r={resumo} aoMudar={atualizar} />
-                {usuario.papel === 'admin' && <LeoAprendeu />}
+        <main className="area-admin">
+          {pagina === 'inicio' && <Inicio saude={saude} wa={wa} r={resumo} abrir={abrir} />}
+          {agenteAtual && <PaginaAgente key={agenteAtual} a={agenteAtual} aba={abas[agenteAtual]} setAba={x => setAbas(v => ({ ...v, [agenteAtual]: x }))}
+            saude={saude} wa={wa} aoSair={sair} aoMudar={atualizar} recarregarSaude={carregarSaude} />}
+          {pagina === 'sistemas' && resumo && (
+            <div className="pagina">
+              <h1 className="titulo-pagina"><Server size={22} /> Sistemas monitorados</h1>
+              <div className="duas-colunas">
+                <PainelSistemas r={resumo} aoMudar={atualizar} />
+                <Hud titulo="Falhas do monitor e do sistema">
+                  {(saude?.outros_erros.length ?? 0) === 0 && <div className="vazio">Nenhuma falha nova ✓</div>}
+                  {saude?.outros_erros.map(ev => <CartaoEvento key={ev.id} ev={ev} />)}
+                </Hud>
+              </div>
+            </div>
+          )}
+          {pagina === 'config' && resumo && (
+            <div className="pagina">
+              <h1 className="titulo-pagina"><Settings size={22} /> Usuários e memória</h1>
+              <div className="duas-colunas">
                 <PainelControle r={resumo} aoMudar={atualizar} />
-              </>
-            )}
-          </aside>
+                <PainelPessoal r={resumo} aoMudar={atualizar} />
+              </div>
+            </div>
+          )}
         </main>
-        )}
 
-        <nav className="abas">
-          <button className={aba === 'ia' ? 'ativa' : ''} onClick={() => setAba('ia')}><MessageSquare size={14} /> IA</button>
-          <button className={aba === 'painel' ? 'ativa' : ''} onClick={() => setAba('painel')}><LayoutGrid size={14} /> PAINEL</button>
-          {usuario.papel === 'admin' && <>
-            <button className={aba === 'joao' ? 'ativa' : ''} onClick={() => setAba('joao')} aria-label="João"><Headset size={14} /></button>
-            <button className={aba === 'suporte' ? 'ativa' : ''} onClick={() => setAba('suporte')} aria-label="Suporte24hrs"><LifeBuoy size={14} /></button>
-            <button className={aba === 'gabriel' ? 'ativa' : ''} onClick={() => setAba('gabriel')} aria-label="Gabriel"><UserRound size={14} /></button>
-          </>}
+        <nav className="menu-baixo" aria-label="Navegação">
+          <button className={pagina === 'inicio' ? 'ativo' : ''} onClick={() => setPagina('inicio')} aria-label="Início"><Gauge size={18} /><span>Início</span></button>
+          {ORDEM.map(a => {
+            const I = AGENTES[a].icone, e = estadoIa(a)
+            return (
+              <button key={a} className={pagina === a ? 'ativo' : ''} style={corDe(a)} onClick={() => setPagina(a)} aria-label={AGENTES[a].nome}>
+                <I size={18} /><span>{AGENTES[a].nome.split(' ')[0]}</span>{(e === 'erro' || e === 'whatsapp') && <i className="menu-luz erro" />}
+              </button>
+            )
+          })}
+          <button className={pagina === 'sistemas' || pagina === 'config' ? 'ativo' : ''} onClick={() => setPagina(pagina === 'sistemas' ? 'config' : 'sistemas')} aria-label="Sistemas e usuários"><Server size={18} /><span>Mais</span></button>
         </nav>
       </div>
     </>

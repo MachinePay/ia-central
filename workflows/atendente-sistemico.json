@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000051",
+      "id": "c0000000-0000-4000-8000-000000000053",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -29,7 +29,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000052",
+      "id": "c0000000-0000-4000-8000-000000000054",
       "name": "Empresa",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -50,7 +50,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000053",
+      "id": "c0000000-0000-4000-8000-000000000055",
       "name": "Especialista Sistemico",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -70,7 +70,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000048",
+      "id": "c0000000-0000-4000-8000-000000000050",
       "name": "status_servicos",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -93,7 +93,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000049",
+      "id": "c0000000-0000-4000-8000-000000000051",
       "name": "incidentes_recentes",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -116,7 +116,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000050",
+      "id": "c0000000-0000-4000-8000-000000000052",
       "name": "abrir_chamado",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -201,7 +201,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000054",
+      "id": "c0000000-0000-4000-8000-000000000056",
       "name": "OpenAI (atendente, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,

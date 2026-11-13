@@ -1,0 +1,59 @@
+{
+  "id": "errosGerais001",
+  "name": "Erros (registra falhas)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "name": "Quando algo quebrar",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "name": "Registrar erro",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.registrar_evento(nucleo.agente_do_workflow($1), 'erro', nucleo.motivo_erro($2), $2, $3::jsonb)",
+        "options": {
+          "queryReplacement": "={{ [String(($json.workflow || {}).id || ''), String((($json.execution || {}).error || {}).message || ($json.trigger && $json.trigger.error && $json.trigger.error.message) || 'erro desconhecido'), JSON.stringify({ workflow: ($json.workflow || {}).name, no: ($json.execution || {}).lastNodeExecuted, execucao: ($json.execution || {}).id })] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quando algo quebrar": {
+      "main": [
+        [
+          {
+            "node": "Registrar erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

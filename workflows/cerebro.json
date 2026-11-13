@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000085",
+      "id": "c0000000-0000-4000-8000-000000000087",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -45,7 +45,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000086",
+      "id": "c0000000-0000-4000-8000-000000000088",
       "name": "Estilo",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -69,7 +69,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000087",
+      "id": "c0000000-0000-4000-8000-000000000089",
       "name": "IA",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -89,7 +89,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000088",
+      "id": "c0000000-0000-4000-8000-000000000090",
       "name": "Memoria da conversa",
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.4,
@@ -111,7 +111,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000089",
+      "id": "c0000000-0000-4000-8000-000000000091",
       "name": "especialista_sistemas",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -163,7 +163,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000090",
+      "id": "c0000000-0000-4000-8000-000000000092",
       "name": "enviar_mensagem",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -226,7 +226,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000091",
+      "id": "c0000000-0000-4000-8000-000000000093",
       "name": "lembrar",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -251,7 +251,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000092",
+      "id": "c0000000-0000-4000-8000-000000000094",
       "name": "buscar_memoria",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -276,7 +276,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000093",
+      "id": "c0000000-0000-4000-8000-000000000095",
       "name": "criar_lembrete",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -301,7 +301,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000094",
+      "id": "c0000000-0000-4000-8000-000000000096",
       "name": "listar_lembretes",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -326,7 +326,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000095",
+      "id": "c0000000-0000-4000-8000-000000000097",
       "name": "listar_contatos",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -351,7 +351,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000096",
+      "id": "c0000000-0000-4000-8000-000000000098",
       "name": "cadastrar_contato",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -376,7 +376,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000097",
+      "id": "c0000000-0000-4000-8000-000000000099",
       "name": "salvar_meu_contato",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -401,7 +401,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000098",
+      "id": "c0000000-0000-4000-8000-000000000100",
       "name": "atendimento_resumo",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -426,7 +426,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000099",
+      "id": "c0000000-0000-4000-8000-000000000101",
       "name": "atendimento_modo",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -451,7 +451,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000100",
+      "id": "c0000000-0000-4000-8000-000000000102",
       "name": "liberar_cliente",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -476,7 +476,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000101",
+      "id": "c0000000-0000-4000-8000-000000000103",
       "name": "OpenAI (orquestrador, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,

@@ -574,6 +574,19 @@ def responder(nome, pos, corpo, status="200", **extra):
     }, **extra)
 
 
+def anotar_falha(nome, pos, origem, agente_expr):
+    """Se a IA nao respondeu, registra o evento com o motivo legivel; sempre devolve 1 linha com o motivo."""
+    j = f"$('{origem}').first().json"
+    erro = (f"({j}.output ? '' : ((typeof {j}.error === 'string' ? {j}.error : ({j}.error && ({j}.error.message "
+            f"|| JSON.stringify({j}.error)))) || 'a IA nao devolveu resposta'))")
+    return node(nome, "n8n-nodes-base.postgres", 2.6, pos, {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.motivo_erro(nullif($1, '')) AS motivo,\n"
+                 "  CASE WHEN $1 <> '' THEN nucleo.registrar_evento($2, 'erro', nucleo.motivo_erro($1), $1, '{\"canal\": \"painel\"}') END AS evento",
+        "options": {"queryReplacement": "={{ [" + erro + ", " + agente_expr + " || 'leo'] }}"},
+    }, credentials=PG, alwaysOutputData=True)
+
+
 def api_painel():
     nodes = [
         node("Webhook", "n8n-nodes-base.webhook", 2.1, [0, 0], {
@@ -640,9 +653,11 @@ return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) |
             "sessionId": "={{ $json.r.corpo.sessionId }}",
             "numero": "={{ $json.r.corpo.numero || '' }}",
         }),
-        responder("Resposta simulada", [920, 1000],
-                  "={{ JSON.stringify($json.output ? { resposta: $json.output } : { erro: 'A atendente falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
-                  "={{ $json.output ? 200 : 502 }}"),
+        anotar_falha("Anotar falha simulada", [810, 1000], "Simular atendente", "$('Regras (banco)').first().json.r.corpo.agente"),
+        responder("Resposta simulada", [1030, 1000],
+                  "={{ JSON.stringify($('Simular atendente').first().json.output ? { resposta: $('Simular atendente').first().json.output } "
+                  ": { erro: 'Falhou: ' + $json.motivo, motivo: $json.motivo }) }}",
+                  "={{ $('Simular atendente').first().json.output ? 200 : 502 }}"),
         responder("Responder", [700, -200], "={{ JSON.stringify($json.r.corpo) }}", "={{ $json.r.status }}"),
         chamar_cerebro("Cerebro", [700, 0], {
             "usuario_id": "={{ $json.r.corpo.usuario_id }}",
@@ -652,10 +667,11 @@ return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) |
             "sessionId": "={{ $json.r.corpo.sessionId }}",
             "canal": "={{ $json.r.corpo.canal }}",
         }),
-        responder("Resposta da IA", [920, 0],
-                  "={{ JSON.stringify($json.output ? { resposta: $json.output } "
-                  ": { erro: 'A IA falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
-                  "={{ $json.output ? 200 : 502 }}"),
+        anotar_falha("Anotar falha", [810, 0], "Cerebro", "'leo'"),
+        responder("Resposta da IA", [1030, 0],
+                  "={{ JSON.stringify($('Cerebro').first().json.output ? { resposta: $('Cerebro').first().json.output } "
+                  ": { erro: 'Falhou: ' + $json.motivo, motivo: $json.motivo }) }}",
+                  "={{ $('Cerebro').first().json.output ? 200 : 502 }}"),
         node("Voz (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [700, 200], {
             "method": "POST",
             "url": "https://api.openai.com/v1/audio/speech",
@@ -675,7 +691,7 @@ return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) |
         }),
         responder("Voz falhou", [920, 320], "={{ JSON.stringify({ erro: 'Voz indisponivel' }) }}", "502"),
     ]
-    con = ligar(("Webhook", "Regras (banco)"), ("Regras (banco)", "Rota"), ("Cerebro", "Resposta da IA"),
+    con = ligar(("Webhook", "Regras (banco)"), ("Regras (banco)", "Rota"), ("Cerebro", "Anotar falha"), ("Anotar falha", "Resposta da IA"),
                 ("WhatsApp (Evolution)", "Resposta WhatsApp"))
     con["Rota"] = {"main": [
         [{"node": "Responder", "type": "main", "index": 0}],
@@ -690,7 +706,8 @@ return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) |
     con["Enviar aprovada"] = {"main": [[{"node": "Guardar ids aprovada", "type": "main", "index": 0}]]}
     con["Guardar ids aprovada"] = {"main": [[{"node": "Aprovada", "type": "main", "index": 0}]]}
     con["Rodar aprendiz"] = {"main": [[{"node": "Aprendido", "type": "main", "index": 0}]]}
-    con["Simular atendente"] = {"main": [[{"node": "Resposta simulada", "type": "main", "index": 0}]]}
+    con["Simular atendente"] = {"main": [[{"node": "Anotar falha simulada", "type": "main", "index": 0}]]}
+    con["Anotar falha simulada"] = {"main": [[{"node": "Resposta simulada", "type": "main", "index": 0}]]}
     con["Rodar monitor"] = {"main": [[{"node": "Verificado", "type": "main", "index": 0}]]}
     con["Voz (OpenAI)"] = {"main": [
         [{"node": "Audio", "type": "main", "index": 0}],
@@ -791,7 +808,9 @@ return [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender
 JS_RESPONDER_WHATSAPP = r"""
 const msg = $('Ler mensagem').first().json;
 const quem = $('Lote pronto').first().json;
-const resposta = $input.first().json.output || 'Tive um problema para responder agora. Tenta de novo em instantes?';
+const ent = $input.first().json;
+const falha = ent.output ? '' : ((typeof ent.error === 'string' ? ent.error : (ent.error && (ent.error.message || JSON.stringify(ent.error)))) || 'a IA nao devolveu resposta');
+const resposta = ent.output || 'Tive um problema para responder agora. Tenta de novo em instantes?';
 let enviado = 'texto';
 const ids = [];
 if (msg.tipo === 'audio' && $env.OPENAI_API_KEY) {
@@ -811,7 +830,7 @@ if (!enviado.startsWith('audio')) {
   try { const r = await enviarWhatsapp(msg.numero, resposta, true, msg.instancia); if (r && r.key && r.key.id) ids.push(r.key.id); }
   catch (e) { erro = e.message; }
 }
-return [{ json: { usuario_id: quem.usuario_id, numero: msg.numero, resposta, enviado, erro, ids: ids.join(',') } }];
+return [{ json: { usuario_id: quem.usuario_id, numero: msg.numero, resposta, enviado, erro, falha, ids: ids.join(',') } }];
 """
 
 
@@ -820,6 +839,13 @@ JS_ENTREGAR_ATENDIMENTO = r"""
 const r = $input.first().json.r;
 const fila = r.texto || 'Desculpe, tive um problema agora. Ja ja te respondo.';
 const NOMES = { joao: 'João', suporte: 'Suporte24hrs', gabriel: 'Gabriel (seu clone)' };
+if (r.falhou) {
+  const ok = await whatsappConectado();
+  for (const n of r.avisar || []) {
+    try { if (ok) await enviarWhatsapp(n, `⚠ ${NOMES[r.agente] || r.agente} falhou e nao respondeu ${$('Lote pronto').first().json.nome || 'um contato'}.\nMotivo: ${r.motivo}\nDetalhes no painel > Erros.`); } catch (e) {}
+  }
+  return [{ json: { enviado: false, falhou: true, motivo: r.motivo, ids: '' } }];
+}
 if (r.enviar) {
   const env = await enviarWhatsapp(r.numero, fila, false, r.instancia || $('Ler mensagem').first().json.instancia);
   return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];
@@ -929,11 +955,13 @@ return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagen
         }),
         node("Registrar atendimento", "n8n-nodes-base.postgres", 2.6, [1980, 260], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.agente_registrar(nullif($1, '')::int, $2, $3, $4, nullif($5, ''), nullif($6, '')) AS r",
+            # sem resposta da IA: registra a falha com o motivo e avisa o admin (nada vai para o cliente)
+            "query": "SELECT CASE WHEN $3 = '' THEN nucleo.agente_falhou($4, $7, nullif($5, ''), $2)\n"
+                     "  ELSE nucleo.agente_registrar(nullif($1, '')::int, $2, $3, $4, nullif($5, ''), nullif($6, '')) END AS r",
             "options": {"queryReplacement": "={{ [String($('Lote pronto').first().json.cliente_id || ''), $('Lote pronto').first().json.chatInput, "
-                                            "$json.output || 'Desculpe, tive um problema agora. Ja ja te respondo.', "
+                                            "$json.output || '', "
                                             "$('Lote pronto').first().json.agente, String($('Lote pronto').first().json.numero || ''), "
-                                            "$('Lote pronto').first().json.nome || ''] }}"},
+                                            "$('Lote pronto').first().json.nome || '', (typeof $json.error === 'string' ? $json.error : ($json.error && ($json.error.message || JSON.stringify($json.error)))) || 'a IA nao devolveu resposta'] }}"},
         }, credentials=PG),
         node("Entregar atendimento", "n8n-nodes-base.code", 2, [2200, 260], {
             "mode": "runOnceForAllItems",
@@ -957,8 +985,10 @@ return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagen
         }),
         node("Registrar resposta", "n8n-nodes-base.postgres", 2.6, [2200, 0], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.whatsapp_saida($1::int, $2, $3, string_to_array(nullif($4, ''), ','))",
-            "options": {"queryReplacement": "={{ [$json.usuario_id, $json.numero, $json.resposta, $json.ids] }}"},
+            "query": "SELECT nucleo.whatsapp_saida($1::int, $2, $3, string_to_array(nullif($4, ''), ',')),\n"
+                     "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento('leo', 'erro', nucleo.motivo_erro($5), $5, jsonb_build_object('numero', $2, 'canal', 'whatsapp')) END AS evento,\n"
+                     "  CASE WHEN $6 <> '' THEN nucleo.registrar_evento('leo', 'aviso', 'Nao consegui entregar no WhatsApp: ' || nucleo.motivo_erro($6), $6, jsonb_build_object('numero', $2)) END AS aviso",
+            "options": {"queryReplacement": "={{ [$json.usuario_id, $json.numero, $json.resposta, $json.ids, $json.falha || '', $json.erro || ''] }}"},
         }, credentials=PG),
     ]
     con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Quem e"), ("Quem e", "Rota"),
@@ -1772,8 +1802,10 @@ def aprendiz():
             "query": "SELECT CASE\n"
                      "  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 IN ('joao', 'suporte') THEN nucleo.aprendiz_salvar_agente(nullif($1, '')::int, $2::jsonb, $3)\n"
-                     "  ELSE 0 END AS salvos",
-            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || '')] }}"},
+                     "  ELSE 0 END AS salvos,\n"
+                     "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte') THEN $3 ELSE 'aprendiz' END,\n"
+                     "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento",
+            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || ''] }}"},
         }, credentials=PG),
         node("Resultado", "n8n-nodes-base.code", 2, [1120, 180], {
             "mode": "runOnceForAllItems",
@@ -1788,7 +1820,23 @@ def aprendiz():
     return wf
 
 
+def erros():
+    nodes = [
+        node("Quando algo quebrar", "n8n-nodes-base.errorTrigger", 1, [0, 0], {}),
+        node("Registrar erro", "n8n-nodes-base.postgres", 2.6, [240, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.registrar_evento(nucleo.agente_do_workflow($1), 'erro', nucleo.motivo_erro($2), $2, $3::jsonb)",
+            "options": {"queryReplacement": "={{ [String(($json.workflow || {}).id || ''), "
+                                            "String((($json.execution || {}).error || {}).message || ($json.trigger && $json.trigger.error && $json.trigger.error.message) || 'erro desconhecido'), "
+                                            "JSON.stringify({ workflow: ($json.workflow || {}).name, no: ($json.execution || {}).lastNodeExecuted, "
+                                            "execucao: ($json.execution || {}).id })] }}"},
+        }, credentials=PG),
+    ]
+    return workflow("errosGerais001", "Erros (registra falhas)", nodes, ligar(("Quando algo quebrar", "Registrar erro")))
+
+
 WORKFLOWS = [
+    ("erros.json", erros),
     ("suporte24hrs.json", suporte24),
     ("gabriel.json", gabriel),
     ("roteador.json", roteador),
@@ -1812,5 +1860,11 @@ WORKFLOWS = [
 
 if __name__ == "__main__":
     for nome, fn in WORKFLOWS:
-        (SAIDA / nome).write_text(json.dumps(fn(), ensure_ascii=False, indent=2), encoding="utf-8")
+        wf = fn()
+        # so quem comeca sozinho (webhook, agenda) aponta para o workflow de erros; sub-workflows ja
+        # devolvem a falha para quem chamou, que registra com contexto (evita registrar duas vezes)
+        sub = any(n["type"] == "n8n-nodes-base.executeWorkflowTrigger" for n in wf["nodes"])
+        if wf["id"] != "errosGerais001" and (not sub or wf["id"] in ("aprendiz000001", "monitorSistemas01")):
+            wf["settings"]["errorWorkflow"] = "errosGerais001"
+        (SAIDA / nome).write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
         print("gerado", nome)

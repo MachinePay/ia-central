@@ -68,6 +68,21 @@ export interface GabrielPainel {
   aprendidos: number
 }
 
+export type AgenteId = 'leo' | 'joao' | 'suporte' | 'gabriel'
+export interface Evento { id: number; nivel?: 'erro' | 'aviso' | 'info'; agente?: string; titulo: string; detalhe: string | null; contexto?: Record<string, unknown>; visto?: boolean; em: string }
+export interface SaudeAgente {
+  agente: AgenteId; modo: string; instancia: 'nucleo' | 'joao' | 'suporte'
+  lidas_24h: number; respostas_24h: number; pendentes: number; sugestoes: number; aprendidos: number
+  ultima_atividade: string | null; erros_24h: number; ultimo_erro: Evento | null
+}
+export interface Saude { agentes: SaudeAgente[]; outros_erros: Evento[]; sistemas_fora: number; chamados_abertos: number }
+export interface ConversaLida {
+  numero: string; nome: string | null; mensagens: number; ultima: string; ultimo_papel: string; ultima_mensagem: string
+  historico: { papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[]
+}
+export interface ItemAprendido { id: number; titulo: string | null; conteudo: string; area: string | null; aprovado: boolean; origem: string; em: string }
+export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[]; eventos: Evento[] }
+
 export class ErroApi extends Error {
   constructor(public status: number, mensagem: string) { super(mensagem) }
 }
@@ -102,6 +117,9 @@ export const api = {
   historico: (sessao: string) => chamar<{ mensagens: Mensagem[] }>('historico', { sessao }),
   chat: (mensagem: string, sessao: string) => chamar<{ resposta: string }>('chat', { mensagem, sessao }),
   verificar: () => chamar<{ ok: boolean }>('verificar'),
+  saude: () => chamar<Saude>('admin_saude'),
+  feed: (agente: AgenteId) => chamar<Feed>('admin_agente_feed', { agente }),
+  eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
   atendimento: (agente: AgenteAtend) => chamar<AtendimentoPainel>('admin_atendimento', { agente }),
   gabriel: () => chamar<GabrielPainel>('admin_gabriel'),
   gabrielConfig: (modo: string) => chamar<GabrielPainel>('admin_gabriel_config', { modo }),

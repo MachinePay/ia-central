@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000154",
+      "id": "c0000000-0000-4000-8000-000000000158",
       "name": "A cada minuto",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000155",
+      "id": "c0000000-0000-4000-8000-000000000159",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000156",
+      "id": "c0000000-0000-4000-8000-000000000160",
       "name": "Pegar vencidos",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -56,7 +56,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000157",
+      "id": "c0000000-0000-4000-8000-000000000161",
       "name": "So lembretes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -70,7 +70,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000158",
+      "id": "c0000000-0000-4000-8000-000000000162",
       "name": "Enviar",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -183,7 +183,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner"
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "errosGerais001"
   },
   "pinData": {}
 }

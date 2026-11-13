@@ -260,6 +260,18 @@ BEGIN
     IF p_acao = 'admin_atendimento' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_painel((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END)));
 
+    ELSIF p_acao = 'admin_saude' THEN
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_saude(u.id));
+
+    ELSIF p_acao = 'admin_agente_feed' THEN
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_feed(
+            CASE WHEN d->>'agente' IN ('leo','joao','suporte','gabriel') THEN d->>'agente' ELSE 'leo' END, u.id));
+
+    ELSIF p_acao = 'admin_eventos_vistos' THEN
+        UPDATE nucleo.eventos SET visto = true WHERE NOT visto AND CASE WHEN d->>'agente' = 'outros'
+            THEN agente NOT IN ('leo', 'joao', 'suporte', 'gabriel') ELSE agente = d->>'agente' END;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
     ELSIF p_acao = 'admin_gabriel' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.gabriel_painel(u.id));
 

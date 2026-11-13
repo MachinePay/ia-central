@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000105",
+      "id": "c0000000-0000-4000-8000-000000000107",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -23,7 +23,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000002"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000106",
+      "id": "c0000000-0000-4000-8000-000000000108",
       "name": "Regras (banco)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -46,7 +46,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000107",
+      "id": "c0000000-0000-4000-8000-000000000109",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -61,7 +61,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000108",
+      "id": "c0000000-0000-4000-8000-000000000110",
       "name": "WhatsApp (Evolution)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -76,7 +76,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000109",
+      "id": "c0000000-0000-4000-8000-000000000111",
       "name": "Resposta WhatsApp",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000110",
+      "id": "c0000000-0000-4000-8000-000000000112",
       "name": "Rodar monitor",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -139,7 +139,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000111",
+      "id": "c0000000-0000-4000-8000-000000000113",
       "name": "Verificado",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -157,7 +157,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000112",
+      "id": "c0000000-0000-4000-8000-000000000114",
       "name": "Enviar aprovada",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -172,7 +172,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000113",
+      "id": "c0000000-0000-4000-8000-000000000115",
       "name": "Guardar ids aprovada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -197,7 +197,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000114",
+      "id": "c0000000-0000-4000-8000-000000000116",
       "name": "Rodar aprendiz",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -243,7 +243,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000115",
+      "id": "c0000000-0000-4000-8000-000000000117",
       "name": "Aprendido",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -261,7 +261,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000116",
+      "id": "c0000000-0000-4000-8000-000000000118",
       "name": "Aprovada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -279,7 +279,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000117",
+      "id": "c0000000-0000-4000-8000-000000000119",
       "name": "Simular atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -377,25 +377,49 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000118",
+      "id": "c0000000-0000-4000-8000-000000000120",
+      "name": "Anotar falha simulada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        810,
+        1000
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.motivo_erro(nullif($1, '')) AS motivo,\n  CASE WHEN $1 <> '' THEN nucleo.registrar_evento($2, 'erro', nucleo.motivo_erro($1), $1, '{\"canal\": \"painel\"}') END AS evento",
+        "options": {
+          "queryReplacement": "={{ [($('Simular atendente').first().json.output ? '' : ((typeof $('Simular atendente').first().json.error === 'string' ? $('Simular atendente').first().json.error : ($('Simular atendente').first().json.error && ($('Simular atendente').first().json.error.message || JSON.stringify($('Simular atendente').first().json.error)))) || 'a IA nao devolveu resposta')), $('Regras (banco)').first().json.r.corpo.agente || 'leo'] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000121",
       "name": "Resposta simulada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        920,
+        1030,
         1000
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json.output ? { resposta: $json.output } : { erro: 'A atendente falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
+        "responseBody": "={{ JSON.stringify($('Simular atendente').first().json.output ? { resposta: $('Simular atendente').first().json.output } : { erro: 'Falhou: ' + $json.motivo, motivo: $json.motivo }) }}",
         "options": {
-          "responseCode": "={{ $json.output ? 200 : 502 }}",
+          "responseCode": "={{ $('Simular atendente').first().json.output ? 200 : 502 }}",
           "enableStreaming": false
         }
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000119",
+      "id": "c0000000-0000-4000-8000-000000000122",
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -413,7 +437,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000120",
+      "id": "c0000000-0000-4000-8000-000000000123",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -511,25 +535,49 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000121",
+      "id": "c0000000-0000-4000-8000-000000000124",
+      "name": "Anotar falha",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        810,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.motivo_erro(nullif($1, '')) AS motivo,\n  CASE WHEN $1 <> '' THEN nucleo.registrar_evento($2, 'erro', nucleo.motivo_erro($1), $1, '{\"canal\": \"painel\"}') END AS evento",
+        "options": {
+          "queryReplacement": "={{ [($('Cerebro').first().json.output ? '' : ((typeof $('Cerebro').first().json.error === 'string' ? $('Cerebro').first().json.error : ($('Cerebro').first().json.error && ($('Cerebro').first().json.error.message || JSON.stringify($('Cerebro').first().json.error)))) || 'a IA nao devolveu resposta')), 'leo' || 'leo'] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000125",
       "name": "Resposta da IA",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        920,
+        1030,
         0
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json.output ? { resposta: $json.output } : { erro: 'A IA falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
+        "responseBody": "={{ JSON.stringify($('Cerebro').first().json.output ? { resposta: $('Cerebro').first().json.output } : { erro: 'Falhou: ' + $json.motivo, motivo: $json.motivo }) }}",
         "options": {
-          "responseCode": "={{ $json.output ? 200 : 502 }}",
+          "responseCode": "={{ $('Cerebro').first().json.output ? 200 : 502 }}",
           "enableStreaming": false
         }
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000122",
+      "id": "c0000000-0000-4000-8000-000000000126",
       "name": "Voz (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -562,7 +610,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000123",
+      "id": "c0000000-0000-4000-8000-000000000127",
       "name": "Audio",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -586,7 +634,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000124",
+      "id": "c0000000-0000-4000-8000-000000000128",
       "name": "Voz falhou",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -628,6 +676,17 @@
       ]
     },
     "Cerebro": {
+      "main": [
+        [
+          {
+            "node": "Anotar falha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anotar falha": {
       "main": [
         [
           {
@@ -746,6 +805,17 @@
       "main": [
         [
           {
+            "node": "Anotar falha simulada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anotar falha simulada": {
+      "main": [
+        [
+          {
             "node": "Resposta simulada",
             "type": "main",
             "index": 0
@@ -785,7 +855,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner"
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "errosGerais001"
   },
   "pinData": {}
 }
