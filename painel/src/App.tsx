@@ -127,7 +127,7 @@ export default function App() {
   const estadoIa = (a: AgenteId) => estadoDe(saude?.agentes.find(s => s.agente === a), wa[AGENTES[a].instancia])
   const contador = (a: AgenteId) => {
     const s = saude?.agentes.find(x => x.agente === a)
-    return s ? (a === 'gabriel' ? 0 : s.sugestoes) + s.pendentes : 0
+    return s ? s.pendentes : 0
   }
   const agenteAtual = ORDEM.includes(pagina as AgenteId) ? pagina as AgenteId : null
 

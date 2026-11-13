@@ -248,7 +248,9 @@ LANGUAGE sql STABLE AS $$
               LEFT JOIN nucleo.clientes c ON c.id = v.cliente_id
              GROUP BY 1 ORDER BY max(v.criado_em) DESC LIMIT 40) x), '[]'),
         'aprendizado', coalesce((SELECT jsonb_agg(jsonb_build_object('id', k.id, 'titulo', k.titulo, 'conteudo', k.conteudo, 'area', k.dominio,
-                    'aprovado', k.aprovado, 'origem', k.origem, 'em', k.criado_em) ORDER BY k.criado_em DESC)
+                    'aprovado', k.aprovado, 'origem', k.origem, 'em', k.criado_em,
+                    'de', coalesce((SELECT cl.nome FROM nucleo.clientes cl WHERE cl.id = (k.metadata->>'cliente_id')::int), k.metadata->>'contato'),
+                    'copiado_de', k.metadata->>'copiado_de') ORDER BY k.criado_em DESC)
             FROM (SELECT * FROM nucleo.conhecimento
                    WHERE agente = p_agente AND (p_agente NOT IN ('leo') OR usuario_id = p_usuario)
                    ORDER BY criado_em DESC LIMIT 200) k), '[]'),
@@ -259,7 +261,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION nucleo.painel_saude(p_usuario int) RETURNS jsonb
 LANGUAGE plpgsql STABLE AS $$
-DECLARE r jsonb := '[]'; a text; lidas int; resp int; pend int; sug int; aprend int; ult timestamptz; ev jsonb; erros int;
+DECLARE r jsonb := '[]'; a text; lidas int; resp int; pend int; sug int; aprend int; novos int; ult timestamptz; ev jsonb; erros int;
 BEGIN
     FOREACH a IN ARRAY ARRAY['leo', 'joao', 'suporte', 'gabriel'] LOOP
         IF a = 'leo' THEN
@@ -277,7 +279,8 @@ BEGIN
                AND coalesce(instancia, 'joao') = nucleo.instancia_do_agente(a);
             SELECT count(*) INTO pend FROM nucleo.atendimento_fila WHERE status = 'pendente' AND agente = a;
         END IF;
-        SELECT count(*) FILTER (WHERE NOT aprovado), count(*) FILTER (WHERE aprovado) INTO sug, aprend
+        SELECT count(*) FILTER (WHERE NOT aprovado), count(*) FILTER (WHERE aprovado),
+               count(*) FILTER (WHERE aprovado AND criado_em > now() - interval '24 hours') INTO sug, aprend, novos
           FROM nucleo.conhecimento WHERE agente = a AND (a <> 'leo' OR usuario_id = p_usuario);
         SELECT count(*) INTO erros FROM nucleo.eventos WHERE agente = a AND nivel = 'erro' AND criado_em > now() - interval '24 hours';
         SELECT jsonb_build_object('id', id, 'titulo', titulo, 'detalhe', detalhe, 'em', criado_em, 'visto', visto) INTO ev
@@ -287,7 +290,7 @@ BEGIN
             'modo', CASE a WHEN 'leo' THEN 'ativo' ELSE nucleo.cfg(a || '_modo', 'observando') END,
             'instancia', nucleo.instancia_do_agente(a),
             'lidas_24h', coalesce(lidas, 0), 'respostas_24h', coalesce(resp, 0),
-            'pendentes', coalesce(pend, 0), 'sugestoes', coalesce(sug, 0), 'aprendidos', coalesce(aprend, 0),
+            'pendentes', coalesce(pend, 0), 'sugestoes', coalesce(sug, 0), 'aprendidos', coalesce(aprend, 0), 'aprendeu_24h', coalesce(novos, 0),
             'ultima_atividade', ult, 'erros_24h', coalesce(erros, 0), 'ultimo_erro', ev));
     END LOOP;
     RETURN jsonb_build_object('agentes', r,

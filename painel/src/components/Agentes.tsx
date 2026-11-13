@@ -1,9 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
-  Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench, X,
+  Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type AgenteAtend, type Area, type Evento, type Feed, type GabrielPainel, type Instancia, type ItemAprendido, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type GabrielPainel, type Instancia, type ItemAprendido, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { Chamados, Clientes, ConfigModo, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, useAtendimento } from './Secoes'
@@ -26,7 +26,7 @@ export function Inicio({ saude, wa, r, abrir }: { saude: Saude | null; wa: Statu
   if (!saude) return <div className="pagina"><div className="vazio">Carregando a saúde das IAs…</div></div>
   const estados = saude.agentes.map(s => ({ s, e: estadoDe(s, wa[s.instancia]) }))
   const problemas = estados.filter(x => x.e === 'erro' || x.e === 'whatsapp')
-  const revisar = saude.agentes.filter(s => s.agente !== 'gabriel').reduce((a, s) => a + s.sugestoes, 0)
+  const novos = saude.agentes.reduce((a, s) => a + (s.aprendeu_24h || 0), 0)
   const aprovar = saude.agentes.reduce((a, s) => a + s.pendentes, 0)
 
   return (
@@ -51,7 +51,7 @@ export function Inicio({ saude, wa, r, abrir }: { saude: Saude | null; wa: Statu
       ) : <>
 
       <div className="numeros">
-        <Numero valor={revisar} rotulo="aprendizados para revisar" destaque={revisar ? 'alerta' : undefined} />
+        <Numero valor={novos} rotulo="coisas aprendidas (24h)" />
         <Numero valor={aprovar} rotulo="respostas esperando aprovação" destaque={aprovar ? 'alerta' : undefined} />
         <Numero valor={saude.chamados_abertos} rotulo="chamados abertos" />
         <Numero valor={saude.sistemas_fora} rotulo={`sistemas fora${r ? ` de ${r.sistemas.filter(s => s.ativo).length}` : ''}`} destaque={saude.sistemas_fora ? 'erro' : undefined} />
@@ -74,7 +74,7 @@ export function Inicio({ saude, wa, r, abrir }: { saude: Saude | null; wa: Statu
                 <div><b>{s.lidas_24h}</b><span>leu 24h</span></div>
                 <div><b>{s.respostas_24h}</b><span>respondeu</span></div>
                 <div><b>{s.aprendidos}</b><span>sabe</span></div>
-                <div className={s.sugestoes && s.agente !== 'gabriel' ? 'alerta' : ''}><b>{s.agente === 'gabriel' ? s.pendentes : s.sugestoes}</b><span>{s.agente === 'gabriel' ? 'aprovar' : 'revisar'}</span></div>
+                <div><b>{s.aprendeu_24h || 0}</b><span>novos 24h</span></div>
               </div>
               {e === 'erro' && s.ultimo_erro ? (
                 <div className="cartao-erro"><AlertTriangle size={13} /> {s.ultimo_erro.titulo} <i>{haQuanto(s.ultimo_erro.em)}</i></div>
@@ -118,7 +118,7 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
   useEffect(() => { setFeed(null); setGab(null) }, [a])
   useEffect(() => { void carregarFeed(); void carregarGab(); const t = setInterval(() => { void carregarFeed(); void carregarGab() }, 20000); return () => clearInterval(t) }, [carregarFeed, carregarGab])
 
-  const revisar = feed?.aprendizado.filter(i => !i.aprovado).length ?? 0
+  const revisar = 0   // aprende sozinho: nada para revisar
   const pendentes = a === 'gabriel' ? gab?.fila.length ?? 0 : atend.d?.fila.length ?? 0
   const errosNovos = feed?.eventos.filter(e => !e.visto && e.nivel === 'erro').length ?? 0
   const modo = a === 'leo' ? 'ativo' : a === 'gabriel' ? gab?.modo ?? s?.modo ?? '' : atend.d?.config.modo ?? s?.modo ?? ''
@@ -127,7 +127,7 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
     ...(a === 'leo' ? [{ id: 'conversar' as Aba, rotulo: 'Conversar', icone: <MessageSquare size={14} /> }] : []),
     { id: 'visao', rotulo: 'Visão geral', icone: <Activity size={14} /> },
     { id: 'leu', rotulo: 'O que leu', icone: <Eye size={14} />, badge: feed?.conversas.length },
-    { id: 'aprendizado', rotulo: 'Aprendizado', icone: <Sparkles size={14} />, badge: revisar || undefined, alerta: revisar > 0 },
+    { id: 'aprendizado', rotulo: 'Aprendizado', icone: <Sparkles size={14} />, badge: s?.aprendeu_24h || undefined },
     ...(a !== 'leo' ? [
       { id: 'aprovar' as Aba, rotulo: 'Aprovar', icone: <Inbox size={14} />, badge: pendentes || undefined, alerta: pendentes > 0 },
       { id: 'simular' as Aba, rotulo: 'Testar', icone: <MessagesSquare size={14} /> },
@@ -254,7 +254,7 @@ function Visao({ a, s, estado, wa, feed, modo, revisar, pendentes, irPara, extra
           {feed && feed.aprendizado.length === 0 && <div className="vazio">Nada ainda. O aprendiz roda a cada 15 minutos.</div>}
           {feed?.aprendizado.slice(0, 5).map(i => (
             <div className="item" key={i.id}><div>
-              <div className="item-titulo">{!i.aprovado && <span className="origem alta">REVISAR</span>}{i.titulo || 'sem título'}</div>
+              <div className="item-titulo">{i.titulo || 'sem título'}</div>
               <div className="item-texto">{i.conteudo}</div>
             </div></div>
           ))}
@@ -316,80 +316,104 @@ function grupoDe(a: AgenteId, i: ItemAprendido) {
   return ({ comercial: 'Vendas', suporte: 'Suporte', geral: 'Geral', sistemico: 'Sistemas' } as Record<string, string>)[i.area || ''] || 'Outros'
 }
 
-function ItemRevisar({ a, i, recarregar }: { a: AgenteId; i: ItemAprendido; recarregar: () => void }) {
-  const [titulo, setTitulo] = useState(i.titulo || '')
-  const [conteudo, setConteudo] = useState(i.conteudo)
-  const [area, setArea] = useState<Area>((i.area as Area) || 'geral')
-  const pessoal = a === 'leo' || a === 'gabriel'
-  return (
-    <div className="revisar">
-      <div className="etiqueta">{grupoDe(a, i)} · {fmt(i.em)}</div>
-      <div className={pessoal ? '' : 'linha-2'} style={{ marginTop: 6 }}>
-        {!pessoal && <div className="campo" style={{ margin: 0 }}><select aria-label="Área" value={area} onChange={e => setArea(e.target.value as Area)}>
-          <option value="comercial">Vendas</option><option value="suporte">Suporte</option><option value="geral">Geral</option></select></div>}
-        <div className="campo" style={{ margin: 0 }}><input aria-label="Título" value={titulo} onChange={e => setTitulo(e.target.value)} /></div>
-      </div>
-      <div className="campo" style={{ margin: '6px 0' }}><textarea aria-label="Conteúdo" rows={2} value={conteudo} onChange={e => setConteudo(e.target.value)} /></div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="botao" style={{ flex: 1 }} onClick={async () => {
-          if (pessoal) await api.leoSugestaoAprovar(i.id, titulo, conteudo); else await api.sugestaoAprovar(i.id, area, titulo, conteudo)
-          recarregar()
-        }}><Check size={14} /> Está certo, guardar</button>
-        <button className="botao secundario" style={{ width: 'auto' }} aria-label="Descartar" title="Descartar" onClick={async () => {
-          if (pessoal) await api.leoSugestaoDescartar(i.id); else await api.sugestaoDescartar(i.id)
-          recarregar()
-        }}><X size={14} /></button>
-      </div>
-    </div>
-  )
+// de onde veio cada coisa que a IA aprendeu
+function origemDe(i: ItemAprendido) {
+  const de = i.de ? ` na conversa com ${/^\d+$/.test(i.de) ? '+' + i.de : i.de}` : ''
+  if (i.origem.startsWith('observacao')) return `aprendeu sozinho${de}`
+  if (i.origem === 'resposta_aprovada') return 'de uma resposta que você aprovou'
+  if (i.origem === 'manual') return 'você ensinou'
+  if (i.origem === 'ensinado_pelo_dono') return 'você ensinou conversando com ele'
+  if (i.origem === 'conversa') return 'você pediu para lembrar'
+  if (i.origem === 'copiado') return `copiado ${i.copiado_de && i.copiado_de in AGENTES ? 'do ' + AGENTES[i.copiado_de as AgenteId].nome : 'de outra IA'}`
+  return `aprendeu${de}`
+}
+function diaDe(iso: string) {
+  const d = new Date(iso), hoje = new Date(), ontem = new Date(Date.now() - 864e5)
+  const mesmo = (x: Date) => x.toDateString() === d.toDateString()
+  return mesmo(hoje) ? 'Hoje' : mesmo(ontem) ? 'Ontem' : d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+}
+
+function Acoes({ a, i, recarregar }: { a: AgenteId; i: ItemAprendido; recarregar: () => void }) {
+  return <>
+    <CopiarPara a={a} id={i.id} />
+    <button aria-label={`Esquecer ${i.titulo || ''}`} title="Esquecer" onClick={async () => {
+      if (!confirm('Fazer a IA esquecer isso?')) return
+      if (a === 'leo' || a === 'gabriel') await api.esquecer(i.id); else await api.baseApagar(i.id)
+      recarregar()
+    }}><Trash2 size={13} /></button>
+  </>
 }
 
 function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed | null; recarregar: () => void; manual: React.ReactNode }) {
   const [busca, setBusca] = useState('')
   const [rodando, setRodando] = useState('')
   if (!feed) return <div className="vazio">Carregando…</div>
-  const revisar = feed.aprendizado.filter(i => !i.aprovado)
-  const sabe = feed.aprendizado.filter(i => i.aprovado && (!busca || `${i.titulo} ${i.conteudo}`.toLowerCase().includes(busca.toLowerCase())))
-  const grupos = sabe.reduce<Record<string, ItemAprendido[]>>((g, i) => { (g[grupoDe(a, i)] ||= []).push(i); return g }, {})
+  const filtra = (i: ItemAprendido) => !busca || `${i.titulo} ${i.conteudo} ${i.de || ''}`.toLowerCase().includes(busca.toLowerCase())
+  const todos = feed.aprendizado.filter(filtra)
+  const porDia = todos.reduce<[string, ItemAprendido[]][]>((l, i) => {
+    const d = diaDe(i.em); const ult = l[l.length - 1]
+    if (ult && ult[0] === d) ult[1].push(i); else l.push([d, [i]])
+    return l
+  }, [])
+  const grupos = todos.reduce<Record<string, ItemAprendido[]>>((g, i) => { (g[grupoDe(a, i)] ||= []).push(i); return g }, {})
+  const hoje = feed.aprendizado.filter(i => diaDe(i.em) === 'Hoje').length
+  const suas = feed.conversas.reduce((n, c) => n + c.historico.filter(h => h.papel === 'humano').length, 0)
   return (
     <div className="duas-colunas">
       <div className="coluna-pilha">
-        <Hud titulo="Para revisar" icone={<Sparkles size={14} />} extra={
+        <Hud titulo="Histórico do que aprendeu" icone={<Sparkles size={14} />} extra={
           <BotaoMini disabled={rodando === '…'} onClick={async () => {
             setRodando('…')
-            try { const r = await api.aprenderAgora(); setRodando(r.sugestoes ? `${r.sugestoes} novos` : 'nada novo') } catch { setRodando('falhou') }
-            recarregar(); setTimeout(() => setRodando(''), 4000)
+            try { const r = await api.aprenderAgora(); setRodando(r.sugestoes ? `+${r.sugestoes}` : 'nada novo') } catch { setRodando('falhou') }
+            recarregar(); setTimeout(() => setRodando(''), 6000)
           }}><RefreshCw size={12} className={rodando === '…' ? 'girando' : ''} /> {rodando || 'aprender agora'}</BotaoMini>}>
-          <div className="etiqueta" style={{ marginBottom: 6 }}>
-            O que {AGENTES[a].nome} tirou das conversas do número dele (a cada 15 min, áudios incluídos). Só passa a valer depois que você confirma.
-            Cada IA tem a própria inteligência: nada daqui vai para outra IA, a não ser que você copie.
+          <div className="etiqueta" style={{ marginBottom: 8 }}>
+            {AGENTES[a].nome} aprende sozinho a cada 15 min com o que {a === 'joao' || a === 'suporte' ? 'a equipe responde' : 'você escreve'} no número dele
+            (áudios incluídos) e já passa a usar.{hoje > 0 ? ` Hoje: ${hoje} coisa${hoje > 1 ? 's' : ''} nova${hoje > 1 ? 's' : ''}.` : ''} Se algo estiver errado, mande esquecer.
           </div>
-          {revisar.length === 0 && <div className="vazio">Nada novo para revisar ✓</div>}
-          {revisar.map(i => <ItemRevisar key={i.id} a={a} i={i} recarregar={recarregar} />)}
+          {suas === 0 && feed.conversas.length > 0 && (
+            <div className="aviso erro" style={{ marginBottom: 8 }}>
+              Nas conversas lidas ainda não há nenhuma mensagem {a === 'joao' || a === 'suporte' ? 'da equipe' : 'sua'} — só dos contatos.
+              A IA aprende com quem responde pelo número dela: responda algumas conversas por ele e clique em “aprender agora”.
+            </div>
+          )}
+          <div className="busca" style={{ margin: '0 0 8px' }}><Search size={14} /><input aria-label="Buscar no histórico" placeholder="Buscar no que aprendeu…" value={busca} onChange={e => setBusca(e.target.value)} /></div>
+          {todos.length === 0 && <div className="vazio">{busca ? 'Nada encontrado.' : 'Ainda não aprendeu nada.'}</div>}
+          <div className="linha-tempo">
+            {porDia.map(([dia, itens]) => (
+              <div key={dia}>
+                <div className="dia">{dia} <span className="contagem">{itens.length}</span></div>
+                {itens.map(i => (
+                  <div className="marco" key={i.id}>
+                    <div>
+                      <div className="etiqueta"><b>{new Date(i.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</b> · {grupoDe(a, i)} · {origemDe(i)}</div>
+                      <div className="item-titulo">{i.titulo || 'sem título'}</div>
+                      <div className="item-texto">{i.conteudo}</div>
+                    </div>
+                    <Acoes a={a} i={i} recarregar={recarregar} />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </Hud>
-        {manual}
       </div>
       <div className="coluna-pilha">
-        <Hud titulo={`O que ${AGENTES[a].nome} já sabe`} icone={<BookOpen size={14} />} extra={<span className="contagem">{feed.aprendizado.filter(i => i.aprovado).length}</span>}>
-          <div className="busca" style={{ margin: '0 0 8px' }}><Search size={14} /><input aria-label="Buscar no que sabe" placeholder="Buscar…" value={busca} onChange={e => setBusca(e.target.value)} /></div>
-          {sabe.length === 0 && <div className="vazio">{busca ? 'Nada encontrado.' : 'Ainda não sabe nada confirmado.'}</div>}
+        <Hud titulo={`O que ${AGENTES[a].nome} sabe, por assunto`} icone={<BookOpen size={14} />} extra={<span className="contagem">{feed.aprendizado.length}</span>}>
+          {Object.keys(grupos).length === 0 && <div className="vazio">Nada ainda.</div>}
           {Object.entries(grupos).map(([g, itens]) => (
-            <details key={g} className="grupo" open>
+            <details key={g} className="grupo">
               <summary>{g} <span className="contagem">{itens.length}</span></summary>
               {itens.map(i => (
                 <div className="item" key={i.id}>
                   <div><div className="item-titulo">{i.titulo || 'sem título'}</div><div className="item-texto">{i.conteudo}</div></div>
-                  <CopiarPara a={a} id={i.id} />
-                  <button aria-label={`Esquecer ${i.titulo || ''}`} title="Esquecer" onClick={async () => {
-                    if (!confirm('Fazer a IA esquecer isso?')) return
-                    if (a === 'leo' || a === 'gabriel') await api.esquecer(i.id); else await api.baseApagar(i.id)
-                    recarregar()
-                  }}><Trash2 size={13} /></button>
+                  <Acoes a={a} i={i} recarregar={recarregar} />
                 </div>
               ))}
             </details>
           ))}
         </Hud>
+        {manual}
       </div>
     </div>
   )

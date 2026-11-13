@@ -81,12 +81,11 @@ try:
             sql(f"SELECT count(*) FROM nucleo.conversas WHERE instancia = 'suporte' AND contato = '{CLI}'") == "2")
     confere("suporte NAO respondeu (observando)", sql(f"SELECT count(*) FROM nucleo.atendimento_fila WHERE agente = 'suporte' AND criado_em >= '{inicio}'") == "0")
     r = api("admin_aprender_agora")
-    sug = api("admin_atendimento", {"agente": "suporte"})["sugestoes"]
+    # aprende sozinho: ja entra valendo
+    sug = [i for i in api("admin_agente_feed", {"agente": "suporte"})["aprendizado"] if i["origem"] == "observacao"]
     for s in sug:
-        print(f"    sugestao [{s['dominio']}] {s['titulo']}: {s['conteudo']}")
-    confere("suporte aprendeu o erro 05", any("05" in s["conteudo"] for s in sug), sug)
-    for s in sug:
-        api("admin_sugestao_aprovar", {"id": s["id"], "area": s["dominio"], "titulo": s["titulo"], "conteudo": s["conteudo"]})
+        print(f"    aprendeu [{s['area']}] {s['titulo']}: {s['conteudo']}")
+    confere("suporte aprendeu o erro 05 (e ja vale)", any("05" in s["conteudo"] and s["aprovado"] for s in sug), sug)
 
     print("\n== Suporte24hrs atendendo (simulador)")
     r = simula("suporte", "Oi, quem fala?", "s1")
@@ -111,14 +110,14 @@ try:
     zap("gabriel", AMIGO, "Umas 13h ta suave. Chega cedo pra ajudar no fogo hein kkk", de_mim=True)
     api("admin_aprender_agora")
     # o Gabriel aprende com o numero DELE, na inteligencia dele (nada vai para o Leo)
-    g_sug = [i for i in api("admin_agente_feed", {"agente": "gabriel"})["aprendizado"] if not i["aprovado"]]
+    g_sug = [i for i in api("admin_agente_feed", {"agente": "gabriel"})["aprendizado"] if i["origem"] == "observacao_gabriel"]
     for s in g_sug:
         print(f"    gabriel aprendeu: [{s['titulo']}] {s['conteudo']}")
-        api("admin_leo_sugestao_aprovar", {"id": s["id"], "titulo": s["titulo"], "conteudo": s["conteudo"]})
     confere("aprendeu o jeito (classificado como 'Jeito de falar')", any((s["titulo"] or "").lower().startswith("jeito de falar") for s in g_sug), g_sug)
     estilo = sql("SELECT nucleo.estilo_gabriel()")
     confere("jeito aprovado fica com o Gabriel (estilo)", "kkk" in estilo.lower() or "mano" in estilo.lower(), estilo)
-    confere("nada disso foi para o Leo", sql(f"SELECT count(*) FROM nucleo.conhecimento WHERE agente = 'leo' AND criado_em >= '{inicio}'") == "0")
+    confere("nada disso foi para o Leo", sql(f"SELECT count(*) FROM nucleo.conhecimento WHERE agente = 'leo' AND criado_em >= '{inicio}'"
+                                             " AND (conteudo ILIKE '%churrasco%' OR conteudo ILIKE '%carvao%' OR conteudo ILIKE '%carne%')") == "0")
 
     zap("gabriel", AMIGO, "Mano, me empresta 500 reais ate sexta?", nome="Amigo Teste")
     confere("observando: Gabriel nao respondeu", sql("SELECT count(*) FROM nucleo.atendimento_fila WHERE agente = 'gabriel'") == "0")

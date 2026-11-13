@@ -185,7 +185,7 @@ BEGIN
                     'detalhe',ultimo_detalhe,'ultimo_check',ultimo_check,'caiu_em',caiu_em,
                     'origem',origem,'tipo',tipo,'tempo_ms',ultimo_tempo_ms,'painel_url',painel_url)
                     ORDER BY (estado='falha') DESC, origem, nome)
-                FROM nucleo.sistemas), '[]'),
+                FROM nucleo.sistemas WHERE NOT coalesce(oculto_auto, false)), '[]'),   -- suspensos/apagados na plataforma nem aparecem
             'incidentes', coalesce((SELECT jsonb_agg(x) FROM (
                 SELECT s.nome, i.inicio, i.fim FROM nucleo.incidentes i JOIN nucleo.sistemas s ON s.id=i.sistema_id
                  ORDER BY i.inicio DESC LIMIT 6) x), '[]'),

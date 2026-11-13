@@ -893,7 +893,7 @@ if (r.falhou) {
   return [{ json: { enviado: false, falhou: true, motivo: r.motivo, ids: '' } }];
 }
 if (r.enviar) {
-  const env = await enviarWhatsapp(r.numero, fila, false, r.instancia || $('Ler mensagem').first().json.instancia);
+  const env = await enviarWhatsapp(r.numero, fila, !!r.dono, r.instancia || $('Ler mensagem').first().json.instancia);
   return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];
 }
 const conectado = await whatsappConectado();
@@ -1011,7 +1011,12 @@ const lote = $input.all().map(i => i.json).find(j => j.texto);
 if (!lote) return [];
 const msg = $('Ler mensagem').first().json;
 try { await evo('POST', `/chat/sendPresence/${msg.instancia}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}
-return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagens_juntas: lote.quantidade } }];""",
+const prep = $('Preparar').first().json;
+// conversa "Voce" no numero da IA: quem fala e o dono (chefe), nao um cliente
+const DONO = prep.agente === 'gabriel'
+  ? '[Conversa particular com o proprio dono (a pessoa que voce imita). Ele pode te ensinar como fala e age, te corrigir ou te testar. Responda direto a ele, natural.]\n'
+  : '[Mensagem do seu CHEFE (o dono da empresa) pela conversa interna do seu WhatsApp. Ele NAO e cliente: pode te ensinar (precos, regras, jeito de responder), te corrigir ou te testar. Responda como um funcionario responde ao chefe. Nao abra chamado nem registre lead nesta conversa.]\n';
+return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mensagens_juntas: lote.quantidade } }];""",
         }),
         node("Quem responde", "n8n-nodes-base.switch", 3.2, [1650, 0], {
             "mode": "expression", "numberOutputs": 2,
@@ -1029,11 +1034,12 @@ return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagen
             "operation": "executeQuery",
             # sem resposta da IA: registra a falha com o motivo e avisa o admin (nada vai para o cliente)
             "query": "SELECT CASE WHEN $3 = '' THEN nucleo.agente_falhou($4, $7, nullif($5, ''), $2)\n"
+                     "  WHEN $8 = 'dono' THEN nucleo.agente_responder_dono($4, $5, $3)\n"
                      "  ELSE nucleo.agente_registrar(nullif($1, '')::int, $2, $3, $4, nullif($5, ''), nullif($6, '')) END AS r",
             "options": {"queryReplacement": "={{ [String($('Lote pronto').first().json.cliente_id || ''), $('Lote pronto').first().json.chatInput, "
                                             "$json.output || '', "
                                             "$('Lote pronto').first().json.agente, String($('Lote pronto').first().json.numero || ''), "
-                                            "$('Lote pronto').first().json.nome || '', (typeof $json.error === 'string' ? $json.error : ($json.error && ($json.error.message || JSON.stringify($json.error)))) || 'a IA nao devolveu resposta'] }}"},
+                                            "$('Lote pronto').first().json.nome || '', (typeof $json.error === 'string' ? $json.error : ($json.error && ($json.error.message || JSON.stringify($json.error)))) || 'a IA nao devolveu resposta', ($('Lote pronto').first().json.dono ? 'dono' : '')] }}"},
         }, credentials=PG),
         node("Entregar atendimento", "n8n-nodes-base.code", 2, [2200, 260], {
             "mode": "runOnceForAllItems",
@@ -1231,9 +1237,10 @@ if ($env.RENDER_API_KEY) {
     contaOk('render');
     const RUINS = { build_failed: 'build falhou', update_failed: 'atualizacao falhou', pre_deploy_failed: 'pre-deploy falhou', canceled: 'deploy cancelado' };
     await Promise.all(servicos.map(async s => {
+      // suspenso: nao e falha, so some do painel (volta sozinho se reativar)
+      if (s.suspended === 'suspended') { itens.push({ origem: 'render', externo_id: `render:${s.id}:deploy`, suspenso: true }); return; }
       let ok = true, detalhe = 'no ar';
-      if (s.suspended === 'suspended') { ok = false; detalhe = 'servico SUSPENSO'; }
-      else {
+      {
         try {
           const d = (await pedir(`https://api.render.com/v1/services/${s.id}/deploys?limit=1`, $env.RENDER_API_KEY))[0];
           const st = d && d.deploy ? d.deploy.status : null;
@@ -1290,7 +1297,8 @@ async function checar(s) {
       headers: { 'User-Agent': 'IA-Central-Monitor/1.0', 'Cache-Control': 'no-cache' } });
     const ms = Date.now() - t0, st = r.statusCode;
     const corpo = typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '');
-    const statusOk = s.status_esperado ? st === s.status_esperado : st < 400;
+    // -1 = site descoberto no Render/Vercel: qualquer resposta do servidor conta (API responde 404 na raiz)
+    const statusOk = s.status_esperado > 0 ? st === s.status_esperado : st < (s.status_esperado === -1 ? 500 : 400);
     if (!statusOk) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `HTTP ${st}` + (s.status_esperado ? ` (esperado ${s.status_esperado})` : '') };
     if (s.texto_esperado && !corpo.includes(s.texto_esperado)) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `resposta sem "${s.texto_esperado}"` };
     return { sistema_id: s.id, ok: true, tempo_ms: ms, detalhe: `HTTP ${st} em ${ms} ms` + (ms > lento ? ' (LENTO)' : '') };
@@ -1846,6 +1854,18 @@ Regras:
 - Aprenda MUITO: ate 10 itens por conversa. Nao repita o que o Gabriel ja sabe. Se nao houver nada novo, itens vazio.
 O que o Gabriel ja sabe:
 `;
+const NOME_IA = { leo: 'Leo 2.0 (a IA pessoal do dono)', joao: 'Joao (o vendedor)', suporte: 'Suporte24hrs (o suporte)', gabriel: 'Gabriel (o clone do dono)' };
+const PROMPT_DONO = `Voce e o aprendiz da IA __IA__. Abaixo, o DONO conversando DIRETO com essa IA (conversa interna, nao e cliente).
+Extraia TUDO que o dono ensinou, corrigiu, pediu ou informou que a IA deve saber ou fazer daqui pra frente:
+fatos, precos, regras, procedimentos, pessoas e seus papeis, preferencias, como responder, jeito de falar.
+Regras:
+- Aprenda SO do que o DONO disse. O que a IA respondeu e so contexto (nunca aprenda das respostas da IA).
+- Se o dono corrigiu a IA, guarde a versao certa.
+- Ignore conversa sem conteudo (oi, testes, "ta ai?"). Mensagens com "🎤" eram audios transcritos.
+- NUNCA guarde senhas, codigos, dados bancarios/cartao ou documentos.
+- Cada item autoexplicativo (1 a 3 frases). Nao repita o que a IA ja sabe. Se nao houver nada novo, itens vazio.
+O que a IA ja sabe:
+`;
 const saida = [];
 for (const p of pendentes) {
   try {
@@ -1853,7 +1873,7 @@ for (const p of pendentes) {
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
       body: { model: '__MODELO__', reasoning_effort: 'low',
         response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: (p.tipo === 'leo' || p.tipo === 'gabriel') ? schemaLeo : schema } },
-        messages: [{ role: 'system', content: (p.tipo === 'leo' ? PROMPT_LEO : p.tipo === 'gabriel' ? PROMPT_GABRIEL : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
+        messages: [{ role: 'system', content: (String(p.chave).startsWith('dono:') ? PROMPT_DONO.replace('__IA__', NOME_IA[p.tipo] || p.tipo) : p.tipo === 'leo' ? PROMPT_LEO : p.tipo === 'gabriel' ? PROMPT_GABRIEL : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
                                                + (p.contexto || '(vazia)') },
                    { role: 'user', content: p.transcricao }] } });
     const itens = JSON.parse(r.choices[0].message.content).itens || [];
@@ -1889,6 +1909,7 @@ def aprendiz():
         node("Salvar sugestoes", "n8n-nodes-base.postgres", 2.6, [900, 180], {
             "operation": "executeQuery",
             "query": "SELECT CASE\n"
+                     "  WHEN $1 LIKE 'dono:%' THEN nucleo.aprendiz_dono_salvar($3, $1, nullif($4, '')::int, $2::jsonb)\n"
                      "  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 = 'gabriel' THEN nucleo.aprendiz_gabriel_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 IN ('joao', 'suporte') THEN nucleo.aprendiz_salvar_agente(nullif($1, '')::int, $2::jsonb, $3)\n"

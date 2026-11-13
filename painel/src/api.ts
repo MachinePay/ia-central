@@ -75,7 +75,7 @@ export type Instancia = 'nucleo' | 'joao' | 'suporte' | 'gabriel'
 export interface Evento { id: number; nivel?: 'erro' | 'aviso' | 'info'; agente?: string; titulo: string; detalhe: string | null; contexto?: Record<string, unknown>; visto?: boolean; em: string }
 export interface SaudeAgente {
   agente: AgenteId; modo: string; instancia: Instancia
-  lidas_24h: number; respostas_24h: number; pendentes: number; sugestoes: number; aprendidos: number
+  lidas_24h: number; respostas_24h: number; pendentes: number; sugestoes: number; aprendidos: number; aprendeu_24h?: number
   ultima_atividade: string | null; erros_24h: number; ultimo_erro: Evento | null
 }
 export interface Saude { agentes: SaudeAgente[]; outros_erros: Evento[]; sistemas_fora: number; chamados_abertos: number }
@@ -83,7 +83,7 @@ export interface ConversaLida {
   numero: string; nome: string | null; mensagens: number; ultima: string; ultimo_papel: string; ultima_mensagem: string
   historico: { papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[]
 }
-export interface ItemAprendido { id: number; titulo: string | null; conteudo: string; area: string | null; aprovado: boolean; origem: string; em: string }
+export interface ItemAprendido { id: number; titulo: string | null; conteudo: string; area: string | null; aprovado: boolean; origem: string; em: string; de?: string | null; copiado_de?: string | null }
 export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[]; eventos: Evento[] }
 
 export class ErroApi extends Error {

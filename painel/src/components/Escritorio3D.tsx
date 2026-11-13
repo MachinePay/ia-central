@@ -307,7 +307,7 @@ function Detalhe({ a, s, estado, wa, abrir, fechar }: { a: AgenteId; s: SaudeAge
           <div><b>{s.lidas_24h}</b><span>leu 24h</span></div>
           <div><b>{s.respostas_24h}</b><span>respondeu</span></div>
           <div><b>{s.aprendidos}</b><span>sabe</span></div>
-          <div className={s.sugestoes ? 'alerta' : ''}><b>{s.sugestoes}</b><span>revisar</span></div>
+          <div><b>{s.aprendeu_24h || 0}</b><span>novos 24h</span></div>
         </div>
       )}
       {estado === 'erro' && s?.ultimo_erro && (
@@ -317,9 +317,9 @@ function Detalhe({ a, s, estado, wa, abrir, fechar }: { a: AgenteId; s: SaudeAge
         </div>
       )}
       <button className="botao" onClick={() => abrir(a, estado === 'erro' ? 'erros' : 'visao')}>Abrir {info.nome} <ArrowRight size={14} /></button>
-      {s && (s.sugestoes > 0 || s.pendentes > 0) && (
-        <button className="botao secundario" style={{ marginTop: 8 }} onClick={() => abrir(a, s.pendentes ? 'aprovar' : 'aprendizado')}>
-          {s.pendentes ? `${s.pendentes} para aprovar` : `${s.sugestoes} para revisar`}
+      {s && s.pendentes > 0 && (
+        <button className="botao secundario" style={{ marginTop: 8 }} onClick={() => abrir(a, 'aprovar')}>
+          {`${s.pendentes} para aprovar`}
         </button>
       )}
     </div>
