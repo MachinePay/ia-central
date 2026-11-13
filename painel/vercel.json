@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/webhook/:caminho*",
-      "destination": "https://TROQUE-PELO-ENDERECO-DO-N8N.onrender.com/webhook/:caminho*"
+      "destination": "https://ia-central-n8n.onrender.com/webhook/:caminho*"
     }
   ]
 }
