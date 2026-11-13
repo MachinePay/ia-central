@@ -1,0 +1,119 @@
+# IA Central no Render (Blueprint). Cria: banco Postgres + n8n (IA, API, monitor) + Evolution (WhatsApp).
+# Render -> New -> Blueprint -> escolha este repositorio. Ele pede os valores marcados com "sync: false".
+
+databases:
+  - name: ia-central-db
+    databaseName: iacentral
+    user: iacentral
+    plan: 0.1c-256mb
+    postgresMajorVersion: "17"
+    region: virginia
+
+envVarGroups:
+  # segredos gerados pelo proprio Render e compartilhados entre n8n e WhatsApp
+  - name: ia-central-segredos
+    envVars:
+      - key: EVOLUTION_API_KEY
+        generateValue: true
+      - key: WHATSAPP_WEBHOOK_SEGREDO
+        generateValue: true
+
+services:
+  # ------------------------------------------------------------------ n8n: IA, API do painel, monitor
+  - type: web
+    name: ia-central-n8n
+    runtime: docker
+    dockerfilePath: ./deploy/n8n/Dockerfile
+    dockerContext: .
+    plan: 0.5c-512mb          # pago: o plano free hiberna e o monitor/WhatsApp param
+    region: virginia
+    healthCheckPath: /healthz
+    envVars:
+      - fromGroup: ia-central-segredos
+      - key: PORT
+        value: "5678"
+      - key: BANCO_URL
+        fromDatabase: { name: ia-central-db, property: connectionString }
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      # admin do painel
+      - key: ADMIN_LOGIN
+        value: admin
+      - key: ADMIN_NOME
+        sync: false
+      - key: ADMIN_SENHA
+        sync: false
+      # IA
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # avisos e plataformas (opcionais: pode deixar vazio)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: VERCEL_TOKEN
+        sync: false
+      - key: VERCEL_TEAM_ID
+        sync: false
+      # WhatsApp pela rede interna do Render
+      - key: EVOLUTION_URL
+        fromService: { type: web, name: ia-central-evolution, property: hostport }
+      - key: EVOLUTION_INSTANCIA
+        value: nucleo
+      - key: WHATSAPP_WEBHOOK_BASE
+        fromService: { type: web, name: ia-central-n8n, property: hostport }
+
+  # ------------------------------------------------------------------ Evolution API: WhatsApp
+  - type: web
+    name: ia-central-evolution
+    runtime: docker
+    dockerfilePath: ./deploy/evolution/Dockerfile
+    dockerContext: ./deploy/evolution
+    plan: 0.5c-512mb
+    region: virginia
+    disk:
+      name: evolution-sessoes
+      mountPath: /evolution/instances
+      sizeGB: 1
+    envVars:
+      - fromGroup: ia-central-segredos
+      - key: PORT
+        value: "8080"
+      - key: SERVER_PORT
+        value: "8080"
+      - key: SERVER_URL
+        value: http://localhost:8080
+      - key: BANCO_URL
+        fromDatabase: { name: ia-central-db, property: connectionString }
+      - key: DATABASE_PROVIDER
+        value: postgresql
+      - key: DATABASE_CONNECTION_CLIENT_NAME
+        value: evolution
+      - key: DATABASE_SAVE_DATA_INSTANCE
+        value: "true"
+      - key: DATABASE_SAVE_DATA_NEW_MESSAGE
+        value: "false"
+      - key: DATABASE_SAVE_MESSAGE_UPDATE
+        value: "false"
+      - key: DATABASE_SAVE_DATA_CONTACTS
+        value: "false"
+      - key: DATABASE_SAVE_DATA_CHATS
+        value: "false"
+      - key: CACHE_REDIS_ENABLED
+        value: "false"
+      - key: CACHE_LOCAL_ENABLED
+        value: "true"
+      - key: CONFIG_SESSION_PHONE_CLIENT
+        value: Nucleo IA
+      - key: CONFIG_SESSION_PHONE_NAME
+        value: Chrome
+      - key: QRCODE_LIMIT
+        value: "30"
+      - key: DEL_INSTANCE
+        value: "false"
+      - key: LOG_LEVEL
+        value: ERROR,WARN
+      - key: TZ
+        value: America/Sao_Paulo

@@ -1,0 +1,488 @@
+{
+  "id": "apiPainel00001",
+  "name": "API do Painel",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000040",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "painel",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "webhookId": "9b1f6c2e-1a00-4000-8000-000000000002"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000041",
+      "name": "Regras (banco)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.api($1, $2, $3::jsonb) AS r",
+        "options": {
+          "queryReplacement": "={{ [($json.headers.authorization || '').replace(/^Bearer\\s+/i, ''), $json.body.acao || '', JSON.stringify($json.body.dados || {})] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000042",
+      "name": "Rota",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 5,
+        "output": "={{ $json.r.saida }}"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000043",
+      "name": "WhatsApp (Evolution)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        420
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto) {\n  let t = paraWhatsapp(texto);\n  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// status / conectar (QR ou codigo de pareamento) / desconectar\nconst corpo = $input.first().json.r.corpo;\nconst urlWebhook = comHttp($env.WHATSAPP_WEBHOOK_BASE || 'n8n:5678') + '/webhook/whatsapp';\nconst eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];\nconst cfgWebhook = { enabled: true, url: urlWebhook, byEvents: false, base64: true, events: eventos };\nasync function estado() {\n  try { const x = await evo('GET', `/instance/connectionState/${INST}`); return (x.instance || x).state || 'close'; }\n  catch (e) { return /404|not exist/i.test(String(e.message) + JSON.stringify(e.description || '')) ? 'inexistente' : 'erro'; }\n}\nconst saida = {};\nif (corpo.op === 'conectar') {\n  if ((await estado()) === 'inexistente') {\n    await evo('POST', '/instance/create', { instanceName: INST, token: $env.WHATSAPP_WEBHOOK_SEGREDO,\n      integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });\n  }\n  await evo('POST', `/webhook/set/${INST}`, { webhook: cfgWebhook });\n  await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA);\n  if ((await estado()) !== 'open') {\n    const num = String(corpo.numero || '').replace(/\\D/g, '');\n    const q = await evo('GET', `/instance/connect/${INST}` + (num ? `?number=${num}` : ''));\n    saida.qr = q.base64 || null;\n    saida.codigo = q.pairingCode || null;\n  }\n} else if (corpo.op === 'desconectar') {\n  try { await evo('DELETE', `/instance/logout/${INST}`); } catch (e) { /* ja desconectado */ }\n}\nsaida.estado = await estado();\nif (saida.estado !== 'inexistente' && saida.estado !== 'erro') {\n  try { await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }\n}\nsaida.config = corpo.config || {};\nif (saida.estado === 'open') {\n  try {\n    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${INST}`);\n    const i = Array.isArray(lista) ? lista[0] : lista;\n    saida.numero = String(i.ownerJid || i.owner || '').split('@')[0];\n    saida.perfil = i.profileName || null;\n  } catch (e) { /* sem detalhes */ }\n}\nsaida.desconhecidos = corpo.desconhecidos || [];\nreturn [{ json: saida }];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000044",
+      "name": "Resposta WhatsApp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        420
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.error ? { erro: 'WhatsApp: ' + ($json.error.message || $json.error) } : $json) }}",
+        "options": {
+          "responseCode": "={{ $json.error ? 502 : 200 }}",
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000045",
+      "name": "Rodar monitor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        700,
+        600
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "monitorSistemas01",
+          "cachedResultName": "Monitor de Sistemas"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "origem": "painel"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "origem",
+              "displayName": "origem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000046",
+      "name": "Verificado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        600
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: !$json.error }) }}",
+        "options": {
+          "responseCode": 200,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000047",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        700,
+        -200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.r.corpo) }}",
+        "options": {
+          "responseCode": "={{ $json.r.status }}",
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000048",
+      "name": "Cerebro",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        700,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "iaCerebro00001",
+          "cachedResultName": "Cerebro IA (por usuario)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "usuario_id": "={{ $json.r.corpo.usuario_id }}",
+            "nome": "={{ $json.r.corpo.nome }}",
+            "papel": "={{ $json.r.corpo.papel }}",
+            "chatInput": "={{ $json.r.corpo.chatInput }}",
+            "sessionId": "={{ $json.r.corpo.sessionId }}",
+            "canal": "={{ $json.r.corpo.canal }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "usuario_id",
+              "displayName": "usuario_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nome",
+              "displayName": "nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "papel",
+              "displayName": "papel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "chatInput",
+              "displayName": "chatInput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000049",
+      "name": "Resposta da IA",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.output ? { resposta: $json.output } : { erro: 'A IA falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
+        "options": {
+          "responseCode": "={{ $json.output ? 200 : 502 }}",
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000050",
+      "name": "Voz (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/speech",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'nova', response_format: 'mp3', input: $json.r.corpo.texto, instructions: 'Fale em portugues do Brasil, tom confiante, caloroso e levemente futurista, ritmo natural.' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai01",
+          "name": "OpenAI"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000051",
+      "name": "Audio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        160
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "automatically",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "audio/mpeg"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000052",
+      "name": "Voz falhou",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        320
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ erro: 'Voz indisponivel' }) }}",
+        "options": {
+          "responseCode": 502,
+          "enableStreaming": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Regras (banco)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regras (banco)": {
+      "main": [
+        [
+          {
+            "node": "Rota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro": {
+      "main": [
+        [
+          {
+            "node": "Resposta da IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp (Evolution)": {
+      "main": [
+        [
+          {
+            "node": "Resposta WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cerebro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Voz (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp (Evolution)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rodar monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rodar monitor": {
+      "main": [
+        [
+          {
+            "node": "Verificado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voz (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Voz falhou",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

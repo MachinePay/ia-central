@@ -1,0 +1,10 @@
+{
+  "name": "Núcleo · IA Central",
+  "short_name": "Núcleo",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#04060d",
+  "theme_color": "#04060d",
+  "icons": [{ "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -1,0 +1,547 @@
+{
+  "id": "iaCerebro00001",
+  "name": "Cerebro IA (por usuario)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000024",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "usuario_id",
+              "type": "string"
+            },
+            {
+              "name": "nome",
+              "type": "string"
+            },
+            {
+              "name": "papel",
+              "type": "string"
+            },
+            {
+              "name": "chatInput",
+              "type": "string"
+            },
+            {
+              "name": "sessionId",
+              "type": "string"
+            },
+            {
+              "name": "canal",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000025",
+      "name": "IA",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        300,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.chatInput }}",
+        "needsFallback": false,
+        "options": {
+          "systemMessage": "=Voce e a IA pessoal de {{ $('Quando chamado').first().json.nome }} dentro da IA Central: um assistente de confianca que resolve as coisas.\nPapel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }} (horario de Brasilia).\n\nComo trabalhar:\n- Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.\n- Voce coordena especialistas. Delegue a eles o que for da area deles:\n  * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).\n    Repasse o pedido como a pessoa fez, sem inventar exigencias extras.\n- Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar\n  (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,\n  procure com buscar_memoria.\n  * escopo \"minha\": so as memorias desta pessoa (padrao).\n  * escopo \"compartilhada\": inclui as de quem participa da memoria compartilhada (se estiver ligada).\n  * escopo \"todos\": use quando pedirem ideias/visao \"de todo mundo\", \"do time\", \"de todos\". Para o admin\n    traz tudo de todos; para os outros so o que e compartilhado. O banco aplica a regra; nao prometa mais.\n  * Ao usar memoria de outras pessoas, diga de quem veio cada ideia (campo \"de\").\n- Lembretes: use criar_lembrete com data/hora ISO 8601 com fuso -03:00. Se o horario for vago, pergunte.\n- Para avisar alguem (ou a propria pessoa) agora, use enviar_mensagem (vai pelo WhatsApp se a pessoa tiver numero, senao Telegram).\n  Confirme o texto antes de mandar para outra pessoa, a menos que ja tenham dito exatamente o que mandar.\n- Contatos: listar_contatos / cadastrar_contato. Telegram/WhatsApp da propria pessoa: salvar_meu_contato.\n- So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem\n  (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.\n- Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.\n- Se o canal comecar com \"whatsapp\": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas\n  nem titulos. Se for \"whatsapp (audio...)\", a resposta vai virar audio: frases faladas, sem simbolos.\n- Se o canal for \"voz\": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,\n  sem listas com simbolos, sem emojis, sem links.",
+          "maxIterations": 12,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000026",
+      "name": "Memoria da conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.4,
+      "position": [
+        160,
+        260
+      ],
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Quando chamado').first().json.sessionId }}",
+        "tableName": "nucleo_memoria_chat",
+        "contextWindowLength": 20
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000027",
+      "name": "especialista_sistemas",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        260
+      ],
+      "parameters": {
+        "description": "Especialista em sistemas monitorados: status atual, historico de quedas, cadastrar/pausar monitoramento. Mande o pedido completo em linguagem natural.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "espSistemas01",
+          "cachedResultName": "Especialista: Sistemas"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "usuario_id": "={{ $('Quando chamado').first().json.usuario_id }}",
+            "pedido": "={{ $fromAI('pedido', 'o que precisa do especialista, com todos os detalhes', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "usuario_id",
+              "displayName": "usuario_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "pedido",
+              "displayName": "pedido",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000028",
+      "name": "enviar_mensagem",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        260
+      ],
+      "parameters": {
+        "description": "Envia uma mensagem agora (WhatsApp ou Telegram). contato = nome de um contato ou de outro usuario; vazio = envia para a propria pessoa.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ferrEnviarMsg01",
+          "cachedResultName": "Ferramenta: Enviar mensagem"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "usuario_id": "={{ $('Quando chamado').first().json.usuario_id }}",
+            "contato": "={{ $fromAI('contato', 'nome do contato; vazio para a propria pessoa', 'string') }}",
+            "mensagem": "={{ $fromAI('mensagem', 'texto exato a enviar', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "usuario_id",
+              "displayName": "usuario_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "contato",
+              "displayName": "contato",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "mensagem",
+              "displayName": "mensagem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000029",
+      "name": "lembrar",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        640,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "lembrar: salva na memoria de longo prazo desta pessoa um fato, preferencia ou ideia.",
+        "operation": "executeQuery",
+        "query": "SELECT * FROM nucleo.lembrar($1::int, $2, $3)",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('titulo', 'titulo curto do fato', 'string'), $fromAI('conteudo', 'o fato completo, autoexplicativo', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000030",
+      "name": "buscar_memoria",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        800,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "buscar_memoria: procura na memoria de longo prazo. Traz primeiro o que combina com as palavras (relevante=true) e depois os fatos mais recentes; campo 'de' diz de quem e. Leia tudo antes de dizer que nao sabe.",
+        "operation": "executeQuery",
+        "query": "SELECT de, titulo, conteudo, criado_em, relevante FROM nucleo.buscar_memoria($1::int, $2, $3)",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('busca', 'palavras-chave simples separadas por espaco, ex: relatorio formato', 'string'), $fromAI('escopo', 'minha | compartilhada | todos', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000031",
+      "name": "criar_lembrete",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        960,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "criar_lembrete: agenda um lembrete que sera enviado pelo Telegram na hora marcada.",
+        "operation": "executeQuery",
+        "query": "INSERT INTO nucleo.lembretes (usuario_id, texto, quando, contato)\nVALUES ($1::int, $2, $3::timestamptz, nullif($4,''))\nRETURNING id, texto, to_char(quando AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS quando_brasilia, contato",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('texto', 'o que lembrar', 'string'), $fromAI('quando', 'data/hora ISO 8601 com fuso, ex 2026-11-13T09:00:00-03:00', 'string'), $fromAI('contato', 'nome de quem recebe; vazio = a propria pessoa', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000032",
+      "name": "listar_lembretes",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "listar_lembretes: lista os lembretes desta pessoa ainda nao enviados.",
+        "operation": "executeQuery",
+        "query": "SELECT id, texto, to_char(quando AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS quando_brasilia,\n       coalesce(contato, 'eu') AS para\nFROM nucleo.lembretes\nWHERE usuario_id = $1::int AND enviado_em IS NULL ORDER BY quando",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000033",
+      "name": "listar_contatos",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1280,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "listar_contatos: lista os contatos desta pessoa e por quais canais podem ser avisados.",
+        "operation": "executeQuery",
+        "query": "SELECT nome, telegram_chat_id IS NOT NULL AS tem_telegram, whatsapp, email, ativo\nFROM nucleo.contatos WHERE usuario_id = $1::int ORDER BY nome",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000034",
+      "name": "cadastrar_contato",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1440,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "cadastrar_contato: cadastra uma pessoa nos contatos desta pessoa, para receber mensagens e lembretes.",
+        "operation": "executeQuery",
+        "query": "INSERT INTO nucleo.contatos (usuario_id, nome, telegram_chat_id, whatsapp)\nVALUES ($1::int, $2, nullif($3,''), nullif($4,''))\nRETURNING id, nome",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('nome', 'nome da pessoa', 'string'), $fromAI('telegram_chat_id', 'chat_id do Telegram; vazio se nao tiver', 'string'), $fromAI('whatsapp', 'numero com DDI, ex 5511999999999; vazio se nao tiver', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000035",
+      "name": "salvar_meu_contato",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1600,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "salvar_meu_contato: salva o chat_id do Telegram e/ou WhatsApp da PROPRIA pessoa (para receber lembretes e avisos).",
+        "operation": "executeQuery",
+        "query": "UPDATE nucleo.usuarios SET telegram_chat_id = coalesce(nullif($2,''), telegram_chat_id),\n       whatsapp = coalesce(nullif($3,''), whatsapp)\nWHERE id = $1::int\nRETURNING nome, telegram_chat_id IS NOT NULL AS tem_telegram, whatsapp",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('telegram_chat_id', 'chat_id do Telegram; vazio para nao mudar', 'string'), $fromAI('whatsapp', 'numero com DDI; vazio para nao mudar', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000036",
+      "name": "OpenAI (orquestrador, principal)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -160,
+        260
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-5"
+        },
+        "responsesApiEnabled": true,
+        "builtInTools": {},
+        "options": {
+          "reasoningEffort": "low"
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai01",
+          "name": "OpenAI"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI (orquestrador, principal)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memoria da conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "especialista_sistemas": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enviar_mensagem": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lembrar": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "buscar_memoria": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "criar_lembrete": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "listar_lembretes": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "listar_contatos": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cadastrar_contato": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "salvar_meu_contato": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

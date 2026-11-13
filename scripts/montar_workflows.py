@@ -1,0 +1,1143 @@
+"""Gera os JSONs dos workflows da IA Central em workflows/.
+
+Rodar:  python scripts/montar_workflows.py
+Editar prompts/ferramentas aqui e gerar de novo e' mais seguro que mexer no JSON na mao.
+"""
+import json
+import pathlib
+
+SAIDA = pathlib.Path(__file__).resolve().parent.parent / "workflows"
+
+PG = {"postgres": {"id": "pgNucleo01", "name": "Postgres Nucleo"}}
+ANTHROPIC = {"anthropicApi": {"id": "anthropic01", "name": "Anthropic"}}
+OPENAI = {"openAiApi": {"id": "openai01", "name": "OpenAI"}}
+
+# Os dois provedores ficam ligados: PRINCIPAL responde; se falhar (fora do ar, limite,
+# chave invalida), o agente usa o RESERVA automaticamente. Troque e rode o script de novo.
+PRINCIPAL = "openai"        # "openai" ou "anthropic"
+RESERVA = "anthropic"       # o outro provedor, ou None para desligar a reserva
+
+
+def _chaves_no_env():
+    env = SAIDA.parent / ".env"
+    vals = {}
+    if env.exists():
+        for linha in env.read_text(encoding="utf-8").splitlines():
+            if "=" in linha and not linha.lstrip().startswith("#"):
+                k, v = linha.split("=", 1)
+                vals[k.strip()] = v.strip()
+    return {"openai": bool(vals.get("OPENAI_API_KEY")), "anthropic": bool(vals.get("ANTHROPIC_API_KEY"))}
+
+
+# Provedor sem chave no .env nao entra (o n8n quebra o agente se o modelo reserva nao tem chave).
+_CHAVES = _chaves_no_env()
+if RESERVA and not _CHAVES[RESERVA]:
+    print(f"aviso: sem chave de {RESERVA} no .env -> reserva desligada (rode de novo depois de preencher)")
+    RESERVA = None
+MODELOS = {
+    #            cerebro (IA pessoal)      especialistas (mais barato/rapido)
+    "openai":    {"orquestrador": "gpt-5", "especialista": "gpt-5-mini"},
+    "anthropic": {"orquestrador": "claude-sonnet-5-5", "especialista": "claude-haiku-5-5"},
+}
+NOME_PROVEDOR = {"openai": "OpenAI", "anthropic": "Claude"}
+
+_contador = 0
+
+
+def node(nome, tipo, versao, pos, params, **extra):
+    global _contador
+    _contador += 1
+    n = {
+        "id": f"c0000000-0000-4000-8000-{_contador:012d}",
+        "name": nome,
+        "type": tipo,
+        "typeVersion": versao,
+        "position": pos,
+        "parameters": params,
+    }
+    n.update(extra)
+    return n
+
+
+def modelos_do_agente(agente, papel, x, y):
+    """Cria o no do modelo principal (+ reserva) e devolve (nodes, ligacoes)."""
+    nodes, ligacoes = [], []
+    for indice, prov in enumerate([PRINCIPAL, RESERVA]):
+        if prov is None:
+            continue
+        tipo = "principal" if indice == 0 else "reserva"
+        nome = f"{NOME_PROVEDOR[prov]} ({papel}, {tipo})"
+        nodes.append(modelo_ia(nome, prov, MODELOS[prov][papel], [x + indice * 160, y]))
+        ligacoes.append((nome, agente, indice))
+    return nodes, ligacoes
+
+
+def opcoes_agente():
+    return {"needsFallback": RESERVA is not None}
+
+
+def modelo_ia(nome, provedor, modelo, pos):
+    if provedor == "openai":
+        # gpt-5 e' modelo de raciocinio: nao aceita temperature; esforco baixo = mais rapido/barato
+        return node(nome, "@n8n/n8n-nodes-langchain.lmChatOpenAi", 1.3, pos, {
+            "model": {"__rl": True, "mode": "id", "value": modelo},
+            "responsesApiEnabled": True,
+            "builtInTools": {},
+            "options": {"reasoningEffort": "low"},
+        }, credentials=OPENAI)
+    return node(nome, "@n8n/n8n-nodes-langchain.lmChatAnthropic", 1.6, pos, {
+        "model": {"__rl": True, "mode": "id", "value": modelo},
+        "options": {"maxTokensToSample": 4096, "temperature": 0.3},
+    }, credentials=ANTHROPIC)
+
+
+def ferramenta_sql(nome_no, nome_ferramenta, descricao, sql, params_ia, pos):
+    """Postgres como ferramenta. params_ia = lista de expressoes $fromAI (vira array, aceita virgulas)."""
+    opcoes = {}
+    if params_ia:
+        opcoes["queryReplacement"] = "={{ [" + ", ".join(params_ia) + "] }}"
+    return node(nome_no, "n8n-nodes-base.postgresTool", 2.6, pos, {
+        "descriptionType": "manual",
+        "toolDescription": f"{nome_ferramenta}: {descricao}",
+        "operation": "executeQuery",
+        "query": sql,
+        "options": opcoes,
+    }, credentials=PG)
+
+
+def ia(chave, descricao, tipo="string"):
+    d = descricao.replace("'", "\\'")
+    return f"$fromAI('{chave}', '{d}', '{tipo}')"
+
+
+def campo(nome, tipo="string"):
+    return {"id": nome, "displayName": nome, "required": False, "defaultMatch": False,
+            "display": True, "canBeUsedToMatch": True, "type": tipo, "removed": False}
+
+
+def mapear(valores):
+    return {
+        "mappingMode": "defineBelow",
+        "value": valores,
+        "matchingColumns": [],
+        "schema": [campo(k) for k in valores],
+        "attemptToConvertTypes": True,
+        "convertFieldsToString": False,
+    }
+
+
+def gatilho_subworkflow(campos, pos=(0, 0)):
+    return node("Quando chamado", "n8n-nodes-base.executeWorkflowTrigger", 1.1, list(pos), {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {"values": [{"name": c, "type": "string"} for c in campos]},
+    })
+
+
+def ligar(*pares):
+    con = {}
+    for origem, destino in pares:
+        con.setdefault(origem, {"main": [[]]})["main"][0].append(
+            {"node": destino, "type": "main", "index": 0})
+    return con
+
+
+def ligar_ia(con, origem, destino, tipo, indice_destino=0):
+    con.setdefault(origem, {}).setdefault(tipo, [[]])[0].append(
+        {"node": destino, "type": tipo, "index": indice_destino})
+
+
+def workflow(wid, nome, nodes, connections, ativo=True):
+    return {
+        "id": wid, "name": nome, "active": ativo, "nodes": nodes, "connections": connections,
+        "settings": {"executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner"},
+        "pinData": {},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Quem esta falando: todo sub-workflow recebe usuario_id do gatilho (nunca da IA)
+# ---------------------------------------------------------------------------
+UID = "$('Quando chamado').first().json.usuario_id"
+
+
+def sql_usuario(params_ia):
+    """Parametros de ferramenta SQL: $1 = usuario_id (confiavel), depois os da IA."""
+    return [UID] + params_ia
+
+
+# ---------------------------------------------------------------------------
+# Trechos JS reutilizados nos nos Code (WhatsApp via Evolution API, Telegram)
+# ---------------------------------------------------------------------------
+JS_ENVIOS = r"""
+const comHttp = u => (u && !/^https?:\/\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta
+const EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';
+const evo = (method, caminho, body) => this.helpers.httpRequest({
+  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });
+// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos
+const paraWhatsapp = t => String(t || '').replace(/\*\*(.+?)\*\*/g, '*$1*').replace(/^#{1,6}\s*/gm, '');
+async function whatsappConectado() {
+  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }
+  catch { return false; }
+}
+async function enviarWhatsapp(numero, texto) {
+  let t = paraWhatsapp(texto);
+  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma
+  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\D/g, ''), text: t });
+}
+// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)
+const CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,
+  readMessages: false, readStatus: false, syncFullHistory: false };
+async function enviarTelegram(chatId, texto) {
+  return this.helpers.httpRequest({ method: 'POST', json: true,
+    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });
+}
+"""
+
+
+# ---------------------------------------------------------------------------
+# 1) FERRAMENTA: ENVIAR MENSAGEM (reutilizavel por qualquer IA/workflow)
+#    WhatsApp se a pessoa tiver numero e o WhatsApp estiver conectado; senao Telegram.
+# ---------------------------------------------------------------------------
+def ferramenta_enviar_mensagem():
+    nodes = [
+        gatilho_subworkflow(["usuario_id", "contato", "mensagem"]),
+        node("Achar destino", "n8n-nodes-base.postgres", 2.6, [220, 0], {
+            "operation": "executeQuery",
+            # contato vazio = o proprio usuario; senao procura nos contatos dele (admin: em todos) e nos usuarios
+            "query": (
+                "SELECT nome, telegram_chat_id, whatsapp FROM (\n"
+                "  SELECT u.nome, u.telegram_chat_id, u.whatsapp, 0 AS ordem FROM nucleo.usuarios u\n"
+                "   WHERE coalesce($2,'') = '' AND u.id = $1::int\n"
+                "  UNION ALL\n"
+                "  SELECT c.nome, c.telegram_chat_id, c.whatsapp, length(c.nome) FROM nucleo.contatos c\n"
+                "   WHERE coalesce($2,'') <> '' AND c.ativo AND c.nome ILIKE '%' || $2 || '%'\n"
+                "     AND (c.usuario_id = $1::int OR EXISTS (SELECT 1 FROM nucleo.usuarios a WHERE a.id = $1::int AND a.papel = 'admin'))\n"
+                "  UNION ALL\n"
+                "  SELECT u.nome, u.telegram_chat_id, u.whatsapp, 1000 + length(u.nome) FROM nucleo.usuarios u\n"
+                "   WHERE coalesce($2,'') <> '' AND u.ativo AND u.nome ILIKE '%' || $2 || '%'\n"
+                ") d ORDER BY ordem LIMIT 1"
+            ),
+            "options": {"queryReplacement": "={{ [$json.usuario_id, $json.contato || ''] }}"},
+        }, credentials=PG, alwaysOutputData=True),
+        node("Enviar", "n8n-nodes-base.code", 2, [440, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_ENVIOS + r"""
+const pedido = $('Quando chamado').first().json;
+const c = $input.first().json;
+let resultado;
+if (!c.nome) resultado = `Contato "${pedido.contato}" nao encontrado.`;
+else {
+  const erros = [];
+  if (c.whatsapp && await whatsappConectado()) {
+    try { await enviarWhatsapp(c.whatsapp, pedido.mensagem); resultado = `Mensagem enviada para ${c.nome} pelo WhatsApp.`; }
+    catch (e) { erros.push('WhatsApp: ' + e.message); }
+  }
+  if (!resultado && c.telegram_chat_id && $env.TELEGRAM_BOT_TOKEN) {
+    try { await enviarTelegram.call(this, c.telegram_chat_id, pedido.mensagem); resultado = `Mensagem enviada para ${c.nome} pelo Telegram.`; }
+    catch (e) { erros.push('Telegram: ' + e.message); }
+  }
+  if (!resultado) resultado = erros.length ? `Falha ao enviar para ${c.nome}: ${erros.join(' | ')}`
+    : `${c.nome} nao tem WhatsApp conectado nem Telegram cadastrado.`;
+}
+return [{ json: { resultado } }];""",
+        }),
+    ]
+    con = ligar(("Quando chamado", "Achar destino"), ("Achar destino", "Enviar"))
+    return workflow("ferrEnviarMsg01", "Ferramenta: Enviar mensagem", nodes, con)
+
+
+# ---------------------------------------------------------------------------
+# 2) ESPECIALISTA: SISTEMAS (todos veem; so admin cadastra/pausa)
+# ---------------------------------------------------------------------------
+PROMPT_SISTEMAS = """Voce e o especialista em monitoramento de sistemas da IA Central.
+Responda em portugues, curto e direto, com os dados reais das ferramentas (nunca invente).
+O monitor checa cada sistema a cada 2 minutos e avisa quando cai ou volta.
+- Para saber o estado atual use listar_sistemas.
+- Para historico de quedas use historico_incidentes.
+- Para monitorar algo novo use cadastrar_sistema (precisa de nome e URL completa com http/https).
+- Para pausar/retomar use ativar_desativar_sistema.
+- Para saber AGORA se um site esta no ar (mesmo sem estar cadastrado) use checar_agora: traz status e tempo.
+- Sistemas com origem render/vercel vem das contas Render e Vercel: "(deploy)" e o estado do ultimo deploy,
+  o outro e o site em si. Ao falar deles, diga a plataforma.
+- Cadastrar e pausar sao so para o admin; se a ferramenta recusar, explique isso.
+- Responda SO o que foi perguntado, com os campos que existem (estado, ultimo check, detalhe, quedas).
+  Existe o tempo da ultima resposta (ultimo_tempo_ms). Nao existem p95, uptime % ou janelas de manutencao.
+Horarios do banco estao em UTC; converta para horario de Brasilia (UTC-3) ao responder."""
+
+
+def especialista_sistemas():
+    nodes = [
+        gatilho_subworkflow(["usuario_id", "pedido"]),
+        node("Especialista Sistemas", "@n8n/n8n-nodes-langchain.agent", 3.1, [260, 0], {
+            "promptType": "define",
+            "text": "={{ $json.pedido }}",
+            **opcoes_agente(),
+            "options": {"systemMessage": PROMPT_SISTEMAS, "maxIterations": 8,
+                        "enableStreaming": False},
+        }),
+        ferramenta_sql(
+            "listar_sistemas", "listar_sistemas",
+            "lista todos os sistemas monitorados com estado atual (ok/falha), falhas seguidas, ultimo detalhe e desde quando esta fora.",
+            "SELECT nome, origem, tipo, url, ativo, estado, falhas_seguidas, ultimo_detalhe, ultimo_tempo_ms,\n"
+            "       ultimo_check, caiu_em, painel_url\nFROM nucleo.sistemas ORDER BY (estado='falha') DESC, origem, nome",
+            [], [260, 240]),
+        ferramenta_sql(
+            "historico_incidentes", "historico_incidentes",
+            "historico de quedas (incidentes) mais recentes, com inicio, fim e duracao.",
+            "SELECT s.nome, i.inicio, i.fim, coalesce(i.fim, now()) - i.inicio AS duracao, i.detalhe\n"
+            "FROM nucleo.incidentes i JOIN nucleo.sistemas s ON s.id = i.sistema_id\n"
+            "ORDER BY i.inicio DESC LIMIT $1",
+            [ia("limite", "quantos incidentes trazer, ex 10", "number")], [420, 240]),
+        ferramenta_sql(
+            "cadastrar_sistema", "cadastrar_sistema",
+            "(so admin) passa a monitorar uma URL nova. Se o nome ja existir, atualiza a URL.",
+            "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\n"
+            "INSERT INTO nucleo.sistemas (nome, url, grupo, texto_esperado)\n"
+            "SELECT $2, $3, coalesce(nullif($4,''),'geral'), nullif($5,'') FROM ok\n"
+            "ON CONFLICT (nome) DO UPDATE SET url = EXCLUDED.url, grupo = EXCLUDED.grupo,\n"
+            "  texto_esperado = EXCLUDED.texto_esperado, ativo = true\n"
+            "RETURNING nome, url, grupo, texto_esperado",
+            sql_usuario([ia("nome", "nome curto do sistema"),
+                         ia("url", "URL completa, ex https://site.com/health"),
+                         ia("grupo", "grupo de alerta; vazio = geral"),
+                         ia("texto_esperado", "texto que a resposta deve conter; vazio = so checa status 200")]),
+            [580, 240]),
+        ferramenta_sql(
+            "ativar_desativar_sistema", "ativar_desativar_sistema",
+            "(so admin) pausa (ativo=false) ou retoma (ativo=true) o monitoramento de um sistema pelo nome.",
+            "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\n"
+            "UPDATE nucleo.sistemas SET ativo = $3::boolean FROM ok WHERE nome ILIKE '%' || $2 || '%'\n"
+            "RETURNING nome, ativo",
+            sql_usuario([ia("nome", "nome (ou parte) do sistema"),
+                         ia("ativo", "true para ativar, false para pausar", "boolean")]),
+            [740, 240]),
+    ]
+    modelos, lig_modelos = modelos_do_agente("Especialista Sistemas", "especialista", -60, 240)
+    nodes += modelos
+    con = ligar(("Quando chamado", "Especialista Sistemas"))
+    for origem, destino, idx in lig_modelos:
+        ligar_ia(con, origem, destino, "ai_languageModel", idx)
+    nodes.append(node("checar_agora", "@n8n/n8n-nodes-langchain.toolWorkflow", 2.2, [900, 240], {
+        "description": "Checa AGORA se uma URL esta no ar: status HTTP, tempo de resposta e titulo da pagina. "
+                       "Nao precisa estar cadastrada.",
+        "source": "database",
+        "workflowId": {"__rl": True, "mode": "id", "value": "ferrChecarAgora1", "cachedResultName": "Ferramenta: Checar agora"},
+        "workflowInputs": mapear({"url": "={{ " + ia("url", "endereco do site, ex https://site.com") + " }}"}),
+    }))
+    for t in ["listar_sistemas", "historico_incidentes", "cadastrar_sistema", "ativar_desativar_sistema", "checar_agora"]:
+        ligar_ia(con, t, "Especialista Sistemas", "ai_tool")
+    return workflow("espSistemas01", "Especialista: Sistemas", nodes, con)
+
+
+# ---------------------------------------------------------------------------
+# 3) CEREBRO (a IA de cada usuario). Chamado pelo chat do n8n, pelo painel e pelo audio.
+# ---------------------------------------------------------------------------
+PROMPT_CEREBRO = """Voce e a IA pessoal de {{ $('Quando chamado').first().json.nome }} dentro da IA Central: um assistente de confianca que resolve as coisas.
+Papel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.
+Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }} (horario de Brasilia).
+
+Como trabalhar:
+- Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.
+- Voce coordena especialistas. Delegue a eles o que for da area deles:
+  * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).
+    Repasse o pedido como a pessoa fez, sem inventar exigencias extras.
+- Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar
+  (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,
+  procure com buscar_memoria.
+  * escopo "minha": so as memorias desta pessoa (padrao).
+  * escopo "compartilhada": inclui as de quem participa da memoria compartilhada (se estiver ligada).
+  * escopo "todos": use quando pedirem ideias/visao "de todo mundo", "do time", "de todos". Para o admin
+    traz tudo de todos; para os outros so o que e compartilhado. O banco aplica a regra; nao prometa mais.
+  * Ao usar memoria de outras pessoas, diga de quem veio cada ideia (campo "de").
+- Lembretes: use criar_lembrete com data/hora ISO 8601 com fuso -03:00. Se o horario for vago, pergunte.
+- Para avisar alguem (ou a propria pessoa) agora, use enviar_mensagem (vai pelo WhatsApp se a pessoa tiver numero, senao Telegram).
+  Confirme o texto antes de mandar para outra pessoa, a menos que ja tenham dito exatamente o que mandar.
+- Contatos: listar_contatos / cadastrar_contato. Telegram/WhatsApp da propria pessoa: salvar_meu_contato.
+- So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem
+  (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.
+- Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.
+- Se o canal comecar com "whatsapp": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas
+  nem titulos. Se for "whatsapp (audio...)", a resposta vai virar audio: frases faladas, sem simbolos.
+- Se o canal for "voz": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,
+  sem listas com simbolos, sem emojis, sem links."""
+
+
+def cerebro():
+    nodes = [
+        gatilho_subworkflow(["usuario_id", "nome", "papel", "chatInput", "sessionId", "canal"]),
+        node("IA", "@n8n/n8n-nodes-langchain.agent", 3.1, [300, 0], {
+            "promptType": "define",
+            "text": "={{ $json.chatInput }}",
+            **opcoes_agente(),
+            "options": {"systemMessage": "=" + PROMPT_CEREBRO, "maxIterations": 12,
+                        "enableStreaming": False},
+        }),
+        node("Memoria da conversa", "@n8n/n8n-nodes-langchain.memoryPostgresChat", 1.4, [160, 260], {
+            "sessionIdType": "customKey",
+            "sessionKey": "={{ $('Quando chamado').first().json.sessionId }}",
+            "tableName": "nucleo_memoria_chat",
+            "contextWindowLength": 20,
+        }, credentials=PG),
+        node("especialista_sistemas", "@n8n/n8n-nodes-langchain.toolWorkflow", 2.2, [320, 260], {
+            "description": "Especialista em sistemas monitorados: status atual, historico de quedas, "
+                           "cadastrar/pausar monitoramento. Mande o pedido completo em linguagem natural.",
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "espSistemas01",
+                           "cachedResultName": "Especialista: Sistemas"},
+            "workflowInputs": mapear({
+                "usuario_id": "={{ " + UID + " }}",
+                "pedido": "={{ " + ia("pedido", "o que precisa do especialista, com todos os detalhes") + " }}",
+            }),
+        }),
+        node("enviar_mensagem", "@n8n/n8n-nodes-langchain.toolWorkflow", 2.2, [480, 260], {
+            "description": "Envia uma mensagem agora (WhatsApp ou Telegram). contato = nome de um contato ou de outro "
+                           "usuario; vazio = envia para a propria pessoa.",
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "ferrEnviarMsg01",
+                           "cachedResultName": "Ferramenta: Enviar mensagem"},
+            "workflowInputs": mapear({
+                "usuario_id": "={{ " + UID + " }}",
+                "contato": "={{ " + ia("contato", "nome do contato; vazio para a propria pessoa") + " }}",
+                "mensagem": "={{ " + ia("mensagem", "texto exato a enviar") + " }}",
+            }),
+        }),
+        ferramenta_sql(
+            "lembrar", "lembrar",
+            "salva na memoria de longo prazo desta pessoa um fato, preferencia ou ideia.",
+            "SELECT * FROM nucleo.lembrar($1::int, $2, $3)",
+            sql_usuario([ia("titulo", "titulo curto do fato"),
+                         ia("conteudo", "o fato completo, autoexplicativo")]),
+            [640, 260]),
+        ferramenta_sql(
+            "buscar_memoria", "buscar_memoria",
+            "procura na memoria de longo prazo. Traz primeiro o que combina com as palavras "
+            "(relevante=true) e depois os fatos mais recentes; campo 'de' diz de quem e. "
+            "Leia tudo antes de dizer que nao sabe.",
+            "SELECT de, titulo, conteudo, criado_em, relevante FROM nucleo.buscar_memoria($1::int, $2, $3)",
+            sql_usuario([ia("busca", "palavras-chave simples separadas por espaco, ex: relatorio formato"),
+                         ia("escopo", "minha | compartilhada | todos")]),
+            [800, 260]),
+        ferramenta_sql(
+            "criar_lembrete", "criar_lembrete",
+            "agenda um lembrete que sera enviado pelo Telegram na hora marcada.",
+            "INSERT INTO nucleo.lembretes (usuario_id, texto, quando, contato)\n"
+            "VALUES ($1::int, $2, $3::timestamptz, nullif($4,''))\n"
+            "RETURNING id, texto, to_char(quando AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS quando_brasilia, contato",
+            sql_usuario([ia("texto", "o que lembrar"),
+                         ia("quando", "data/hora ISO 8601 com fuso, ex 2026-11-13T09:00:00-03:00"),
+                         ia("contato", "nome de quem recebe; vazio = a propria pessoa")]),
+            [960, 260]),
+        ferramenta_sql(
+            "listar_lembretes", "listar_lembretes",
+            "lista os lembretes desta pessoa ainda nao enviados.",
+            "SELECT id, texto, to_char(quando AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI') AS quando_brasilia,\n"
+            "       coalesce(contato, 'eu') AS para\nFROM nucleo.lembretes\n"
+            "WHERE usuario_id = $1::int AND enviado_em IS NULL ORDER BY quando",
+            sql_usuario([]), [1120, 260]),
+        ferramenta_sql(
+            "listar_contatos", "listar_contatos",
+            "lista os contatos desta pessoa e por quais canais podem ser avisados.",
+            "SELECT nome, telegram_chat_id IS NOT NULL AS tem_telegram, whatsapp, email, ativo\n"
+            "FROM nucleo.contatos WHERE usuario_id = $1::int ORDER BY nome",
+            sql_usuario([]), [1280, 260]),
+        ferramenta_sql(
+            "cadastrar_contato", "cadastrar_contato",
+            "cadastra uma pessoa nos contatos desta pessoa, para receber mensagens e lembretes.",
+            "INSERT INTO nucleo.contatos (usuario_id, nome, telegram_chat_id, whatsapp)\n"
+            "VALUES ($1::int, $2, nullif($3,''), nullif($4,''))\nRETURNING id, nome",
+            sql_usuario([ia("nome", "nome da pessoa"),
+                         ia("telegram_chat_id", "chat_id do Telegram; vazio se nao tiver"),
+                         ia("whatsapp", "numero com DDI, ex 5511999999999; vazio se nao tiver")]),
+            [1440, 260]),
+        ferramenta_sql(
+            "salvar_meu_contato", "salvar_meu_contato",
+            "salva o chat_id do Telegram e/ou WhatsApp da PROPRIA pessoa (para receber lembretes e avisos).",
+            "UPDATE nucleo.usuarios SET telegram_chat_id = coalesce(nullif($2,''), telegram_chat_id),\n"
+            "       whatsapp = coalesce(nullif($3,''), whatsapp)\nWHERE id = $1::int\n"
+            "RETURNING nome, telegram_chat_id IS NOT NULL AS tem_telegram, whatsapp",
+            sql_usuario([ia("telegram_chat_id", "chat_id do Telegram; vazio para nao mudar"),
+                         ia("whatsapp", "numero com DDI; vazio para nao mudar")]),
+            [1600, 260]),
+    ]
+    modelos, lig_modelos = modelos_do_agente("IA", "orquestrador", -160, 260)
+    nodes += modelos
+    con = ligar(("Quando chamado", "IA"))
+    for origem, destino, idx in lig_modelos:
+        ligar_ia(con, origem, destino, "ai_languageModel", idx)
+    ligar_ia(con, "Memoria da conversa", "IA", "ai_memory")
+    for t in ["especialista_sistemas", "enviar_mensagem", "lembrar", "buscar_memoria", "criar_lembrete",
+              "listar_lembretes", "listar_contatos", "cadastrar_contato", "salvar_meu_contato"]:
+        ligar_ia(con, t, "IA", "ai_tool")
+    return workflow("iaCerebro00001", "Cerebro IA (por usuario)", nodes, con)
+
+
+def chamar_cerebro(nome, pos, valores):
+    return node(nome, "n8n-nodes-base.executeWorkflow", 1.4, pos, {
+        "source": "database",
+        "workflowId": {"__rl": True, "mode": "id", "value": "iaCerebro00001",
+                       "cachedResultName": "Cerebro IA (por usuario)"},
+        "workflowInputs": mapear(valores),
+        "mode": "once",
+        "options": {},
+    }, onError="continueRegularOutput")
+
+
+# ---------------------------------------------------------------------------
+# 4) IA PESSOAL no chat do n8n (fala como o admin)
+# ---------------------------------------------------------------------------
+def ia_pessoal():
+    nodes = [
+        node("Chat", "@n8n/n8n-nodes-langchain.chatTrigger", 1.5, [0, 0], {
+            "availableInChat": True,
+            "agentName": "IA Pessoal",
+            "agentDescription": "Sua IA central (como admin): sistemas, lembretes, memoria e mensagens.",
+            "options": {"responseMode": "lastNode"},
+        }, webhookId="9b1f6c2e-1a00-4000-8000-000000000001"),
+        node("Admin", "n8n-nodes-base.postgres", 2.6, [220, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT id, nome, papel FROM nucleo.usuarios WHERE papel = 'admin' AND ativo ORDER BY id LIMIT 1",
+            "options": {},
+        }, credentials=PG),
+        chamar_cerebro("Cerebro", [440, 0], {
+            "usuario_id": "={{ $json.id }}",
+            "nome": "={{ $json.nome }}",
+            "papel": "={{ $json.papel }}",
+            "chatInput": "={{ $('Chat').first().json.chatInput }}",
+            "sessionId": "=u{{ $json.id }}:n8n-{{ $('Chat').first().json.sessionId }}",
+            "canal": "chat do n8n",
+        }),
+    ]
+    con = ligar(("Chat", "Admin"), ("Admin", "Cerebro"))
+    return workflow("iaPessoal00001", "IA Pessoal (chat n8n)", nodes, con)
+
+
+# ---------------------------------------------------------------------------
+# 5) API DO PAINEL  POST /webhook/painel   {acao, dados}  + header Authorization: Bearer <token>
+# ---------------------------------------------------------------------------
+TOKEN = "($json.headers.authorization || '').replace(/^Bearer\\s+/i, '')"
+
+
+def responder(nome, pos, corpo, status="200", **extra):
+    return node(nome, "n8n-nodes-base.respondToWebhook", 1.5, pos, {
+        "respondWith": "json",
+        "responseBody": corpo,
+        "options": {"responseCode": int(status) if str(status).isdigit() else status, "enableStreaming": False},
+    }, **extra)
+
+
+def api_painel():
+    nodes = [
+        node("Webhook", "n8n-nodes-base.webhook", 2.1, [0, 0], {
+            "httpMethod": "POST",
+            "path": "painel",
+            "responseMode": "responseNode",
+            "options": {"allowedOrigins": "*"},
+        }, webhookId="9b1f6c2e-1a00-4000-8000-000000000002"),
+        node("Regras (banco)", "n8n-nodes-base.postgres", 2.6, [220, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.api($1, $2, $3::jsonb) AS r",
+            "options": {"queryReplacement":
+                        "={{ [" + TOKEN + ", $json.body.acao || '', JSON.stringify($json.body.dados || {})] }}"},
+        }, credentials=PG),
+        node("Rota", "n8n-nodes-base.switch", 3.2, [440, 0], {
+            "mode": "expression",
+            "numberOutputs": 5,
+            "output": "={{ $json.r.saida }}",
+        }),
+        node("WhatsApp (Evolution)", "n8n-nodes-base.code", 2, [700, 420], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_ENVIOS + JS_WHATSAPP_ADMIN,
+        }, onError="continueRegularOutput"),
+        responder("Resposta WhatsApp", [920, 420],
+                  "={{ JSON.stringify($json.error ? { erro: 'WhatsApp: ' + ($json.error.message || $json.error) } : $json) }}",
+                  "={{ $json.error ? 502 : 200 }}"),
+        node("Rodar monitor", "n8n-nodes-base.executeWorkflow", 1.4, [700, 600], {
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "monitorSistemas01", "cachedResultName": "Monitor de Sistemas"},
+            "workflowInputs": mapear({"origem": "painel"}),
+            "mode": "once", "options": {"waitForSubWorkflow": True},
+        }, onError="continueRegularOutput"),
+        responder("Verificado", [920, 600], "={{ JSON.stringify({ ok: !$json.error }) }}", "200"),
+        responder("Responder", [700, -200], "={{ JSON.stringify($json.r.corpo) }}", "={{ $json.r.status }}"),
+        chamar_cerebro("Cerebro", [700, 0], {
+            "usuario_id": "={{ $json.r.corpo.usuario_id }}",
+            "nome": "={{ $json.r.corpo.nome }}",
+            "papel": "={{ $json.r.corpo.papel }}",
+            "chatInput": "={{ $json.r.corpo.chatInput }}",
+            "sessionId": "={{ $json.r.corpo.sessionId }}",
+            "canal": "={{ $json.r.corpo.canal }}",
+        }),
+        responder("Resposta da IA", [920, 0],
+                  "={{ JSON.stringify($json.output ? { resposta: $json.output } "
+                  ": { erro: 'A IA falhou: ' + (($json.error && $json.error.message) || 'sem resposta') }) }}",
+                  "={{ $json.output ? 200 : 502 }}"),
+        node("Voz (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [700, 200], {
+            "method": "POST",
+            "url": "https://api.openai.com/v1/audio/speech",
+            "authentication": "predefinedCredentialType",
+            "nodeCredentialType": "openAiApi",
+            "sendBody": True,
+            "specifyBody": "json",
+            "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'nova', response_format: 'mp3', "
+                        "input: $json.r.corpo.texto, instructions: 'Fale em portugues do Brasil, tom confiante, "
+                        "caloroso e levemente futurista, ritmo natural.' }) }}",
+            "options": {"response": {"response": {"responseFormat": "file"}}},
+        }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueErrorOutput"),
+        node("Audio", "n8n-nodes-base.respondToWebhook", 1.5, [920, 160], {
+            "respondWith": "binary",
+            "responseDataSource": "automatically",
+            "options": {"responseHeaders": {"entries": [{"name": "Content-Type", "value": "audio/mpeg"}]}},
+        }),
+        responder("Voz falhou", [920, 320], "={{ JSON.stringify({ erro: 'Voz indisponivel' }) }}", "502"),
+    ]
+    con = ligar(("Webhook", "Regras (banco)"), ("Regras (banco)", "Rota"), ("Cerebro", "Resposta da IA"),
+                ("WhatsApp (Evolution)", "Resposta WhatsApp"))
+    con["Rota"] = {"main": [
+        [{"node": "Responder", "type": "main", "index": 0}],
+        [{"node": "Cerebro", "type": "main", "index": 0}],
+        [{"node": "Voz (OpenAI)", "type": "main", "index": 0}],
+        [{"node": "WhatsApp (Evolution)", "type": "main", "index": 0}],
+        [{"node": "Rodar monitor", "type": "main", "index": 0}],
+    ]}
+    con["Rodar monitor"] = {"main": [[{"node": "Verificado", "type": "main", "index": 0}]]}
+    con["Voz (OpenAI)"] = {"main": [
+        [{"node": "Audio", "type": "main", "index": 0}],
+        [{"node": "Voz falhou", "type": "main", "index": 0}],
+    ]}
+    return workflow("apiPainel00001", "API do Painel", nodes, con)
+
+
+JS_WHATSAPP_ADMIN = r"""
+// status / conectar (QR ou codigo de pareamento) / desconectar
+const corpo = $input.first().json.r.corpo;
+const urlWebhook = comHttp($env.WHATSAPP_WEBHOOK_BASE || 'n8n:5678') + '/webhook/whatsapp';
+const eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
+const cfgWebhook = { enabled: true, url: urlWebhook, byEvents: false, base64: true, events: eventos };
+async function estado() {
+  try { const x = await evo('GET', `/instance/connectionState/${INST}`); return (x.instance || x).state || 'close'; }
+  catch (e) { return /404|not exist/i.test(String(e.message) + JSON.stringify(e.description || '')) ? 'inexistente' : 'erro'; }
+}
+const saida = {};
+if (corpo.op === 'conectar') {
+  if ((await estado()) === 'inexistente') {
+    await evo('POST', '/instance/create', { instanceName: INST, token: $env.WHATSAPP_WEBHOOK_SEGREDO,
+      integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });
+  }
+  await evo('POST', `/webhook/set/${INST}`, { webhook: cfgWebhook });
+  await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA);
+  if ((await estado()) !== 'open') {
+    const num = String(corpo.numero || '').replace(/\D/g, '');
+    const q = await evo('GET', `/instance/connect/${INST}` + (num ? `?number=${num}` : ''));
+    saida.qr = q.base64 || null;
+    saida.codigo = q.pairingCode || null;
+  }
+} else if (corpo.op === 'desconectar') {
+  try { await evo('DELETE', `/instance/logout/${INST}`); } catch (e) { /* ja desconectado */ }
+}
+saida.estado = await estado();
+if (saida.estado !== 'inexistente' && saida.estado !== 'erro') {
+  try { await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }
+}
+saida.config = corpo.config || {};
+if (saida.estado === 'open') {
+  try {
+    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${INST}`);
+    const i = Array.isArray(lista) ? lista[0] : lista;
+    saida.numero = String(i.ownerJid || i.owner || '').split('@')[0];
+    saida.perfil = i.profileName || null;
+  } catch (e) { /* sem detalhes */ }
+}
+saida.desconhecidos = corpo.desconhecidos || [];
+return [{ json: saida }];
+"""
+
+
+# ---------------------------------------------------------------------------
+# 5b) CANAL WHATSAPP  POST /webhook/whatsapp  (a Evolution API chama aqui a cada mensagem)
+#     numero cadastrado em nucleo.usuarios.whatsapp -> conversa com a IA daquela pessoa
+# ---------------------------------------------------------------------------
+JS_LER_MENSAGEM = r"""
+const b = $input.first().json.body || {};
+// so aceita o que veio da nossa instancia (token secreto configurado ao conectar)
+if (!$env.WHATSAPP_WEBHOOK_SEGREDO || b.apikey !== $env.WHATSAPP_WEBHOOK_SEGREDO) return [];
+if (String(b.event || '').toLowerCase().replace(/_/g, '.') !== 'messages.upsert') return [];
+const d = Array.isArray(b.data) ? b.data[0] : b.data;
+if (!d || !d.key) return [];
+const deMim = !!d.key.fromMe;
+let jid = d.key.remoteJid || '';
+if (jid.endsWith('@lid')) jid = d.key.remoteJidAlt || d.key.senderPn || d.key.participantAlt || '';
+if (!jid.endsWith('@s.whatsapp.net')) return [];          // grupos, status, canais: ignora
+const dono = String(b.sender || '').split('@')[0].split(':')[0];
+const conversaPropria = deMim && !!dono && jid.split('@')[0] === dono;   // conversa "Voce"
+if (deMim && !conversaPropria) return [];                  // dono falando com outras pessoas
+if (deMim) await new Promise(r => setTimeout(r, 2500));    // da tempo de registrar o que a IA enviou
+const m = d.message || {};
+const texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)
+  || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';
+const audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;
+if (!texto && !audio) return [];
+return [{ json: {
+  numero: jid.split('@')[0], nome: d.pushName || '', texto,
+  tipo: audio ? 'audio' : 'texto', audio_b64: audio,
+  de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,
+} }];
+"""
+
+JS_PREPARAR = r"""
+const msg = $('Ler mensagem').first().json;
+const quem = $('Quem e').first().json.r;
+const texto = msg.tipo === 'audio' ? ($input.first().json.text || '') : (quem.texto || msg.texto);
+try { await evo('POST', `/chat/sendPresence/${INST}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}
+return [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender)' } }];
+"""
+
+JS_RESPONDER_WHATSAPP = r"""
+const msg = $('Ler mensagem').first().json;
+const quem = $('Preparar').first().json;
+const resposta = $input.first().json.output || 'Tive um problema para responder agora. Tenta de novo em instantes?';
+let enviado = 'texto';
+const ids = [];
+if (msg.tipo === 'audio' && $env.OPENAI_API_KEY) {
+  try {
+    const mp3 = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/audio/speech',
+      headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'nova', response_format: 'mp3', input: resposta,
+        instructions: 'Fale em portugues do Brasil, tom natural e amigavel, como num audio de WhatsApp.' }),
+      encoding: 'arraybuffer', timeout: 60000 });
+    const r = await evo('POST', `/message/sendWhatsAppAudio/${INST}`, { number: msg.numero, audio: Buffer.from(mp3).toString('base64') });
+    if (r && r.key && r.key.id) ids.push(r.key.id);
+    enviado = 'audio';
+  } catch (e) { enviado = 'texto (audio falhou: ' + e.message + ')'; }
+}
+let erro = null;
+if (!enviado.startsWith('audio')) {
+  try { const r = await enviarWhatsapp(msg.numero, resposta); if (r && r.key && r.key.id) ids.push(r.key.id); }
+  catch (e) { erro = e.message; }
+}
+return [{ json: { usuario_id: quem.usuario_id, numero: msg.numero, resposta, enviado, erro, ids: ids.join(',') } }];
+"""
+
+
+def canal_whatsapp():
+    nodes = [
+        node("Webhook", "n8n-nodes-base.webhook", 2.1, [0, 0], {
+            "httpMethod": "POST", "path": "whatsapp", "responseMode": "onReceived", "options": {},
+        }, webhookId="9b1f6c2e-1a00-4000-8000-000000000004"),
+        node("Ler mensagem", "n8n-nodes-base.code", 2, [220, 0], {
+            "mode": "runOnceForAllItems", "jsCode": JS_LER_MENSAGEM,
+        }),
+        node("Quem e", "n8n-nodes-base.postgres", 2.6, [440, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7) AS r",
+            "options": {"queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, "
+                                            "$json.de_mim, $json.conversa_propria, $json.msg_id] }}"},
+        }, credentials=PG),
+        node("Rota", "n8n-nodes-base.switch", 3.2, [660, 0], {
+            "mode": "expression", "numberOutputs": 3,
+            # 0 = desconhecido (para aqui) | 1 = texto | 2 = audio
+            "output": "={{ $json.r.saida === 0 ? 0 : ($('Ler mensagem').first().json.tipo === 'audio' ? 2 : 1) }}",
+        }),
+        node("Dados do audio", "n8n-nodes-base.code", 2, [880, 200], {
+            "mode": "runOnceForAllItems",
+            # descobre o formato pelos primeiros bytes (OGG do WhatsApp, MP3, M4A...)
+            "jsCode": (
+                "const b64 = $('Ler mensagem').first().json.audio_b64;\n"
+                "const h = Buffer.from(b64.slice(0, 16), 'base64');\n"
+                "const ini = h.toString('latin1');\n"
+                "let ext = 'ogg', mime = 'audio/ogg';\n"
+                "if (ini.startsWith('ID3') || (h[0] === 0xff && (h[1] & 0xe0) === 0xe0)) { ext = 'mp3'; mime = 'audio/mpeg'; }\n"
+                "else if (ini.slice(4, 8) === 'ftyp') { ext = 'm4a'; mime = 'audio/mp4'; }\n"
+                "else if (ini.startsWith('RIFF')) { ext = 'wav'; mime = 'audio/wav'; }\n"
+                "else if (h[0] === 0x1a && h[1] === 0x45) { ext = 'webm'; mime = 'audio/webm'; }\n"
+                "return [{ json: { audio_b64: b64, ext, mime } }];"
+            ),
+        }),
+        node("Audio em arquivo", "n8n-nodes-base.convertToFile", 1.2, [1100, 200], {
+            "operation": "toBinary",
+            "sourceProperty": "audio_b64",
+            "binaryPropertyName": "data",
+            "options": {"encoding": "base64", "fileName": "={{ 'fala.' + $json.ext }}", "mimeType": "={{ $json.mime }}"},
+        }),
+        node("Transcrever (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [1320, 200], {
+            "method": "POST",
+            "url": "https://api.openai.com/v1/audio/transcriptions",
+            "authentication": "predefinedCredentialType",
+            "nodeCredentialType": "openAiApi",
+            "sendBody": True,
+            "contentType": "multipart-form-data",
+            "bodyParameters": {"parameters": [
+                {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"},
+                {"name": "model", "value": "gpt-4o-mini-transcribe"},
+                {"name": "language", "value": "pt"},
+            ]},
+            "options": {},
+        }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueRegularOutput"),
+        node("Preparar", "n8n-nodes-base.code", 2, [1540, 0], {
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_PREPARAR,
+        }),
+        chamar_cerebro("Cerebro", [1760, 0], {
+            "usuario_id": "={{ $json.usuario_id }}",
+            "nome": "={{ $json.nome }}",
+            "papel": "={{ $json.papel }}",
+            "chatInput": "={{ $json.chatInput }}",
+            "sessionId": "={{ $json.sessionId }}",
+            "canal": "={{ $json.canal }}",
+        }),
+        node("Responder no WhatsApp", "n8n-nodes-base.code", 2, [1980, 0], {
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_RESPONDER_WHATSAPP,
+        }),
+        node("Registrar resposta", "n8n-nodes-base.postgres", 2.6, [2200, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.whatsapp_saida($1::int, $2, $3, string_to_array(nullif($4, ''), ','))",
+            "options": {"queryReplacement": "={{ [$json.usuario_id, $json.numero, $json.resposta, $json.ids] }}"},
+        }, credentials=PG),
+    ]
+    con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Quem e"), ("Quem e", "Rota"),
+                ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (OpenAI)"),
+                ("Transcrever (OpenAI)", "Preparar"), ("Preparar", "Cerebro"),
+                ("Cerebro", "Responder no WhatsApp"), ("Responder no WhatsApp", "Registrar resposta"))
+    con["Rota"] = {"main": [
+        [],
+        [{"node": "Preparar", "type": "main", "index": 0}],
+        [{"node": "Dados do audio", "type": "main", "index": 0}],
+    ]}
+    return workflow("canalWhatsapp01", "Canal WhatsApp", nodes, con)
+
+
+# ---------------------------------------------------------------------------
+# 6) API DE AUDIO  POST /webhook/painel-audio?sessao=x   corpo = audio cru (webm/mp4/ogg)
+# ---------------------------------------------------------------------------
+def api_audio():
+    nodes = [
+        node("Webhook", "n8n-nodes-base.webhook", 2.1, [0, 0], {
+            "httpMethod": "POST",
+            "path": "painel-audio",
+            "responseMode": "responseNode",
+            "options": {"allowedOrigins": "*", "rawBody": True},
+        }, webhookId="9b1f6c2e-1a00-4000-8000-000000000003"),
+        node("Regras (banco)", "n8n-nodes-base.postgres", 2.6, [220, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.api($1, 'audio', $2::jsonb) AS r",
+            "options": {"queryReplacement":
+                        "={{ [" + TOKEN + ", JSON.stringify({ sessao: $json.query.sessao || 'painel' })] }}"},
+        }, credentials=PG),
+        node("Rota", "n8n-nodes-base.switch", 3.2, [440, 0], {
+            "mode": "expression",
+            "numberOutputs": 2,
+            "output": "={{ $json.r.saida === 1 ? 1 : 0 }}",
+        }),
+        responder("Negado", [660, -160], "={{ JSON.stringify($json.r.corpo) }}", "={{ $json.r.status }}"),
+        node("Preparar audio", "n8n-nodes-base.code", 2, [660, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": (
+                "// devolve o audio do webhook com nome/extensao que a OpenAI reconhece\n"
+                "const recebido = $('Webhook').first().binary || {};\n"
+                "const bin = { ...(recebido.data || recebido.audio || Object.values(recebido)[0]) };\n"
+                "if (!bin.mimeType) throw new Error('Nenhum audio recebido');\n"
+                "const mime = (bin.mimeType || 'audio/webm').split(';')[0];\n"
+                "const ext = { 'audio/webm': 'webm', 'audio/mp4': 'mp4', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3',\n"
+                "  'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/aac': 'm4a' }[mime] || 'webm';\n"
+                "bin.fileName = 'fala.' + ext; bin.fileExtension = ext; bin.mimeType = mime;\n"
+                "return [{ json: $input.first().json, binary: { audio: bin } }];"
+            ),
+        }),
+        node("Transcrever (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [880, 0], {
+            "method": "POST",
+            "url": "https://api.openai.com/v1/audio/transcriptions",
+            "authentication": "predefinedCredentialType",
+            "nodeCredentialType": "openAiApi",
+            "sendBody": True,
+            "contentType": "multipart-form-data",
+            "bodyParameters": {"parameters": [
+                {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "audio"},
+                {"name": "model", "value": "gpt-4o-mini-transcribe"},
+                {"name": "language", "value": "pt"},
+            ]},
+            "options": {},
+        }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueErrorOutput"),
+        chamar_cerebro("Cerebro", [1100, 0], {
+            "usuario_id": "={{ $('Regras (banco)').first().json.r.corpo.usuario_id }}",
+            "nome": "={{ $('Regras (banco)').first().json.r.corpo.nome }}",
+            "papel": "={{ $('Regras (banco)').first().json.r.corpo.papel }}",
+            "chatInput": "={{ $json.text }}",
+            "sessionId": "={{ $('Regras (banco)').first().json.r.corpo.sessionId }}",
+            "canal": "voz",
+        }),
+        responder("Resposta", [1320, 0],
+                  "={{ JSON.stringify($json.output ? { transcricao: $('Transcrever (OpenAI)').first().json.text, resposta: $json.output } "
+                  ": { erro: 'A IA falhou', transcricao: $('Transcrever (OpenAI)').first().json.text }) }}",
+                  "={{ $json.output ? 200 : 502 }}"),
+        responder("Nao entendi", [1100, 200],
+                  "={{ JSON.stringify({ erro: 'Nao consegui transcrever o audio' }) }}", "502"),
+    ]
+    con = ligar(("Webhook", "Regras (banco)"), ("Regras (banco)", "Rota"),
+                ("Preparar audio", "Transcrever (OpenAI)"), ("Cerebro", "Resposta"))
+    con["Rota"] = {"main": [
+        [{"node": "Negado", "type": "main", "index": 0}],
+        [{"node": "Preparar audio", "type": "main", "index": 0}],
+    ]}
+    con["Transcrever (OpenAI)"] = {"main": [
+        [{"node": "Cerebro", "type": "main", "index": 0}],
+        [{"node": "Nao entendi", "type": "main", "index": 0}],
+    ]}
+    return workflow("apiPainelAudio1", "API do Painel (audio)", nodes, con)
+
+
+# ---------------------------------------------------------------------------
+# 7) LEMBRETES (dispara os lembretes vencidos a cada minuto)
+# ---------------------------------------------------------------------------
+def lembretes():
+    nodes = [
+        node("A cada minuto", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 1}]}}),
+        node("Testar agora", "n8n-nodes-base.manualTrigger", 1, [0, 200], {}),
+        node("Pegar vencidos", "n8n-nodes-base.postgres", 2.6, [220, 0], {
+            "operation": "executeQuery",
+            "query": "UPDATE nucleo.lembretes SET enviado_em = now()\n"
+                     "WHERE enviado_em IS NULL AND quando <= now()\n"
+                     "RETURNING id, usuario_id, texto, coalesce(contato, '') AS contato",
+            "options": {},
+        }, credentials=PG),
+        node("So lembretes", "n8n-nodes-base.code", 2, [440, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "return $input.all().filter(i => i.json.id);",
+        }),
+        node("Enviar", "n8n-nodes-base.executeWorkflow", 1.4, [660, 0], {
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "ferrEnviarMsg01",
+                           "cachedResultName": "Ferramenta: Enviar mensagem"},
+            "workflowInputs": mapear({
+                "usuario_id": "={{ $json.usuario_id }}",
+                "contato": "={{ $json.contato }}",
+                "mensagem": "=⏰ Lembrete: {{ $json.texto }}",
+            }),
+            "mode": "each",
+            "options": {},
+        }, onError="continueRegularOutput"),
+    ]
+    con = ligar(("A cada minuto", "Pegar vencidos"), ("Testar agora", "Pegar vencidos"),
+                ("Pegar vencidos", "So lembretes"), ("So lembretes", "Enviar"))
+    return workflow("lembretes00001", "Lembretes", nodes, con)
+
+
+# ---------------------------------------------------------------------------
+# 0) MONITOR v2 (a cada 1 min): Render + Vercel pela API, todas as URLs em paralelo com tempo
+#    de resposta, regras fixas no banco (registrar_checks) e avisos por WhatsApp/Telegram.
+# ---------------------------------------------------------------------------
+JS_PLATAFORMAS = r"""
+// Lista o que existe nas contas Render/Vercel (se as chaves estiverem no .env) e diz se esta ok.
+const itens = [];
+const pedir = (url, token) => this.helpers.httpRequest({ method: 'GET', url, json: true, timeout: 20000,
+  headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+const erroConta = (origem, e) => itens.push({ origem, externo_id: `${origem}:conta`, nome: `${origem === 'render' ? 'Render' : 'Vercel'} (acesso a conta)`,
+  ok: false, detalhe: 'API recusou ou nao respondeu: ' + (e.message || e).toString().slice(0, 200),
+  painel_url: origem === 'render' ? 'https://dashboard.render.com' : 'https://vercel.com/dashboard' });
+const contaOk = (origem) => itens.push({ origem, externo_id: `${origem}:conta`, nome: `${origem === 'render' ? 'Render' : 'Vercel'} (acesso a conta)`,
+  ok: true, detalhe: 'API respondendo', painel_url: origem === 'render' ? 'https://dashboard.render.com' : 'https://vercel.com/dashboard' });
+
+// ---------------- Render
+if ($env.RENDER_API_KEY) {
+  try {
+    let cursor = '', servicos = [];
+    for (let p = 0; p < 5; p++) {
+      const pg = await pedir(`https://api.render.com/v1/services?limit=100${cursor ? '&cursor=' + cursor : ''}`, $env.RENDER_API_KEY);
+      servicos = servicos.concat(pg.map(x => x.service));
+      if (pg.length < 100) break;
+      cursor = pg[pg.length - 1].cursor;
+    }
+    contaOk('render');
+    const RUINS = { build_failed: 'build falhou', update_failed: 'atualizacao falhou', pre_deploy_failed: 'pre-deploy falhou', canceled: 'deploy cancelado' };
+    await Promise.all(servicos.map(async s => {
+      let ok = true, detalhe = 'no ar';
+      if (s.suspended === 'suspended') { ok = false; detalhe = 'servico SUSPENSO'; }
+      else {
+        try {
+          const d = (await pedir(`https://api.render.com/v1/services/${s.id}/deploys?limit=1`, $env.RENDER_API_KEY))[0];
+          const st = d && d.deploy ? d.deploy.status : null;
+          if (st && RUINS[st]) { ok = false; detalhe = `ultimo deploy: ${RUINS[st]}` + (d.deploy.commit && d.deploy.commit.message ? ` (${d.deploy.commit.message.split('\n')[0].slice(0, 80)})` : ''); }
+          else if (st && st !== 'live' && st !== 'deactivated') detalhe = `deploy em andamento (${st})`;
+          else detalhe = 'ultimo deploy ok';
+        } catch (e) { detalhe = 'nao consegui ler os deploys'; }
+      }
+      const url = s.serviceDetails && s.serviceDetails.url && s.type !== 'private_service' ? s.serviceDetails.url : '';
+      itens.push({ origem: 'render', externo_id: `render:${s.id}:deploy`, nome: `Render · ${s.name} (deploy)`, nome_site: `Render · ${s.name}`,
+        ok, detalhe, painel_url: s.dashboardUrl || `https://dashboard.render.com`, url: s.suspended === 'suspended' ? '' : url });
+    }));
+  } catch (e) { erroConta('render', e); }
+}
+
+// ---------------- Vercel
+if ($env.VERCEL_TOKEN) {
+  const team = $env.VERCEL_TEAM_ID ? `&teamId=${$env.VERCEL_TEAM_ID}` : '';
+  try {
+    const r = await pedir(`https://api.vercel.com/v10/projects?limit=100${team}`, $env.VERCEL_TOKEN);
+    contaOk('vercel');
+    await Promise.all((r.projects || []).map(async p => {
+      let ok = true, detalhe = 'sem deploy de producao ainda', painel = `https://vercel.com/dashboard`;
+      try {
+        const d = ((await pedir(`https://api.vercel.com/v7/deployments?projectId=${p.id}&target=production&limit=1${team}`, $env.VERCEL_TOKEN)).deployments || [])[0];
+        if (d) {
+          const st = d.state || d.readyState;
+          painel = d.inspectorUrl || painel;
+          if (st === 'ERROR') { ok = false; detalhe = 'ultimo deploy de producao FALHOU' + (d.errorMessage ? `: ${String(d.errorMessage).slice(0, 120)}` : ''); }
+          else if (st === 'READY') detalhe = 'ultimo deploy ok';
+          else detalhe = `deploy em andamento (${st})`;
+        }
+      } catch (e) { detalhe = 'nao consegui ler os deploys'; }
+      const prod = p.targets && p.targets.production;
+      const alias = prod && Array.isArray(prod.alias) ? prod.alias : [];
+      const dominio = alias.find(a => !a.endsWith('.vercel.app')) || alias[0] || '';
+      itens.push({ origem: 'vercel', externo_id: `vercel:${p.id}:deploy`, nome: `Vercel · ${p.name} (deploy)`, nome_site: `Vercel · ${p.name}`,
+        ok, detalhe, painel_url: painel, url: dominio ? `https://${dominio}` : '' });
+    }));
+  } catch (e) { erroConta('vercel', e); }
+}
+return [{ json: { itens: JSON.stringify(itens), total: itens.length } }];
+"""
+
+JS_CHECAR_TUDO = r"""
+// Bate em todas as URLs em paralelo (10 por vez), mede o tempo e aplica a regra de cada sistema.
+const sistemas = $input.all().map(i => i.json).filter(s => s.id);
+const lento = 8000;
+async function checar(s) {
+  const t0 = Date.now();
+  try {
+    const r = await this.helpers.httpRequest({ method: s.metodo || 'GET', url: s.url, timeout: s.timeout_ms || 15000,
+      returnFullResponse: true, ignoreHttpStatusErrors: true, encoding: 'text',
+      headers: { 'User-Agent': 'IA-Central-Monitor/1.0', 'Cache-Control': 'no-cache' } });
+    const ms = Date.now() - t0, st = r.statusCode;
+    const corpo = typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '');
+    const statusOk = s.status_esperado ? st === s.status_esperado : st < 400;
+    if (!statusOk) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `HTTP ${st}` + (s.status_esperado ? ` (esperado ${s.status_esperado})` : '') };
+    if (s.texto_esperado && !corpo.includes(s.texto_esperado)) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `resposta sem "${s.texto_esperado}"` };
+    return { sistema_id: s.id, ok: true, tempo_ms: ms, detalhe: `HTTP ${st} em ${ms} ms` + (ms > lento ? ' (LENTO)' : '') };
+  } catch (e) {
+    const ms = Date.now() - t0;
+    const m = String(e.message || e);
+    const motivo = /timeout|ETIMEDOUT|ECONNABORTED/i.test(m) ? `sem resposta em ${Math.round(ms / 1000)}s` :
+      /ENOTFOUND|EAI_AGAIN/i.test(m) ? 'dominio nao encontrado (DNS)' :
+      /ECONNREFUSED/i.test(m) ? 'conexao recusada' : /certificate|SSL|TLS/i.test(m) ? 'erro de certificado SSL' : m.slice(0, 160);
+    return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: motivo };
+  }
+}
+const resultados = [];
+for (let i = 0; i < sistemas.length; i += 10) {
+  resultados.push(...await Promise.all(sistemas.slice(i, i + 10).map(s => checar.call(this, s))));
+}
+const plataformas = JSON.parse($('Sincronizar').first().json.checks || '[]');
+const todos = resultados.concat(typeof plataformas === 'string' ? JSON.parse(plataformas) : plataformas);
+const b64 = Buffer.from(JSON.stringify(todos), 'utf8').toString('base64');
+return [{ json: { total: todos.length, falhas: todos.filter(c => !c.ok).length, checks_b64: b64,
+  resumo: resultados.map(r => ({ id: r.sistema_id, ok: r.ok, ms: r.tempo_ms, detalhe: r.detalhe })) } }];
+"""
+
+JS_AVISAR = r"""
+// Entrega cada aviso pelo canal da linha (WhatsApp ou Telegram).
+const conectado = await whatsappConectado();
+const saida = [];
+for (const it of $input.all()) {
+  const a = it.json;
+  if (!a.destino) continue;
+  let enviado = false, erro = null;
+  try {
+    if (a.canal === 'whatsapp' && conectado) { await enviarWhatsapp(a.destino, a.mensagem); enviado = true; }
+    else if (a.canal === 'telegram' && $env.TELEGRAM_BOT_TOKEN) { await enviarTelegram.call(this, a.destino, a.mensagem); enviado = true; }
+    else erro = a.canal === 'whatsapp' ? 'WhatsApp desconectado' : 'Telegram sem token';
+  } catch (e) { erro = e.message; }
+  saida.push({ json: { sistema: a.sistema, evento: a.evento, canal: a.canal, enviado, erro } });
+}
+return saida;
+"""
+
+
+def monitor():
+    nodes = [
+        node("A cada minuto", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 1}]}}),
+        node("Testar agora", "n8n-nodes-base.manualTrigger", 1, [0, 180], {}),
+        gatilho_subworkflow(["origem"], pos=(0, 360)),
+        node("Plataformas", "n8n-nodes-base.code", 2, [240, 180], {
+            "mode": "runOnceForAllItems", "jsCode": JS_PLATAFORMAS,
+        }, onError="continueRegularOutput"),
+        node("Sincronizar", "n8n-nodes-base.postgres", 2.6, [460, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.sincronizar_plataformas(coalesce(nullif($1, ''), '[]')::jsonb)::text AS checks",
+            "options": {"queryReplacement": "={{ [$json.itens || '[]'] }}"},
+        }, credentials=PG),
+        node("Buscar sistemas", "n8n-nodes-base.postgres", 2.6, [680, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT id, nome, url, metodo, status_esperado, texto_esperado, timeout_ms\n"
+                     "FROM nucleo.sistemas WHERE ativo AND tipo = 'http' ORDER BY id",
+            "options": {},
+        }, credentials=PG, alwaysOutputData=True),
+        node("Checar tudo", "n8n-nodes-base.code", 2, [900, 180], {
+            "mode": "runOnceForAllItems", "jsCode": JS_CHECAR_TUDO,
+        }),
+        node("Registrar e decidir alertas", "n8n-nodes-base.postgres", 2.6, [1120, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT * FROM nucleo.registrar_checks(convert_from(decode($1, 'base64'), 'UTF8')::jsonb)",
+            "options": {"queryReplacement": "={{ [$json.checks_b64] }}"},
+        }, credentials=PG),
+        node("Avisar", "n8n-nodes-base.code", 2, [1340, 180], {
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_AVISAR,
+        }),
+        node("Resultado", "n8n-nodes-base.code", 2, [1340, 380], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "const c = $('Checar tudo').first().json;\n"
+                      "return [{ json: { verificados: c.total, falhas: c.falhas, sistemas: c.resumo } }];",
+        }),
+    ]
+    con = ligar(("A cada minuto", "Plataformas"), ("Testar agora", "Plataformas"), ("Quando chamado", "Plataformas"),
+                ("Plataformas", "Sincronizar"), ("Sincronizar", "Buscar sistemas"), ("Buscar sistemas", "Checar tudo"),
+                ("Checar tudo", "Registrar e decidir alertas"), ("Checar tudo", "Resultado"),
+                ("Registrar e decidir alertas", "Avisar"))
+    wf = workflow("monitorSistemas01", "Monitor de Sistemas", nodes, con)
+    wf["settings"]["saveDataSuccessExecution"] = "none"   # roda todo minuto: so guarda execucao com erro
+    return wf
+
+
+# ---------------------------------------------------------------------------
+# 0b) FERRAMENTA: CHECAR AGORA (qualquer URL, na hora, sem cadastrar)
+# ---------------------------------------------------------------------------
+def ferramenta_checar_agora():
+    nodes = [
+        gatilho_subworkflow(["url"]),
+        node("Checar", "n8n-nodes-base.code", 2, [240, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": r"""
+let url = String($input.first().json.url || '').trim();
+if (!url) return [{ json: { resultado: 'URL vazia' } }];
+if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+const t0 = Date.now();
+try {
+  const r = await this.helpers.httpRequest({ method: 'GET', url, timeout: 20000, returnFullResponse: true,
+    ignoreHttpStatusErrors: true, encoding: 'text', headers: { 'User-Agent': 'IA-Central-Monitor/1.0' } });
+  const ms = Date.now() - t0;
+  const titulo = (String(r.body || '').match(/<title[^>]*>([^<]{0,120})/i) || [])[1] || null;
+  return [{ json: { url, no_ar: r.statusCode < 400, status_http: r.statusCode, tempo_ms: ms,
+    avaliacao: r.statusCode >= 400 ? 'com erro' : ms > 8000 ? 'muito lento' : ms > 2500 ? 'lento' : 'rapido', titulo } }];
+} catch (e) {
+  return [{ json: { url, no_ar: false, tempo_ms: Date.now() - t0, erro: String(e.message || e).slice(0, 200) } }];
+}""",
+        }),
+    ]
+    return workflow("ferrChecarAgora1", "Ferramenta: Checar agora", nodes, ligar(("Quando chamado", "Checar")))
+
+
+WORKFLOWS = [
+    ("monitor-sistemas.json", monitor),
+    ("ferramenta-checar-agora.json", ferramenta_checar_agora),
+    ("ferramenta-enviar-mensagem.json", ferramenta_enviar_mensagem),
+    ("especialista-sistemas.json", especialista_sistemas),
+    ("cerebro.json", cerebro),
+    ("ia-pessoal.json", ia_pessoal),
+    ("api-painel.json", api_painel),
+    ("api-painel-audio.json", api_audio),
+    ("canal-whatsapp.json", canal_whatsapp),
+    ("lembretes.json", lembretes),
+]
+
+if __name__ == "__main__":
+    for nome, fn in WORKFLOWS:
+        (SAIDA / nome).write_text(json.dumps(fn(), ensure_ascii=False, indent=2), encoding="utf-8")
+        print("gerado", nome)

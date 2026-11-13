@@ -1,0 +1,285 @@
+{
+  "id": "monitorSistemas01",
+  "name": "Monitor de Sistemas",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "name": "A cada minuto",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "name": "Testar agora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        360
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "origem",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000004",
+      "name": "Plataformas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        180
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\n// Lista o que existe nas contas Render/Vercel (se as chaves estiverem no .env) e diz se esta ok.\nconst itens = [];\nconst pedir = (url, token) => this.helpers.httpRequest({ method: 'GET', url, json: true, timeout: 20000,\n  headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });\nconst erroConta = (origem, e) => itens.push({ origem, externo_id: `${origem}:conta`, nome: `${origem === 'render' ? 'Render' : 'Vercel'} (acesso a conta)`,\n  ok: false, detalhe: 'API recusou ou nao respondeu: ' + (e.message || e).toString().slice(0, 200),\n  painel_url: origem === 'render' ? 'https://dashboard.render.com' : 'https://vercel.com/dashboard' });\nconst contaOk = (origem) => itens.push({ origem, externo_id: `${origem}:conta`, nome: `${origem === 'render' ? 'Render' : 'Vercel'} (acesso a conta)`,\n  ok: true, detalhe: 'API respondendo', painel_url: origem === 'render' ? 'https://dashboard.render.com' : 'https://vercel.com/dashboard' });\n\n// ---------------- Render\nif ($env.RENDER_API_KEY) {\n  try {\n    let cursor = '', servicos = [];\n    for (let p = 0; p < 5; p++) {\n      const pg = await pedir(`https://api.render.com/v1/services?limit=100${cursor ? '&cursor=' + cursor : ''}`, $env.RENDER_API_KEY);\n      servicos = servicos.concat(pg.map(x => x.service));\n      if (pg.length < 100) break;\n      cursor = pg[pg.length - 1].cursor;\n    }\n    contaOk('render');\n    const RUINS = { build_failed: 'build falhou', update_failed: 'atualizacao falhou', pre_deploy_failed: 'pre-deploy falhou', canceled: 'deploy cancelado' };\n    await Promise.all(servicos.map(async s => {\n      let ok = true, detalhe = 'no ar';\n      if (s.suspended === 'suspended') { ok = false; detalhe = 'servico SUSPENSO'; }\n      else {\n        try {\n          const d = (await pedir(`https://api.render.com/v1/services/${s.id}/deploys?limit=1`, $env.RENDER_API_KEY))[0];\n          const st = d && d.deploy ? d.deploy.status : null;\n          if (st && RUINS[st]) { ok = false; detalhe = `ultimo deploy: ${RUINS[st]}` + (d.deploy.commit && d.deploy.commit.message ? ` (${d.deploy.commit.message.split('\\n')[0].slice(0, 80)})` : ''); }\n          else if (st && st !== 'live' && st !== 'deactivated') detalhe = `deploy em andamento (${st})`;\n          else detalhe = 'ultimo deploy ok';\n        } catch (e) { detalhe = 'nao consegui ler os deploys'; }\n      }\n      const url = s.serviceDetails && s.serviceDetails.url && s.type !== 'private_service' ? s.serviceDetails.url : '';\n      itens.push({ origem: 'render', externo_id: `render:${s.id}:deploy`, nome: `Render · ${s.name} (deploy)`, nome_site: `Render · ${s.name}`,\n        ok, detalhe, painel_url: s.dashboardUrl || `https://dashboard.render.com`, url: s.suspended === 'suspended' ? '' : url });\n    }));\n  } catch (e) { erroConta('render', e); }\n}\n\n// ---------------- Vercel\nif ($env.VERCEL_TOKEN) {\n  const team = $env.VERCEL_TEAM_ID ? `&teamId=${$env.VERCEL_TEAM_ID}` : '';\n  try {\n    const r = await pedir(`https://api.vercel.com/v10/projects?limit=100${team}`, $env.VERCEL_TOKEN);\n    contaOk('vercel');\n    await Promise.all((r.projects || []).map(async p => {\n      let ok = true, detalhe = 'sem deploy de producao ainda', painel = `https://vercel.com/dashboard`;\n      try {\n        const d = ((await pedir(`https://api.vercel.com/v7/deployments?projectId=${p.id}&target=production&limit=1${team}`, $env.VERCEL_TOKEN)).deployments || [])[0];\n        if (d) {\n          const st = d.state || d.readyState;\n          painel = d.inspectorUrl || painel;\n          if (st === 'ERROR') { ok = false; detalhe = 'ultimo deploy de producao FALHOU' + (d.errorMessage ? `: ${String(d.errorMessage).slice(0, 120)}` : ''); }\n          else if (st === 'READY') detalhe = 'ultimo deploy ok';\n          else detalhe = `deploy em andamento (${st})`;\n        }\n      } catch (e) { detalhe = 'nao consegui ler os deploys'; }\n      const prod = p.targets && p.targets.production;\n      const alias = prod && Array.isArray(prod.alias) ? prod.alias : [];\n      const dominio = alias.find(a => !a.endsWith('.vercel.app')) || alias[0] || '';\n      itens.push({ origem: 'vercel', externo_id: `vercel:${p.id}:deploy`, nome: `Vercel · ${p.name} (deploy)`, nome_site: `Vercel · ${p.name}`,\n        ok, detalhe, painel_url: painel, url: dominio ? `https://${dominio}` : '' });\n    }));\n  } catch (e) { erroConta('vercel', e); }\n}\nreturn [{ json: { itens: JSON.stringify(itens), total: itens.length } }];\n"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000005",
+      "name": "Sincronizar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        460,
+        180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.sincronizar_plataformas(coalesce(nullif($1, ''), '[]')::jsonb)::text AS checks",
+        "options": {
+          "queryReplacement": "={{ [$json.itens || '[]'] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000006",
+      "name": "Buscar sistemas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        680,
+        180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, nome, url, metodo, status_esperado, texto_esperado, timeout_ms\nFROM nucleo.sistemas WHERE ativo AND tipo = 'http' ORDER BY id",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000007",
+      "name": "Checar tudo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        180
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\n// Bate em todas as URLs em paralelo (10 por vez), mede o tempo e aplica a regra de cada sistema.\nconst sistemas = $input.all().map(i => i.json).filter(s => s.id);\nconst lento = 8000;\nasync function checar(s) {\n  const t0 = Date.now();\n  try {\n    const r = await this.helpers.httpRequest({ method: s.metodo || 'GET', url: s.url, timeout: s.timeout_ms || 15000,\n      returnFullResponse: true, ignoreHttpStatusErrors: true, encoding: 'text',\n      headers: { 'User-Agent': 'IA-Central-Monitor/1.0', 'Cache-Control': 'no-cache' } });\n    const ms = Date.now() - t0, st = r.statusCode;\n    const corpo = typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '');\n    const statusOk = s.status_esperado ? st === s.status_esperado : st < 400;\n    if (!statusOk) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `HTTP ${st}` + (s.status_esperado ? ` (esperado ${s.status_esperado})` : '') };\n    if (s.texto_esperado && !corpo.includes(s.texto_esperado)) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `resposta sem \"${s.texto_esperado}\"` };\n    return { sistema_id: s.id, ok: true, tempo_ms: ms, detalhe: `HTTP ${st} em ${ms} ms` + (ms > lento ? ' (LENTO)' : '') };\n  } catch (e) {\n    const ms = Date.now() - t0;\n    const m = String(e.message || e);\n    const motivo = /timeout|ETIMEDOUT|ECONNABORTED/i.test(m) ? `sem resposta em ${Math.round(ms / 1000)}s` :\n      /ENOTFOUND|EAI_AGAIN/i.test(m) ? 'dominio nao encontrado (DNS)' :\n      /ECONNREFUSED/i.test(m) ? 'conexao recusada' : /certificate|SSL|TLS/i.test(m) ? 'erro de certificado SSL' : m.slice(0, 160);\n    return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: motivo };\n  }\n}\nconst resultados = [];\nfor (let i = 0; i < sistemas.length; i += 10) {\n  resultados.push(...await Promise.all(sistemas.slice(i, i + 10).map(s => checar.call(this, s))));\n}\nconst plataformas = JSON.parse($('Sincronizar').first().json.checks || '[]');\nconst todos = resultados.concat(typeof plataformas === 'string' ? JSON.parse(plataformas) : plataformas);\nconst b64 = Buffer.from(JSON.stringify(todos), 'utf8').toString('base64');\nreturn [{ json: { total: todos.length, falhas: todos.filter(c => !c.ok).length, checks_b64: b64,\n  resumo: resultados.map(r => ({ id: r.sistema_id, ok: r.ok, ms: r.tempo_ms, detalhe: r.detalhe })) } }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000008",
+      "name": "Registrar e decidir alertas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1120,
+        180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM nucleo.registrar_checks(convert_from(decode($1, 'base64'), 'UTF8')::jsonb)",
+        "options": {
+          "queryReplacement": "={{ [$json.checks_b64] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000009",
+      "name": "Avisar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        180
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto) {\n  let t = paraWhatsapp(texto);\n  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// Entrega cada aviso pelo canal da linha (WhatsApp ou Telegram).\nconst conectado = await whatsappConectado();\nconst saida = [];\nfor (const it of $input.all()) {\n  const a = it.json;\n  if (!a.destino) continue;\n  let enviado = false, erro = null;\n  try {\n    if (a.canal === 'whatsapp' && conectado) { await enviarWhatsapp(a.destino, a.mensagem); enviado = true; }\n    else if (a.canal === 'telegram' && $env.TELEGRAM_BOT_TOKEN) { await enviarTelegram.call(this, a.destino, a.mensagem); enviado = true; }\n    else erro = a.canal === 'whatsapp' ? 'WhatsApp desconectado' : 'Telegram sem token';\n  } catch (e) { erro = e.message; }\n  saida.push({ json: { sistema: a.sistema, evento: a.evento, canal: a.canal, enviado, erro } });\n}\nreturn saida;\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000010",
+      "name": "Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        380
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const c = $('Checar tudo').first().json;\nreturn [{ json: { verificados: c.total, falhas: c.falhas, sistemas: c.resumo } }];"
+      }
+    }
+  ],
+  "connections": {
+    "A cada minuto": {
+      "main": [
+        [
+          {
+            "node": "Plataformas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testar agora": {
+      "main": [
+        [
+          {
+            "node": "Plataformas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "Plataformas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plataformas": {
+      "main": [
+        [
+          {
+            "node": "Sincronizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sincronizar": {
+      "main": [
+        [
+          {
+            "node": "Buscar sistemas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar sistemas": {
+      "main": [
+        [
+          {
+            "node": "Checar tudo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar tudo": {
+      "main": [
+        [
+          {
+            "node": "Registrar e decidir alertas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar e decidir alertas": {
+      "main": [
+        [
+          {
+            "node": "Avisar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,427 @@
+{
+  "id": "canalWhatsapp01",
+  "name": "Canal WhatsApp",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000062",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "9b1f6c2e-1a00-4000-8000-000000000004"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000063",
+      "name": "Ler mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst b = $input.first().json.body || {};\n// so aceita o que veio da nossa instancia (token secreto configurado ao conectar)\nif (!$env.WHATSAPP_WEBHOOK_SEGREDO || b.apikey !== $env.WHATSAPP_WEBHOOK_SEGREDO) return [];\nif (String(b.event || '').toLowerCase().replace(/_/g, '.') !== 'messages.upsert') return [];\nconst d = Array.isArray(b.data) ? b.data[0] : b.data;\nif (!d || !d.key) return [];\nconst deMim = !!d.key.fromMe;\nlet jid = d.key.remoteJid || '';\nif (jid.endsWith('@lid')) jid = d.key.remoteJidAlt || d.key.senderPn || d.key.participantAlt || '';\nif (!jid.endsWith('@s.whatsapp.net')) return [];          // grupos, status, canais: ignora\nconst dono = String(b.sender || '').split('@')[0].split(':')[0];\nconst conversaPropria = deMim && !!dono && jid.split('@')[0] === dono;   // conversa \"Voce\"\nif (deMim && !conversaPropria) return [];                  // dono falando com outras pessoas\nif (deMim) await new Promise(r => setTimeout(r, 2500));    // da tempo de registrar o que a IA enviou\nconst m = d.message || {};\nconst texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)\n  || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';\nconst audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;\nif (!texto && !audio) return [];\nreturn [{ json: {\n  numero: jid.split('@')[0], nome: d.pushName || '', texto,\n  tipo: audio ? 'audio' : 'texto', audio_b64: audio,\n  de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,\n} }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000064",
+      "name": "Quem e",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7) AS r",
+        "options": {
+          "queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, $json.de_mim, $json.conversa_propria, $json.msg_id] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000065",
+      "name": "Rota",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.r.saida === 0 ? 0 : ($('Ler mensagem').first().json.tipo === 'audio' ? 2 : 1) }}"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000066",
+      "name": "Dados do audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const b64 = $('Ler mensagem').first().json.audio_b64;\nconst h = Buffer.from(b64.slice(0, 16), 'base64');\nconst ini = h.toString('latin1');\nlet ext = 'ogg', mime = 'audio/ogg';\nif (ini.startsWith('ID3') || (h[0] === 0xff && (h[1] & 0xe0) === 0xe0)) { ext = 'mp3'; mime = 'audio/mpeg'; }\nelse if (ini.slice(4, 8) === 'ftyp') { ext = 'm4a'; mime = 'audio/mp4'; }\nelse if (ini.startsWith('RIFF')) { ext = 'wav'; mime = 'audio/wav'; }\nelse if (h[0] === 0x1a && h[1] === 0x45) { ext = 'webm'; mime = 'audio/webm'; }\nreturn [{ json: { audio_b64: b64, ext, mime } }];"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000067",
+      "name": "Audio em arquivo",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "audio_b64",
+        "binaryPropertyName": "data",
+        "options": {
+          "encoding": "base64",
+          "fileName": "={{ 'fala.' + $json.ext }}",
+          "mimeType": "={{ $json.mime }}"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000068",
+      "name": "Transcrever (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "gpt-4o-mini-transcribe"
+            },
+            {
+              "name": "language",
+              "value": "pt"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai01",
+          "name": "OpenAI"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000069",
+      "name": "Preparar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto) {\n  let t = paraWhatsapp(texto);\n  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst msg = $('Ler mensagem').first().json;\nconst quem = $('Quem e').first().json.r;\nconst texto = msg.tipo === 'audio' ? ($input.first().json.text || '') : (quem.texto || msg.texto);\ntry { await evo('POST', `/chat/sendPresence/${INST}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}\nreturn [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender)' } }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000070",
+      "name": "Cerebro",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "iaCerebro00001",
+          "cachedResultName": "Cerebro IA (por usuario)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "usuario_id": "={{ $json.usuario_id }}",
+            "nome": "={{ $json.nome }}",
+            "papel": "={{ $json.papel }}",
+            "chatInput": "={{ $json.chatInput }}",
+            "sessionId": "={{ $json.sessionId }}",
+            "canal": "={{ $json.canal }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "usuario_id",
+              "displayName": "usuario_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nome",
+              "displayName": "nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "papel",
+              "displayName": "papel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "chatInput",
+              "displayName": "chatInput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000071",
+      "name": "Responder no WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto) {\n  let t = paraWhatsapp(texto);\n  if (!t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst msg = $('Ler mensagem').first().json;\nconst quem = $('Preparar').first().json;\nconst resposta = $input.first().json.output || 'Tive um problema para responder agora. Tenta de novo em instantes?';\nlet enviado = 'texto';\nconst ids = [];\nif (msg.tipo === 'audio' && $env.OPENAI_API_KEY) {\n  try {\n    const mp3 = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/audio/speech',\n      headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },\n      body: JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'nova', response_format: 'mp3', input: resposta,\n        instructions: 'Fale em portugues do Brasil, tom natural e amigavel, como num audio de WhatsApp.' }),\n      encoding: 'arraybuffer', timeout: 60000 });\n    const r = await evo('POST', `/message/sendWhatsAppAudio/${INST}`, { number: msg.numero, audio: Buffer.from(mp3).toString('base64') });\n    if (r && r.key && r.key.id) ids.push(r.key.id);\n    enviado = 'audio';\n  } catch (e) { enviado = 'texto (audio falhou: ' + e.message + ')'; }\n}\nlet erro = null;\nif (!enviado.startsWith('audio')) {\n  try { const r = await enviarWhatsapp(msg.numero, resposta); if (r && r.key && r.key.id) ids.push(r.key.id); }\n  catch (e) { erro = e.message; }\n}\nreturn [{ json: { usuario_id: quem.usuario_id, numero: msg.numero, resposta, enviado, erro, ids: ids.join(',') } }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000072",
+      "name": "Registrar resposta",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.whatsapp_saida($1::int, $2, $3, string_to_array(nullif($4, ''), ','))",
+        "options": {
+          "queryReplacement": "={{ [$json.usuario_id, $json.numero, $json.resposta, $json.ids] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ler mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler mensagem": {
+      "main": [
+        [
+          {
+            "node": "Quem e",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quem e": {
+      "main": [
+        [
+          {
+            "node": "Rota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dados do audio": {
+      "main": [
+        [
+          {
+            "node": "Audio em arquivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio em arquivo": {
+      "main": [
+        [
+          {
+            "node": "Transcrever (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrever (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar": {
+      "main": [
+        [
+          {
+            "node": "Cerebro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro": {
+      "main": [
+        [
+          {
+            "node": "Responder no WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder no WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Registrar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dados do audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

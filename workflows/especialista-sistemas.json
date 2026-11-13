@@ -1,0 +1,303 @@
+{
+  "id": "espSistemas01",
+  "name": "Especialista: Sistemas",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000016",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "usuario_id",
+              "type": "string"
+            },
+            {
+              "name": "pedido",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000017",
+      "name": "Especialista Sistemas",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.pedido }}",
+        "needsFallback": false,
+        "options": {
+          "systemMessage": "Voce e o especialista em monitoramento de sistemas da IA Central.\nResponda em portugues, curto e direto, com os dados reais das ferramentas (nunca invente).\nO monitor checa cada sistema a cada 2 minutos e avisa quando cai ou volta.\n- Para saber o estado atual use listar_sistemas.\n- Para historico de quedas use historico_incidentes.\n- Para monitorar algo novo use cadastrar_sistema (precisa de nome e URL completa com http/https).\n- Para pausar/retomar use ativar_desativar_sistema.\n- Para saber AGORA se um site esta no ar (mesmo sem estar cadastrado) use checar_agora: traz status e tempo.\n- Sistemas com origem render/vercel vem das contas Render e Vercel: \"(deploy)\" e o estado do ultimo deploy,\n  o outro e o site em si. Ao falar deles, diga a plataforma.\n- Cadastrar e pausar sao so para o admin; se a ferramenta recusar, explique isso.\n- Responda SO o que foi perguntado, com os campos que existem (estado, ultimo check, detalhe, quedas).\n  Existe o tempo da ultima resposta (ultimo_tempo_ms). Nao existem p95, uptime % ou janelas de manutencao.\nHorarios do banco estao em UTC; converta para horario de Brasilia (UTC-3) ao responder.",
+          "maxIterations": 8,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000018",
+      "name": "listar_sistemas",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        260,
+        240
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "listar_sistemas: lista todos os sistemas monitorados com estado atual (ok/falha), falhas seguidas, ultimo detalhe e desde quando esta fora.",
+        "operation": "executeQuery",
+        "query": "SELECT nome, origem, tipo, url, ativo, estado, falhas_seguidas, ultimo_detalhe, ultimo_tempo_ms,\n       ultimo_check, caiu_em, painel_url\nFROM nucleo.sistemas ORDER BY (estado='falha') DESC, origem, nome",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000019",
+      "name": "historico_incidentes",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        420,
+        240
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "historico_incidentes: historico de quedas (incidentes) mais recentes, com inicio, fim e duracao.",
+        "operation": "executeQuery",
+        "query": "SELECT s.nome, i.inicio, i.fim, coalesce(i.fim, now()) - i.inicio AS duracao, i.detalhe\nFROM nucleo.incidentes i JOIN nucleo.sistemas s ON s.id = i.sistema_id\nORDER BY i.inicio DESC LIMIT $1",
+        "options": {
+          "queryReplacement": "={{ [$fromAI('limite', 'quantos incidentes trazer, ex 10', 'number')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000020",
+      "name": "cadastrar_sistema",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        580,
+        240
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "cadastrar_sistema: (so admin) passa a monitorar uma URL nova. Se o nome ja existir, atualiza a URL.",
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nINSERT INTO nucleo.sistemas (nome, url, grupo, texto_esperado)\nSELECT $2, $3, coalesce(nullif($4,''),'geral'), nullif($5,'') FROM ok\nON CONFLICT (nome) DO UPDATE SET url = EXCLUDED.url, grupo = EXCLUDED.grupo,\n  texto_esperado = EXCLUDED.texto_esperado, ativo = true\nRETURNING nome, url, grupo, texto_esperado",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('nome', 'nome curto do sistema', 'string'), $fromAI('url', 'URL completa, ex https://site.com/health', 'string'), $fromAI('grupo', 'grupo de alerta; vazio = geral', 'string'), $fromAI('texto_esperado', 'texto que a resposta deve conter; vazio = so checa status 200', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000021",
+      "name": "ativar_desativar_sistema",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        740,
+        240
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "ativar_desativar_sistema: (so admin) pausa (ativo=false) ou retoma (ativo=true) o monitoramento de um sistema pelo nome.",
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nUPDATE nucleo.sistemas SET ativo = $3::boolean FROM ok WHERE nome ILIKE '%' || $2 || '%'\nRETURNING nome, ativo",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('nome', 'nome (ou parte) do sistema', 'string'), $fromAI('ativo', 'true para ativar, false para pausar', 'boolean')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000022",
+      "name": "OpenAI (especialista, principal)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -60,
+        240
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-5-mini"
+        },
+        "responsesApiEnabled": true,
+        "builtInTools": {},
+        "options": {
+          "reasoningEffort": "low"
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai01",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000023",
+      "name": "checar_agora",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        240
+      ],
+      "parameters": {
+        "description": "Checa AGORA se uma URL esta no ar: status HTTP, tempo de resposta e titulo da pagina. Nao precisa estar cadastrada.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ferrChecarAgora1",
+          "cachedResultName": "Ferramenta: Checar agora"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "url": "={{ $fromAI('url', 'endereco do site, ex https://site.com', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI (especialista, principal)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "listar_sistemas": {
+      "ai_tool": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "historico_incidentes": {
+      "ai_tool": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cadastrar_sistema": {
+      "ai_tool": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ativar_desativar_sistema": {
+      "ai_tool": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "checar_agora": {
+      "ai_tool": [
+        [
+          {
+            "node": "Especialista Sistemas",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

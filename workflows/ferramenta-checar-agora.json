@@ -1,0 +1,60 @@
+{
+  "id": "ferrChecarAgora1",
+  "name": "Ferramenta: Checar agora",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000011",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "url",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000012",
+      "name": "Checar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nlet url = String($input.first().json.url || '').trim();\nif (!url) return [{ json: { resultado: 'URL vazia' } }];\nif (!/^https?:\\/\\//i.test(url)) url = 'https://' + url;\nconst t0 = Date.now();\ntry {\n  const r = await this.helpers.httpRequest({ method: 'GET', url, timeout: 20000, returnFullResponse: true,\n    ignoreHttpStatusErrors: true, encoding: 'text', headers: { 'User-Agent': 'IA-Central-Monitor/1.0' } });\n  const ms = Date.now() - t0;\n  const titulo = (String(r.body || '').match(/<title[^>]*>([^<]{0,120})/i) || [])[1] || null;\n  return [{ json: { url, no_ar: r.statusCode < 400, status_http: r.statusCode, tempo_ms: ms,\n    avaliacao: r.statusCode >= 400 ? 'com erro' : ms > 8000 ? 'muito lento' : ms > 2500 ? 'lento' : 'rapido', titulo } }];\n} catch (e) {\n  return [{ json: { url, no_ar: false, tempo_ms: Date.now() - t0, erro: String(e.message || e).slice(0, 200) } }];\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "Checar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

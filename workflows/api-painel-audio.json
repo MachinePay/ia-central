@@ -1,0 +1,361 @@
+{
+  "id": "apiPainelAudio1",
+  "name": "API do Painel (audio)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000053",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "painel-audio",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "rawBody": true
+        }
+      },
+      "webhookId": "9b1f6c2e-1a00-4000-8000-000000000003"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000054",
+      "name": "Regras (banco)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.api($1, 'audio', $2::jsonb) AS r",
+        "options": {
+          "queryReplacement": "={{ [($json.headers.authorization || '').replace(/^Bearer\\s+/i, ''), JSON.stringify({ sessao: $json.query.sessao || 'painel' })] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000055",
+      "name": "Rota",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.r.saida === 1 ? 1 : 0 }}"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000056",
+      "name": "Negado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        -160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.r.corpo) }}",
+        "options": {
+          "responseCode": "={{ $json.r.status }}",
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000057",
+      "name": "Preparar audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// devolve o audio do webhook com nome/extensao que a OpenAI reconhece\nconst recebido = $('Webhook').first().binary || {};\nconst bin = { ...(recebido.data || recebido.audio || Object.values(recebido)[0]) };\nif (!bin.mimeType) throw new Error('Nenhum audio recebido');\nconst mime = (bin.mimeType || 'audio/webm').split(';')[0];\nconst ext = { 'audio/webm': 'webm', 'audio/mp4': 'mp4', 'audio/x-m4a': 'm4a', 'audio/mpeg': 'mp3',\n  'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/aac': 'm4a' }[mime] || 'webm';\nbin.fileName = 'fala.' + ext; bin.fileExtension = ext; bin.mimeType = mime;\nreturn [{ json: $input.first().json, binary: { audio: bin } }];"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000058",
+      "name": "Transcrever (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "audio"
+            },
+            {
+              "name": "model",
+              "value": "gpt-4o-mini-transcribe"
+            },
+            {
+              "name": "language",
+              "value": "pt"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai01",
+          "name": "OpenAI"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000059",
+      "name": "Cerebro",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "iaCerebro00001",
+          "cachedResultName": "Cerebro IA (por usuario)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "usuario_id": "={{ $('Regras (banco)').first().json.r.corpo.usuario_id }}",
+            "nome": "={{ $('Regras (banco)').first().json.r.corpo.nome }}",
+            "papel": "={{ $('Regras (banco)').first().json.r.corpo.papel }}",
+            "chatInput": "={{ $json.text }}",
+            "sessionId": "={{ $('Regras (banco)').first().json.r.corpo.sessionId }}",
+            "canal": "voz"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "usuario_id",
+              "displayName": "usuario_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nome",
+              "displayName": "nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "papel",
+              "displayName": "papel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "chatInput",
+              "displayName": "chatInput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "canal",
+              "displayName": "canal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000060",
+      "name": "Resposta",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.output ? { transcricao: $('Transcrever (OpenAI)').first().json.text, resposta: $json.output } : { erro: 'A IA falhou', transcricao: $('Transcrever (OpenAI)').first().json.text }) }}",
+        "options": {
+          "responseCode": "={{ $json.output ? 200 : 502 }}",
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000061",
+      "name": "Nao entendi",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ erro: 'Nao consegui transcrever o audio' }) }}",
+        "options": {
+          "responseCode": 502,
+          "enableStreaming": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Regras (banco)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regras (banco)": {
+      "main": [
+        [
+          {
+            "node": "Rota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar audio": {
+      "main": [
+        [
+          {
+            "node": "Transcrever (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro": {
+      "main": [
+        [
+          {
+            "node": "Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rota": {
+      "main": [
+        [
+          {
+            "node": "Negado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrever (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Cerebro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nao entendi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}
