@@ -25,6 +25,11 @@ services:
     runtime: docker
     dockerfilePath: ./deploy/n8n/Dockerfile
     dockerContext: .
+    buildFilter:                # so reconstroi quando muda o backend (painel nao)
+      paths:
+        - deploy/n8n/**
+        - db/init/**
+        - workflows/**
     plan: 0.5c-512mb          # pago: o plano free hiberna e o monitor/WhatsApp param
     region: virginia
     healthCheckPath: /healthz
@@ -71,6 +76,9 @@ services:
     runtime: docker
     dockerfilePath: ./deploy/evolution/Dockerfile
     dockerContext: ./deploy/evolution
+    buildFilter:
+      paths:
+        - deploy/evolution/**
     plan: 0.5c-512mb
     region: virginia
     disk:
