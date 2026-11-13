@@ -14,20 +14,30 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
   const [numero, setNumero] = useState('')
+  const [qrEm, setQrEm] = useState('')   // hora do QR na tela (para ver que ele esta mudando)
 
   const chamar = useCallback(async (op: 'status' | 'conectar' | 'desconectar', num?: string) => {
     setCarregando(true); setErro('')
-    try { setSt(await api.whatsapp(op, { instancia, numero: num })) }
+    try {
+      const s = await api.whatsapp(op, { instancia, numero: num })
+      setSt(s)
+      if (s.qr) setQrEm(new Date().toLocaleTimeString('pt-BR'))
+    }
     catch (e) { setErro(e instanceof Error ? e.message : 'Falhou') }
     finally { setCarregando(false) }
   }, [instancia])
 
   useEffect(() => { void chamar('status') }, [chamar])
-  useEffect(() => {   // enquanto espera ler o QR, confere a cada 4s
+  useEffect(() => {   // enquanto espera ler: a cada 5s ve se conectou e pega o QR mais novo (o WhatsApp troca a cada ~20s)
     if (!st || st.estado === 'open' || !(st.qr || st.codigo)) return
     const t = setInterval(async () => {
-      try { const s = await api.whatsapp('status', { instancia }); setSt(a => (s.estado === 'open' ? s : a ? { ...a, estado: s.estado } : s)) } catch { /* tenta de novo */ }
-    }, 4000)
+      try {
+        const s = await api.whatsapp(st.qr ? 'qr' : 'status', { instancia })
+        if (s.estado === 'open') { setSt(s); return }
+        if (s.estado !== 'connecting') { setSt(a => a ? { ...a, estado: s.estado, qr: null, codigo: null, aviso: 'O QR venceu. Clique em “Novo QR code”.' } : s); return }
+        if (s.qr) setSt(a => { if (a && a.qr !== s.qr) setQrEm(new Date().toLocaleTimeString('pt-BR')); return a ? { ...a, estado: s.estado, qr: s.qr } : s })
+      } catch { /* tenta de novo */ }
+    }, 5000)
     return () => clearInterval(t)
   }, [st, instancia])
 
@@ -43,10 +53,12 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
         <button className="botao-icone" style={{ width: 24, height: 24 }} onClick={() => chamar('status')} aria-label={`Atualizar ${titulo}`}><RefreshCw size={13} /></button>
       </div>
       {erro && <div className="aviso erro">{erro}</div>}
+      {!erro && st?.aviso && !st.qr && <div className="aviso erro">{st.aviso}</div>}
       {!conectado && <div className="etiqueta" style={{ marginBottom: 8 }}>{dica}</div>}
       {!conectado && st?.qr && (
         <div className="qr-caixa"><img src={st.qr} alt={`QR code para conectar ${titulo}`} />
-          <span className="etiqueta">WhatsApp → Aparelhos conectados → Conectar aparelho</span></div>
+          <span className="etiqueta">WhatsApp → Aparelhos conectados → Conectar aparelho</span>
+          <span className="etiqueta">QR de {qrEm} · atualiza sozinho</span></div>
       )}
       {!conectado && st?.codigo && (
         <div className="qr-caixa"><div className="codigo-pareamento">{st.codigo}</div>

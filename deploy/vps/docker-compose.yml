@@ -1,0 +1,100 @@
+# IA Central em produção (VPS). Mesma montagem testada para o Render, num servidor só:
+#   postgres (privado) + n8n (IA/API/monitor) + evolution (WhatsApp, privado) + caddy (HTTPS automático)
+# Uso: sh deploy/vps/instalar.sh (primeira vez) | sh deploy/vps/atualizar.sh (depois)
+name: ia-central
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: iacentral
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina no .env}
+      POSTGRES_DB: iacentral
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iacentral -d iacentral"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  n8n:
+    build:
+      context: ../..
+      dockerfile: deploy/n8n/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BANCO_URL: postgresql://iacentral:${POSTGRES_PASSWORD}@postgres:5432/iacentral
+      WEBHOOK_URL: https://${DOMINIO}/
+      N8N_HOST: ${DOMINIO}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?defina no .env}
+      NODE_OPTIONS: --max-old-space-size=1536
+      ADMIN_LOGIN: admin
+      ADMIN_NOME: ${ADMIN_NOME:-Admin}
+      ADMIN_SENHA: ${ADMIN_SENHA:?defina no .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      RENDER_API_KEY: ${RENDER_API_KEY:-}
+      VERCEL_TOKEN: ${VERCEL_TOKEN:-}
+      VERCEL_TEAM_ID: ${VERCEL_TEAM_ID:-}
+      EVOLUTION_URL: http://evolution:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?defina no .env}
+      EVOLUTION_INSTANCIA: nucleo
+      WHATSAPP_WEBHOOK_SEGREDO: ${WHATSAPP_WEBHOOK_SEGREDO:?defina no .env}
+      WHATSAPP_WEBHOOK_BASE: http://n8n:5678
+
+  evolution:
+    build:
+      context: ../evolution
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BANCO_URL: postgresql://iacentral:${POSTGRES_PASSWORD}@postgres:5432/iacentral
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      SERVER_PORT: "8080"
+      SERVER_URL: http://localhost:8080
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      CONFIG_SESSION_PHONE_CLIENT: Nucleo IA
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      QRCODE_LIMIT: "30"
+      DEL_INSTANCE: "false"
+      LOG_LEVEL: ERROR,WARN
+      TZ: America/Sao_Paulo
+    volumes:
+      - evolution_data:/evolution/instances
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    depends_on:
+      - n8n
+    ports:
+      - "${PORTA_HTTP:-80}:80"
+      - "${PORTA_HTTPS:-443}:443"
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pg_data:
+  evolution_data:
+  caddy_data:
+  caddy_config:
