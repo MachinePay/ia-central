@@ -229,7 +229,7 @@ BEGIN
             'config', nucleo.whatsapp_config(),
             'op', coalesce(d->>'op','status'),
             'numero', d->>'numero',
-            'instancia', CASE WHEN d->>'instancia' = 'joao' THEN 'joao' ELSE 'nucleo' END,
+            'instancia', CASE WHEN d->>'instancia' IN ('joao', 'suporte', 'gabriel') THEN d->>'instancia' ELSE 'nucleo' END,
             'desconhecidos', nucleo.whatsapp_desconhecidos()));
 
     ELSIF p_acao LIKE 'admin_%' AND NOT adm THEN
@@ -393,7 +393,9 @@ BEGIN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.gabriel_painel(u.id));
 
     ELSIF p_acao = 'admin_observacao_config' THEN   -- filtro: todos | exceto | somente
-        IF d->>'agente' IN ('leo','joao','suporte') AND d->>'modo' IN ('todos','exceto','somente') THEN
+        -- Gabriel: so todos | exceto (a lista "incluir" dele e de quem ele pode RESPONDER)
+        IF (d->>'agente' IN ('leo','joao','suporte') AND d->>'modo' IN ('todos','exceto','somente'))
+           OR (d->>'agente' = 'gabriel' AND d->>'modo' IN ('todos','exceto')) THEN
             INSERT INTO nucleo.config VALUES ((d->>'agente') || '_observar', to_jsonb(d->>'modo'))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;

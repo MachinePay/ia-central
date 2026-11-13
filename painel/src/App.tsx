@@ -58,7 +58,7 @@ export default function App() {
   const carregarSaude = useCallback(async () => { try { setSaude(await api.saude()) } catch { /* tenta de novo */ } }, [])
   const carregarWa = useCallback(async () => {
     const r: StatusWa = {}
-    await Promise.all((['nucleo', 'joao', 'suporte'] as const).map(async i => {
+    await Promise.all((['nucleo', 'joao', 'suporte', 'gabriel'] as const).map(async i => {
       try { r[i] = (await api.whatsapp('status', { instancia: i })).estado } catch { r[i] = 'erro' }
     }))
     setWa(r)

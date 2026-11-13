@@ -1,0 +1,63 @@
+/* ============================================================ escritorio 3D (Inicio) */
+.troca-vista { display: flex; gap: 4px; padding: 3px; border-radius: 11px; background: rgba(3, 5, 11, 0.5); border: 1px solid rgba(255, 255, 255, 0.1); flex-shrink: 0; }
+.troca-vista button { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; font-size: 12px; color: var(--texto-2); }
+.troca-vista button.ativo { color: var(--fundo); background: var(--ciano); box-shadow: var(--brilho); font-weight: 600; }
+
+.pagina-3d { max-width: none; height: 100%; padding-bottom: 18px; }
+.escritorio {
+  position: relative; flex: 1; min-height: 480px; border-radius: 18px; overflow: hidden;
+  border: 1px solid rgba(54, 241, 255, 0.2); background: #03050b;
+  box-shadow: inset 0 0 80px rgba(54, 241, 255, 0.06), 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+.escritorio canvas { touch-action: none; }
+.escritorio-dica {
+  position: absolute; left: 14px; bottom: 12px; display: flex; align-items: center; gap: 6px; pointer-events: none;
+  font-family: var(--f-mono); font-size: 11px; color: var(--texto-3); letter-spacing: 0.04em;
+}
+
+/* etiqueta flutuante sobre cada equipe */
+.rotulo-3d {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 150px; padding: 9px 14px 10px;
+  border-radius: 14px; text-align: center; white-space: nowrap; user-select: none; transition: transform 0.15s, box-shadow 0.15s;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--ciano) 22%, rgba(5, 9, 20, 0.92)), rgba(5, 9, 20, 0.88));
+  border: 1px solid color-mix(in srgb, var(--ciano) 55%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ciano) 30%, transparent);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.rotulo-3d:hover, .rotulo-3d.sel { transform: scale(1.06); box-shadow: 0 0 34px color-mix(in srgb, var(--ciano) 55%, transparent); }
+.rotulo-3d.erro { border-color: rgba(255, 61, 110, 0.8); box-shadow: 0 0 30px rgba(255, 61, 110, 0.45); }
+.rotulo-3d b { font-family: var(--f-titulo); font-size: 17px; letter-spacing: 0.08em; color: var(--ciano); text-shadow: 0 0 12px color-mix(in srgb, var(--ciano) 60%, transparent); }
+.rotulo-3d.chefe b { font-size: 21px; }
+.rotulo-papel { font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--texto-2); }
+.rotulo-linha { margin-top: 2px; }
+.rotulo-linha .pilula { font-size: 11px; padding: 2px 9px; }
+.rotulo-nums { display: flex; gap: 12px; margin-top: 4px; }
+.rotulo-nums i { font-style: normal; font-family: var(--f-titulo); font-size: 14px; color: var(--texto); display: flex; flex-direction: column; align-items: center; }
+.rotulo-nums small { font-family: var(--f-corpo); font-size: 9px; color: var(--texto-3); letter-spacing: 0.04em; }
+
+/* painel de detalhes ao clicar */
+.detalhe-3d {
+  position: absolute; top: 14px; right: 14px; width: min(330px, calc(100% - 28px)); max-height: calc(100% - 28px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 16px;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--ciano) 14%, rgba(5, 9, 20, 0.94)), rgba(5, 9, 20, 0.94) 55%);
+  border: 1px solid color-mix(in srgb, var(--ciano) 50%, transparent);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--ciano) 22%, transparent), 0 20px 50px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: entra 0.25s ease-out;
+}
+.detalhe-3d .pilula { align-self: flex-start; }
+.detalhe-fechar { position: absolute; top: 10px; right: 10px; color: var(--texto-3); padding: 4px; border-radius: 8px; }
+.detalhe-fechar:hover { color: var(--texto); background: rgba(255, 255, 255, 0.06); }
+.detalhe-topo { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.detalhe-topo b { display: block; font-family: var(--f-titulo); font-size: 19px; letter-spacing: 0.08em; color: var(--ciano); }
+.detalhe-topo span { font-size: 12px; color: var(--texto-3); }
+.detalhe-resumo { font-size: 13px; color: var(--texto-2); line-height: 1.45; margin: 4px 0; }
+
+@media (max-width: 760px) {
+  .escritorio { min-height: 62vh; border-radius: 14px; }
+  .troca-vista button { padding: 6px 9px; }
+  .faixa-status { flex-wrap: wrap; padding: 14px; gap: 10px; }
+  .detalhe-3d { top: auto; bottom: 10px; right: 10px; left: 10px; width: auto; max-height: 60%; }
+  .escritorio-dica { display: none; }
+  .faixa-status span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .faixa-status b { font-size: 15px; }
+}

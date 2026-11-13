@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
-  MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench, X,
+  Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench, X,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type AgenteAtend, type Area, type Evento, type Feed, type GabrielPainel, type ItemAprendido, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type AgenteAtend, type Area, type Evento, type Feed, type GabrielPainel, type Instancia, type ItemAprendido, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { Chamados, Clientes, ConfigModo, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, useAtendimento } from './Secoes'
@@ -11,13 +11,18 @@ import { Conexao, FiltroObservacao } from './Whatsapp'
 import { Conversa } from './Conversa'
 import { Orbe, type EstadoOrbe } from './Orbe'
 
-export type StatusWa = Partial<Record<'nucleo' | 'joao' | 'suporte', WhatsappStatus['estado']>>
+export type StatusWa = Partial<Record<Instancia, WhatsappStatus['estado']>>
 export type Aba = 'conversar' | 'visao' | 'leu' | 'aprendizado' | 'aprovar' | 'simular' | 'configurar' | 'erros'
+
+const Escritorio3D = lazy(() => import('./Escritorio3D'))
+const lerVista = (): '3d' | 'lista' => { try { return localStorage.getItem('nucleo.vista') === 'lista' ? 'lista' : '3d' } catch { return '3d' } }
 
 const ROTULO_WA: Record<string, string> = { open: 'conectado', close: 'desconectado', connecting: 'esperando o QR', inexistente: 'nunca conectado', erro: 'Evolution fora do ar' }
 
 // ================================================================== INICIO: todas as IAs de uma vez
 export function Inicio({ saude, wa, r, abrir }: { saude: Saude | null; wa: StatusWa; r: Resumo | null; abrir: (a: AgenteId, aba?: Aba) => void }) {
+  const [vista, setVistaBruta] = useState(lerVista)
+  const setVista = (v: '3d' | 'lista') => { setVistaBruta(v); try { localStorage.setItem('nucleo.vista', v) } catch { /* modo privado */ } }
   if (!saude) return <div className="pagina"><div className="vazio">Carregando a saúde das IAs…</div></div>
   const estados = saude.agentes.map(s => ({ s, e: estadoDe(s, wa[s.instancia]) }))
   const problemas = estados.filter(x => x.e === 'erro' || x.e === 'whatsapp')
@@ -25,15 +30,25 @@ export function Inicio({ saude, wa, r, abrir }: { saude: Saude | null; wa: Statu
   const aprovar = saude.agentes.reduce((a, s) => a + s.pendentes, 0)
 
   return (
-    <div className="pagina">
+    <div className={`pagina ${vista === '3d' ? 'pagina-3d' : ''}`}>
       <div className={`faixa-status ${problemas.length ? 'ruim' : 'bom'}`}>
         {problemas.length ? <ShieldAlert size={28} /> : <CheckCircle2 size={28} />}
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <b>{problemas.length ? `${problemas.length} IA${problemas.length > 1 ? 's' : ''} precisa${problemas.length > 1 ? 'm' : ''} de você` : 'Todas as IAs funcionando'}</b>
           <span>{problemas.length ? problemas.map(p => `${AGENTES[p.s.agente].nome}: ${p.e === 'erro' ? p.s.ultimo_erro?.titulo : 'WhatsApp desconectado'}`).join(' · ')
             : 'Nenhuma falha nova. Atualiza sozinho a cada 20 segundos.'}</span>
         </div>
+        <div className="troca-vista" role="group" aria-label="Como ver">
+          <button className={vista === '3d' ? 'ativo' : ''} onClick={() => setVista('3d')}><Box size={14} /> 3D</button>
+          <button className={vista === 'lista' ? 'ativo' : ''} onClick={() => setVista('lista')}><LayoutList size={14} /> Lista</button>
+        </div>
       </div>
+
+      {vista === '3d' ? (
+        <Suspense fallback={<div className="escritorio"><div className="vazio" style={{ padding: 20 }}>Montando o escritório…</div></div>}>
+          <Escritorio3D saude={saude} wa={wa} r={r} abrir={abrir} />
+        </Suspense>
+      ) : <>
 
       <div className="numeros">
         <Numero valor={revisar} rotulo="aprendizados para revisar" destaque={revisar ? 'alerta' : undefined} />
@@ -68,6 +83,8 @@ export function Inicio({ saude, wa, r, abrir }: { saude: Saude | null; wa: Statu
           )
         })}
       </div>
+
+      </>}
 
       {saude.outros_erros.length > 0 && (
         <Hud titulo="Outras falhas (monitor, aprendiz, sistema)" icone={<AlertTriangle size={14} />}
@@ -385,10 +402,11 @@ function Configurar({ a, atend, gab, setGab, recarregar }: {
   const [novo, setNovo] = useState({ nome: '', numero: '' })
   const conexao = (
     <Hud titulo={`WhatsApp · ${info.numero}`} icone={<MessageSquare size={14} />}>
-      {a === 'gabriel'
-        ? <div className="etiqueta">O Gabriel usa o seu número (o mesmo do Leo 2.0). Conecte em Leo 2.0 → Configurar.</div>
-        : <Conexao instancia={info.instancia} titulo={info.numero} dica={a === 'leo' ? 'Conecte o SEU WhatsApp. Você fala com o Leo na conversa “Você”.'
-          : `Conecte o chip ${a === 'joao' ? 'do João' : 'do Suporte24hrs'}. Quem responder por esse número ensina a IA.`} />}
+      <Conexao instancia={info.instancia} titulo={info.numero} dica={
+        a === 'leo' ? 'Conecte o número do Leo. Você fala com ele na conversa “Você” desse número; as outras conversas ele lê para aprender.'
+        : a === 'gabriel' ? 'Conecte o número do Gabriel. Ele lê as conversas desse número para aprender o seu jeito e só responde quem você liberar.'
+        : `Conecte o chip ${a === 'joao' ? 'do João' : 'do Suporte24hrs'}. Quem responder por esse número ensina a IA.`} />
+      <div className="etiqueta" style={{ marginTop: 8 }}>Para trocar o número desta IA: desconecte e conecte outro. O que ela já aprendeu continua.</div>
     </Hud>
   )
   if (a === 'leo') return (
@@ -412,11 +430,12 @@ function Configurar({ a, atend, gab, setGab, recarregar }: {
               ))}
             </div>
             <div className="etiqueta" style={{ marginTop: 8 }}>{MODO[gab.modo]?.texto} Só responde os contatos liberados ao lado.</div>
+            <FiltroObservacao agente="gabriel" />
           </Hud>
           {conexao}
         </div>
         <Hud titulo="Contatos que ele pode responder" icone={<UserRound size={14} />} extra={<span className="contagem">{gab.contatos.length}</span>}>
-          <div className="etiqueta" style={{ marginBottom: 6 }}>Só estes recebem resposta do Gabriel. Todo o resto ele só lê (o que o Leo lê) para aprender.</div>
+          <div className="etiqueta" style={{ marginBottom: 6 }}>Só estes recebem resposta do Gabriel. Todo o resto do número dele ele só lê para aprender.</div>
           <form style={{ display: 'flex', gap: 6, marginBottom: 6 }} onSubmit={async e => {
             e.preventDefault(); await api.observacaoAdd('gabriel', novo.numero, novo.nome, 'incluir'); setNovo({ nome: '', numero: '' }); recarregar()
           }}>

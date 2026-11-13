@@ -1,18 +1,18 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Brain, Headset, LifeBuoy, UserRound, type LucideIcon } from 'lucide-react'
-import type { AgenteId, SaudeAgente, WhatsappStatus } from '../api'
+import type { AgenteId, Instancia, SaudeAgente, WhatsappStatus } from '../api'
 
 // ------------------------------------------------------------------ identidade fixa de cada IA
 // Cada IA tem SEMPRE a mesma cor e o mesmo icone em todo o painel: nao tem como confundir qual voce esta mexendo.
 export interface InfoAgente {
   id: AgenteId; nome: string; papel: string; cor: string; icone: LucideIcon
-  numero: string; instancia: 'nucleo' | 'joao' | 'suporte'; resumo: string
+  numero: string; instancia: Instancia; resumo: string
 }
 export const AGENTES: Record<AgenteId, InfoAgente> = {
   leo: {
     id: 'leo', nome: 'Leo 2.0', papel: 'IA master · sua IA pessoal', cor: '#36f1ff', icone: Brain,
-    numero: 'Seu número (conversa “Você”)', instancia: 'nucleo',
-    resumo: 'Fala com você, lê suas conversas para aprender seu jeito e supervisiona as outras IAs.',
+    numero: 'Número do Leo', instancia: 'nucleo',
+    resumo: 'Fala com você (conversa “Você” no número dele), lê as conversas permitidas para aprender e supervisiona as outras IAs.',
   },
   joao: {
     id: 'joao', nome: 'João', papel: 'Vendedor', cor: '#3dffa8', icone: Headset,
@@ -26,8 +26,8 @@ export const AGENTES: Record<AgenteId, InfoAgente> = {
   },
   gabriel: {
     id: 'gabriel', nome: 'Gabriel', papel: 'Seu clone', cor: '#ff2bd6', icone: UserRound,
-    numero: 'Seu número (só contatos liberados)', instancia: 'nucleo',
-    resumo: 'Responde como você, só para os contatos que você liberar. Aprende seu jeito com o Leo.',
+    numero: 'Número do Gabriel', instancia: 'gabriel',
+    resumo: 'Lê as conversas do número dele para aprender seu jeito e responde como você, só os contatos que você liberar.',
   },
 }
 export const ORDEM: AgenteId[] = ['leo', 'joao', 'suporte', 'gabriel']

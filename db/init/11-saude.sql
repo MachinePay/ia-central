@@ -80,7 +80,7 @@ BEGIN
               INTO sug, aprend FROM nucleo.conhecimento WHERE usuario_id = p_usuario;
         ELSIF a = 'gabriel' THEN
             SELECT count(*) FILTER (WHERE papel <> 'ia'), count(*) FILTER (WHERE papel = 'ia'), max(criado_em) INTO lidas, resp, ult
-              FROM nucleo.conversas WHERE criado_em > now() - interval '24 hours' AND agente IN ('leo-observa', 'gabriel');
+              FROM nucleo.conversas WHERE criado_em > now() - interval '24 hours' AND agente IN ('gabriel-observa', 'gabriel');
             SELECT count(*) INTO pend FROM nucleo.atendimento_fila WHERE status = 'pendente' AND agente = 'gabriel';
             SELECT count(*) FILTER (WHERE NOT aprovado AND origem = 'observacao_leo'),
                    count(*) FILTER (WHERE aprovado AND (titulo ILIKE 'jeito de%' OR titulo ILIKE 'como resolve%' OR metadata->>'tipo' IN ('jeito_de_falar', 'como_resolve')))
@@ -100,7 +100,7 @@ BEGIN
         r := r || jsonb_build_array(jsonb_build_object(
             'agente', a,
             'modo', CASE a WHEN 'leo' THEN 'ativo' ELSE nucleo.cfg(a || '_modo', 'observando') END,
-            'instancia', CASE a WHEN 'leo' THEN 'nucleo' WHEN 'gabriel' THEN 'nucleo' ELSE nucleo.instancia_do_agente(a) END,
+            'instancia', nucleo.instancia_do_agente(a),
             'lidas_24h', coalesce(lidas, 0), 'respostas_24h', coalesce(resp, 0),
             'pendentes', coalesce(pend, 0), 'sugestoes', coalesce(sug, 0), 'aprendidos', coalesce(aprend, 0),
             'ultima_atividade', ult, 'erros_24h', coalesce(erros, 0), 'ultimo_erro', ev));
@@ -127,7 +127,7 @@ LANGUAGE sql STABLE AS $$
               FROM (SELECT * FROM nucleo.conversas
                      WHERE criado_em > now() - interval '14 days' AND CASE p_agente
                         WHEN 'leo' THEN agente IN ('leo-observa', 'ia-pessoal') OR (papel = 'ia' AND usuario_id IS NOT NULL AND cliente_id IS NULL AND agente <> 'gabriel')
-                        WHEN 'gabriel' THEN agente IN ('leo-observa', 'gabriel')
+                        WHEN 'gabriel' THEN agente IN ('gabriel-observa', 'gabriel')
                         ELSE cliente_id IS NOT NULL AND coalesce(instancia, 'joao') = nucleo.instancia_do_agente(p_agente) END
                      ORDER BY criado_em DESC LIMIT 600) v
               LEFT JOIN nucleo.clientes c ON c.id = v.cliente_id

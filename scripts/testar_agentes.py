@@ -105,10 +105,10 @@ try:
     print("\n== Gabriel: aprende o jeito do dono e so responde contatos liberados")
     api("admin_observacao_config", {"agente": "leo", "modo": "somente"})
     api("admin_observacao_add", {"agente": "leo", "numero": AMIGO, "nome": "Amigo Teste", "regra": "incluir"})
-    zap("nucleo", AMIGO, "E ai, bora no churrasco sabado?", nome="Amigo Teste")
-    zap("nucleo", AMIGO, "Opa, bora sim mano! Levo a carne, tu leva o carvao kkk 🔥", de_mim=True)
-    zap("nucleo", AMIGO, "Fechou. Que horas?", nome="Amigo Teste")
-    zap("nucleo", AMIGO, "Umas 13h ta suave. Chega cedo pra ajudar no fogo hein kkk", de_mim=True)
+    zap("gabriel", AMIGO, "E ai, bora no churrasco sabado?", nome="Amigo Teste")
+    zap("gabriel", AMIGO, "Opa, bora sim mano! Levo a carne, tu leva o carvao kkk 🔥", de_mim=True)
+    zap("gabriel", AMIGO, "Fechou. Que horas?", nome="Amigo Teste")
+    zap("gabriel", AMIGO, "Umas 13h ta suave. Chega cedo pra ajudar no fogo hein kkk", de_mim=True)
     api("admin_aprender_agora")
     leo_sug = api("admin_observacao")["leo_sugestoes"]
     for s in leo_sug:
@@ -118,12 +118,12 @@ try:
     estilo = sql(f"SELECT nucleo.estilo_dono({admin_id})")
     confere("jeito aprovado chega ao Gabriel (estilo)", "kkk" in estilo.lower() or "mano" in estilo.lower(), estilo)
 
-    zap("nucleo", AMIGO, "Mano, me empresta 500 reais ate sexta?", nome="Amigo Teste")
+    zap("gabriel", AMIGO, "Mano, me empresta 500 reais ate sexta?", nome="Amigo Teste")
     confere("observando: Gabriel nao respondeu", sql("SELECT count(*) FROM nucleo.atendimento_fila WHERE agente = 'gabriel'") == "0")
     api("admin_gabriel_config", {"modo": "aprovacao"})
     api("admin_observacao_add", {"agente": "gabriel", "numero": AMIGO, "nome": "Amigo Teste", "regra": "incluir"})
-    zap("nucleo", OUTRO, "oi, tudo bem?", nome="Outro")
-    zap("nucleo", AMIGO, "E ai, vai dar pra me emprestar os 500?", nome="Amigo Teste")
+    zap("gabriel", OUTRO, "oi, tudo bem?", nome="Outro")
+    zap("gabriel", AMIGO, "E ai, vai dar pra me emprestar os 500?", nome="Amigo Teste")
     fila = []
     for _ in range(40):
         time.sleep(3)

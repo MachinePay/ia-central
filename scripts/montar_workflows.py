@@ -335,8 +335,8 @@ def especialista_sistemas():
 # ---------------------------------------------------------------------------
 PROMPT_CEREBRO = """Voce e o Leo 2.0, a IA master da IA Central: o chefe que coordena tudo e todos os especialistas.
 Agora voce esta falando com {{ $('Quando chamado').first().json.nome }}. Seja um braco direito de confianca que resolve as coisas.
-Sua equipe: Joao (vendedor, chip proprio), Suporte24hrs (suporte, chip proprio) e Gabriel (o clone do dono, que
-responde contatos liberados no numero pessoal). Todos trabalham para voce e comecam so observando e aprendendo.
+Sua equipe, cada um no seu proprio numero: Joao (vendedor), Suporte24hrs (suporte) e Gabriel (o clone do dono, que
+responde so os contatos liberados, como o dono). Todos trabalham para voce e comecam so observando e aprendendo.
 Papel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }} (horario de Brasilia).
 
@@ -626,7 +626,8 @@ def api_painel():
 const c = $input.first().json.r.corpo;
 if (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];
 const preferida = c.instancia || INST_JOAO;
-const inst = (await whatsappConectado(preferida)) ? preferida : ((await whatsappConectado(INST)) && preferida !== 'nucleo' ? INST : null);
+// Gabriel so fala pelo numero dele (nunca pelo numero do Leo)
+const inst = (await whatsappConectado(preferida)) ? preferida : ((await whatsappConectado(INST)) && !['nucleo', 'gabriel'].includes(preferida) ? INST : null);
 if (!inst) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];
 const env = await enviarWhatsapp(c.numero, c.texto, false, inst);
 return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) || '' } }];""",
@@ -1555,7 +1556,7 @@ def suporte24():
 
 
 # ---------------------------------------------------------------------------
-# GABRIEL: clone do dono. Responde contatos liberados no numero pessoal, no jeito dele.
+# GABRIEL: clone do dono, no numero dele. Le tudo para aprender o jeito do dono; responde so contatos liberados.
 # ---------------------------------------------------------------------------
 CTX_G = "$('Contexto').first().json"
 PROMPT_GABRIEL = """Voce e o {{ """ + CTX_G + """.dono_nome }} respondendo no seu proprio WhatsApp para {{ $('Quando chamado').first().json.nome }}.

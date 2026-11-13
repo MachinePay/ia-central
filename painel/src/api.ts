@@ -37,7 +37,7 @@ export interface WhatsappStatus {
 
 
 export type Area = 'suporte' | 'comercial' | 'geral'
-export type Agente = 'leo' | 'joao' | 'suporte'
+export type Agente = 'leo' | 'joao' | 'suporte' | 'gabriel'
 export type AgenteAtend = 'joao' | 'suporte'
 export type ModoObservar = 'todos' | 'exceto' | 'somente'
 export interface ItemLista { id: number; numero: string; nome: string | null; regra: 'incluir' | 'excluir' }
@@ -45,6 +45,7 @@ export interface Observacao {
   leo: { modo: ModoObservar; lista: ItemLista[] }
   joao: { modo: ModoObservar; lista: ItemLista[] }
   suporte: { modo: ModoObservar; lista: ItemLista[] }
+  gabriel: { modo: ModoObservar; lista: ItemLista[] }
   leo_sugestoes: { id: number; titulo: string | null; conteudo: string; contato: string | null; criado_em: string }[]
   leo_conversas_lidas: number
 }
@@ -69,9 +70,10 @@ export interface GabrielPainel {
 }
 
 export type AgenteId = 'leo' | 'joao' | 'suporte' | 'gabriel'
+export type Instancia = 'nucleo' | 'joao' | 'suporte' | 'gabriel'
 export interface Evento { id: number; nivel?: 'erro' | 'aviso' | 'info'; agente?: string; titulo: string; detalhe: string | null; contexto?: Record<string, unknown>; visto?: boolean; em: string }
 export interface SaudeAgente {
-  agente: AgenteId; modo: string; instancia: 'nucleo' | 'joao' | 'suporte'
+  agente: AgenteId; modo: string; instancia: Instancia
   lidas_24h: number; respostas_24h: number; pendentes: number; sugestoes: number; aprendidos: number
   ultima_atividade: string | null; erros_24h: number; ultimo_erro: Evento | null
 }
@@ -141,7 +143,7 @@ export const api = {
   participar: (compartilha: boolean) => chamar('participar', { compartilha }),
   esquecer: (id: number) => chamar('esquecer', { id }),
   perfil: (dados: { telegram_chat_id?: string; whatsapp?: string }) => chamar('perfil', dados),
-  whatsapp: (op: 'status' | 'conectar' | 'desconectar', extra: { numero?: string; instancia?: 'nucleo' | 'joao' | 'suporte' } = {}) =>
+  whatsapp: (op: 'status' | 'conectar' | 'desconectar', extra: { numero?: string; instancia?: Instancia } = {}) =>
     chamar<WhatsappStatus>('admin_whatsapp', { op, ...extra }),
   observacao: () => chamar<Observacao>('admin_observacao'),
   observacaoConfig: (agente: Agente, modo: ModoObservar) => chamar<Observacao>('admin_observacao_config', { agente, modo }),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MessageCircle, QrCode, Smartphone, Unplug, RefreshCw, Eye, Plus, Trash2, Brain, Check, X } from 'lucide-react'
-import { api, type Agente, type ModoObservar, type Observacao, type WhatsappStatus } from '../api'
+import { api, type Agente, type Instancia, type ModoObservar, type Observacao, type WhatsappStatus } from '../api'
 
 const ROTULO: Record<WhatsappStatus['estado'], string> = {
   open: 'Conectado', close: 'Desconectado', connecting: 'Aguardando leitura do QR',
@@ -9,7 +9,7 @@ const ROTULO: Record<WhatsappStatus['estado'], string> = {
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 // ------------------------------------------------------------------ uma conexao (Leo ou Joao)
-export function Conexao({ instancia, titulo, dica }: { instancia: 'nucleo' | 'joao' | 'suporte'; titulo: string; dica: string }) {
+export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; titulo: string; dica: string }) {
   const [st, setSt] = useState<WhatsappStatus | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
@@ -87,6 +87,11 @@ const TEXTO_MODO: Record<Agente, Record<ModoObservar, string>> = {
     exceto: 'Lê todas as conversas do chip, menos os números da lista.',
     somente: 'Lê só os números da lista e os clientes cadastrados.',
   },
+  gabriel: {
+    todos: 'Lê todas as conversas do número do Gabriel para aprender o seu jeito.',
+    exceto: 'Lê todas as conversas do número do Gabriel, menos os contatos da lista.',
+    somente: '',
+  },
   joao: {
     todos: 'Lê todas as conversas do chip (todo mundo que falar com o João é cliente).',
     exceto: 'Lê todas as conversas do chip, menos os números da lista.',
@@ -103,12 +108,12 @@ export function FiltroObservacao({ agente }: { agente: Agente }) {
   const cfg = d[agente]
   const regraNova = cfg.modo === 'exceto' ? 'excluir' : 'incluir'
   const lista = cfg.lista.filter(l => cfg.modo === 'todos' ? false : l.regra === regraNova)
-  const nome = agente === 'leo' ? 'Leo' : agente === 'suporte' ? 'Suporte24hrs' : 'João'
+  const nome = agente === 'leo' ? 'Leo' : agente === 'suporte' ? 'Suporte24hrs' : agente === 'gabriel' ? 'Gabriel' : 'João'
   return (
     <div className="filtro">
       <div className="chave-texto" style={{ marginBottom: 6 }}><b><Eye size={12} style={{ verticalAlign: -1 }} /> O que o {nome} lê</b><span>{TEXTO_MODO[agente][cfg.modo]}</span></div>
       <div className="modos">
-        {(['somente', 'exceto', 'todos'] as const).map(m => (
+        {(agente === 'gabriel' ? ['exceto', 'todos'] as const : ['somente', 'exceto', 'todos'] as const).map(m => (
           <button key={m} className={cfg.modo === m ? 'ativo' : ''} onClick={async () => {
             if (m === 'todos' && agente === 'leo' && !confirm('O Leo vai ler e guardar TODAS as suas conversas, inclusive pessoais. Continuar?')) return
             setD(await api.observacaoConfig(agente, m))
