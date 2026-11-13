@@ -73,7 +73,7 @@ try:
             time.sleep(25)   # da tempo de aparecer uma segunda resposta, se houvesse
             break
     rs = sql(f"SELECT mensagem FROM nucleo.conversas WHERE papel = 'ia' AND usuario_id = 1 AND criado_em >= '{inicio}' ORDER BY id")
-    lido = sql(f"SELECT string_agg(left(mensagem, 80), ' || ') FROM nucleo.conversas WHERE agente = 'ia-pessoal' AND papel = 'usuario' AND contato = '{EU}' AND criado_em >= '{inicio}'")
+    lido = sql(f"SELECT string_agg(mensagem, ' || ') FROM nucleo.conversas WHERE agente = 'ia-pessoal' AND papel = 'usuario' AND contato = '{EU}' AND criado_em >= '{inicio}'")
     print(f"    Leo leu: {lido}")
     print(f"    Leo respondeu:\n{rs}")
     confere("audio longo virou texto", "🎤" in lido and "maquininha" in lido.lower(), lido)
@@ -81,7 +81,8 @@ try:
             sql(f"SELECT count(*) FROM nucleo.conversas WHERE papel = 'ia' AND usuario_id = 1 AND criado_em >= '{inicio}'") == "1",
             sql(f"SELECT count(*) FROM nucleo.conversas WHERE papel = 'ia' AND usuario_id = 1 AND criado_em >= '{inicio}'"))
     confere("analisou o conteudo (taxa, proposta, terca)", all(w in rs.lower() for w in ["taxa", "proposta"]) and ("terç" in rs.lower() or "terc" in rs.lower()), rs)
-    ev = sql(f"SELECT coalesce(string_agg(titulo, ' | '), '') FROM nucleo.eventos WHERE criado_em >= '{inicio}'")
+    # (no ambiente local nao ha WhatsApp conectado: "nao consegui entregar" e esperado)
+    ev = sql(f"SELECT coalesce(string_agg(titulo, ' | '), '') FROM nucleo.eventos WHERE criado_em >= '{inicio}' AND titulo NOT LIKE 'Nao consegui entregar%'")
     confere("sem erro de transcricao", ev == "", ev)
 finally:
     sql(f"DELETE FROM nucleo.conversas WHERE criado_em >= '{inicio}' AND (contato LIKE '{EU}%' OR usuario_id = 1)")
