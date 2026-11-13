@@ -364,6 +364,8 @@ Como trabalhar:
 - So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem
   (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.
 - Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.
+- Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
+  Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - No WhatsApp a pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia TODAS e responda tudo
   de uma vez, numa resposta so, como uma pessoa faria.
 - Se o canal comecar com "whatsapp": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas
@@ -865,7 +867,7 @@ const falha = ent.output ? '' : ((typeof ent.error === 'string' ? ent.error : (e
 const resposta = ent.output || 'Tive um problema para responder agora. Tenta de novo em instantes?';
 let enviado = 'texto';
 const ids = [];
-if (msg.tipo === 'audio' && $env.OPENAI_API_KEY) {
+if (false && msg.tipo === 'audio' && $env.OPENAI_API_KEY) {   // audio vira texto e a resposta e texto (pedido do dono)
   try {
     const mp3 = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/audio/speech',
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -932,7 +934,10 @@ def canal_whatsapp():
             "mode": "runOnceForAllItems",
             "jsCode": "// junta o texto final: no audio, a transcricao vira o texto (e o que as IAs leem e aprendem)\n"
                       "const m = $('Ler mensagem').first().json;\n"
-                      "const t = $input.first().json;\n"
+                      "let t = {};\n"
+                      "for (const n of ['Transcrever (OpenAI)', 'Transcrever (reserva)']) {\n"
+                      "  try { const j = $(n).first().json; if (typeof j.text === 'string' && j.text.trim()) { t = j; break; } if (j.error && !t.error) t = j; } catch (e) { /* nao rodou */ }\n"
+                      "}\n"
                       "let transcricao = '', falha = '';\n"
                       "if (m.tipo === 'audio') {\n"
                       "  if (typeof t.text === 'string') transcricao = t.text.trim();\n"
@@ -955,7 +960,13 @@ def canal_whatsapp():
             # 0 = so leu / nao e com ninguem (para aqui) | 1 = alguma IA responde
             "output": "={{ $json.r.saida === 0 ? 0 : 1 }}",
         }),
-        node("Dados do audio", "n8n-nodes-base.code", 2, [550, 300], {
+        # enquanto transcreve, o lote espera (se a pessoa mandar texto junto, responde tudo de uma vez)
+        node("Transcrevendo", "n8n-nodes-base.postgres", 2.6, [500, 300], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.audio_marcar($1) AS marca",
+            "options": {"queryReplacement": "={{ [$('Ler mensagem').first().json.instancia + ':' + $('Ler mensagem').first().json.numero] }}"},
+        }, credentials=PG, onError="continueRegularOutput"),
+        node("Dados do audio", "n8n-nodes-base.code", 2, [600, 300], {
             "mode": "runOnceForAllItems",
             # descobre o formato pelos primeiros bytes (OGG do WhatsApp, MP3, M4A...)
             "jsCode": (
@@ -988,8 +999,28 @@ def canal_whatsapp():
                 {"name": "model", "value": "gpt-4o-mini-transcribe"},
                 {"name": "language", "value": "pt"},
             ]},
-            "options": {},
+            "options": {"timeout": 600000},
+        }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueErrorOutput"),
+        # se o modelo principal recusar (audio muito longo, instabilidade), tenta o whisper
+        node("Transcrever (reserva)", "n8n-nodes-base.httpRequest", 4.2, [880, 460], {
+            "method": "POST",
+            "url": "https://api.openai.com/v1/audio/transcriptions",
+            "authentication": "predefinedCredentialType",
+            "nodeCredentialType": "openAiApi",
+            "sendBody": True,
+            "contentType": "multipart-form-data",
+            "bodyParameters": {"parameters": [
+                {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"},
+                {"name": "model", "value": "whisper-1"},
+                {"name": "language", "value": "pt"},
+            ]},
+            "options": {"timeout": 600000},
         }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueRegularOutput"),
+        node("Transcrito", "n8n-nodes-base.postgres", 2.6, [1000, 300], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.audio_desmarcar(nullif($1, '')::bigint) AS ok",
+            "options": {"queryReplacement": "={{ [String(($('Transcrevendo').first().json || {}).marca || '')] }}"},
+        }, credentials=PG, alwaysOutputData=True, onError="continueRegularOutput"),
         node("Preparar", "n8n-nodes-base.code", 2, [1540, 140], {
             "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_PREPARAR,
         }),
@@ -1083,7 +1114,8 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
     ]
     con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Vai ler?"), ("Vai ler?", "Ouvir?"),
                 ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (OpenAI)"),
-                ("Transcrever (OpenAI)", "Mensagem"), ("Mensagem", "Quem e"), ("Quem e", "Rota"),
+                ("Mensagem", "Quem e"), ("Quem e", "Rota"),
+                ("Transcrevendo", "Dados do audio"), ("Transcrever (reserva)", "Transcrito"), ("Transcrito", "Mensagem"),
                 ("Preparar", "Guardar no lote"),
                 ("Guardar no lote", "Esperar a pessoa terminar"), ("Esperar a pessoa terminar", "Fechar lote"),
                 ("Fechar lote", "Lote pronto"), ("Lote pronto", "Quem responde"),
@@ -1101,7 +1133,11 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
     ]}
     con["Ouvir?"] = {"main": [
         [{"node": "Mensagem", "type": "main", "index": 0}],
-        [{"node": "Dados do audio", "type": "main", "index": 0}],
+        [{"node": "Transcrevendo", "type": "main", "index": 0}],
+    ]}
+    con["Transcrever (OpenAI)"] = {"main": [
+        [{"node": "Transcrito", "type": "main", "index": 0}],
+        [{"node": "Transcrever (reserva)", "type": "main", "index": 0}],
     ]}
     return workflow("canalWhatsapp01", "Canal WhatsApp", nodes, con)
 
@@ -1455,6 +1491,8 @@ Horario de atendimento humano: {{ """ + EMPRESA + """.horario || 'nao informado'
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}."""
 
 REGRAS_CLIENTE = """Regras com o cliente (sempre, sem excecao):
+- Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
+  Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - O cliente pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
 - Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Use para acertar o tom:
   pessoa nova = mais educado e apresente-se; cliente antigo = mais direto e caloroso.
@@ -1669,6 +1707,8 @@ O que voce sabe sobre ele (use buscar_memoria para mais):
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}.
 
 Regras (sempre):
+- Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
+  Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - A pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
 - Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Siga o tom e os cuidados dele:
   pessoa nova = educado; amigo = solto; familia/intimo = carinhoso, sem prometer nada e sem assunto delicado.

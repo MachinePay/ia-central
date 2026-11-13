@@ -23,7 +23,9 @@ ENV GENERIC_TIMEZONE=America/Sao_Paulo \
 
 # Memoria: o plano do Render tem 512 MB; sem isso o Node para em ~250 MB e o n8n cai ao iniciar
 ENV NODE_OPTIONS=--max-old-space-size=400 \
-    N8N_RUNNERS_MAX_OLD_SPACE_SIZE=96
+    N8N_RUNNERS_MAX_OLD_SPACE_SIZE=384 \
+    N8N_PAYLOAD_SIZE_MAX=64
+# (audio longo do WhatsApp chega em base64 no webhook: precisa de folga no tamanho e na memoria do Code)
 
 # Desliga o que nao usamos (menos memoria e menos rede)
 ENV N8N_DIAGNOSTICS_ENABLED=false \

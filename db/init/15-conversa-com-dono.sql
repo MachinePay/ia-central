@@ -93,7 +93,7 @@ BEGIN
     RETURN jsonb_build_object('saida', 1, 'instancia', p_instancia,
         'usuario_id', u.id, 'nome', u.nome, 'papel', u.papel, 'texto', texto,
         'sessionId', 'u' || u.id || ':whatsapp',
-        'canal', CASE WHEN p_tipo = 'audio' THEN 'whatsapp (audio: a resposta tambem vai em audio)' ELSE 'whatsapp' END);
+        'canal', CASE WHEN p_tipo = 'audio' THEN 'whatsapp (mandou audio, ja transcrito: responda em texto)' ELSE 'whatsapp' END);
 END $$;
 
 -- ---------------------------------------------------------------- aprender com o que voce ensina na conversa com cada IA

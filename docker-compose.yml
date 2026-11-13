@@ -41,6 +41,8 @@ services:
       N8N_SECURE_COOKIE: "false"          # local em http; no Render fica true
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       N8N_RUNNERS_ENABLED: "true"
+      N8N_PAYLOAD_SIZE_MAX: "64"            # audio longo chega em base64
+      N8N_RUNNERS_MAX_OLD_SPACE_SIZE: "384"
       WEBHOOK_URL: ${WEBHOOK_URL}
       # chaves usadas pelos workflows
       OPENAI_API_KEY: ${OPENAI_API_KEY}
