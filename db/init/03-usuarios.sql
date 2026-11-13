@@ -312,6 +312,21 @@ BEGIN
                 CASE WHEN d->>'agente' IN ('joao','suporte') THEN jsonb_build_object('agente', d->>'agente') ELSE '{}'::jsonb END);
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
 
+    ELSIF p_acao = 'admin_perfil_salvar' THEN     -- voce corrige quem e a pessoa (vale mais que o aprendiz)
+        IF d->>'agente' NOT IN ('leo','gabriel','joao','suporte') OR coalesce(d->>'numero','') = '' THEN
+            RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Informe agente e numero'));
+        END IF;
+        INSERT INTO nucleo.perfis_contato AS p (agente, numero, relacao, genero, cuidados, editado_manual)
+        VALUES (d->>'agente', nucleo.so_digitos(d->>'numero'),
+                CASE WHEN d->>'relacao' IN ('novo','conhecido','cliente','cliente_antigo','amigo','familia','namorada_conjuge','trabalho','outro') THEN d->>'relacao' ELSE 'outro' END,
+                CASE WHEN d->>'genero' IN ('homem','mulher') THEN d->>'genero' ELSE 'nao_sei' END, nullif(d->>'cuidados',''), true)
+        ON CONFLICT (agente, numero) DO UPDATE SET
+            relacao = CASE WHEN d ? 'relacao' THEN EXCLUDED.relacao ELSE p.relacao END,
+            genero = CASE WHEN d ? 'genero' THEN EXCLUDED.genero ELSE p.genero END,
+            cuidados = CASE WHEN d ? 'cuidados' THEN EXCLUDED.cuidados ELSE p.cuidados END,
+            editado_manual = true, atualizado_em = now();
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
     ELSIF p_acao = 'admin_conhecimento_copiar' THEN   -- passar algo de uma IA para outra (so quando voce pede)
         RETURN jsonb_build_object('saida',0,'status',200,'corpo',
             jsonb_build_object('id', nucleo.conhecimento_copiar((d->>'id')::bigint, d->>'para', u.id)));

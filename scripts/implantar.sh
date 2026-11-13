@@ -13,7 +13,7 @@ sh scripts/gerar-credenciais.sh
 python scripts/montar_workflows.py
 
 if [ $# -eq 0 ]; then
-  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql db/init/09-agentes.sql db/init/10-lote.sql db/init/11-saude.sql db/init/12-gabriel-chip.sql db/init/13-memorias-separadas.sql db/init/14-aprende-sozinho.sql db/init/15-conversa-com-dono.sql db/init/16-monitor-suspensos.sql; do
+  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql db/init/09-agentes.sql db/init/10-lote.sql db/init/11-saude.sql db/init/12-gabriel-chip.sql db/init/13-memorias-separadas.sql db/init/14-aprende-sozinho.sql db/init/15-conversa-com-dono.sql db/init/16-monitor-suspensos.sql db/init/17-perfis-contato.sql; do
     docker compose exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' < "$f" 2>&1 | grep -v NOTICE || true
   done
   sh scripts/criar-admin.sh

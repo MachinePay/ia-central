@@ -203,3 +203,11 @@
 .marco .etiqueta b { color: var(--texto-2); font-weight: 500; }
 .marco button { color: var(--texto-3); padding: 4px; border-radius: 6px; }
 .marco button:hover { color: var(--vermelho); background: rgba(255, 61, 110, 0.1); }
+
+/* quem e a pessoa (perfil do contato) */
+.perfil-pessoa { margin: 0 14px 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--linha); background: rgba(3, 5, 11, 0.5);
+  display: flex; flex-direction: column; gap: 4px; }
+.perfil-pessoa.intimo { border-color: rgba(255, 43, 214, 0.45); background: rgba(255, 43, 214, 0.06); }
+.perfil-linha { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.perfil-linha select { background: rgba(3, 5, 11, 0.7); border: 1px solid var(--linha-forte); border-radius: 8px; padding: 5px 8px; font-size: 13px; color: var(--texto); }
+.perfil-pessoa .item-texto b { color: var(--texto); font-weight: 500; }

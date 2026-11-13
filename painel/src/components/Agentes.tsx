@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
   Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type GabrielPainel, type Instancia, type ItemAprendido, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { Chamados, Clientes, ConfigModo, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, useAtendimento } from './Secoes'
@@ -292,7 +292,8 @@ function OQueLeu({ a, feed }: { a: AgenteId; feed: Feed | null }) {
       <div className="leitor-conversa hud">
         {!atual ? <div className="vazio" style={{ padding: 16 }}>Escolha uma conversa.</div> : (
           <>
-            <div className="hud-titulo"><span>{atual.nome || 'sem nome'} · +{atual.numero}</span><span className="contagem">{atual.mensagens} msgs</span></div>
+            <div className="hud-titulo"><span>{atual.nome || atual.perfil?.nome || 'sem nome'} · +{atual.numero}</span><span className="contagem">{atual.mensagens} msgs</span></div>
+            <PerfilPessoa key={atual.numero} a={a} c={atual} />
             <div className="leitor-msgs">
               {atual.historico.map((m, i) => (
                 <div key={i} className={`sim-msg ${m.papel === 'usuario' ? 'cliente-de-la' : m.papel === 'humano' ? 'voce' : 'ia'}`}>
@@ -303,6 +304,39 @@ function OQueLeu({ a, feed }: { a: AgenteId; feed: Feed | null }) {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ quem e a pessoa (a IA monta sozinha; voce corrige)
+const RELACOES: [Relacao, string][] = [['novo', 'Pessoa nova'], ['conhecido', 'Conhecido'], ['cliente', 'Cliente'], ['cliente_antigo', 'Cliente antigo'],
+  ['amigo', 'Amigo(a)'], ['familia', 'Família'], ['namorada_conjuge', 'Namorada / esposa / íntimo'], ['trabalho', 'Trabalho'], ['outro', 'Outro']]
+function PerfilPessoa({ a, c }: { a: AgenteId; c: ConversaLida }) {
+  const p = c.perfil
+  const [rel, setRel] = useState<Relacao | ''>(p?.relacao || '')
+  const [gen, setGen] = useState(p?.genero || 'nao_sei')
+  const [salvo, setSalvo] = useState('')
+  const intimo = rel === 'namorada_conjuge' || rel === 'familia'
+  async function salvar(d: { relacao?: Relacao; genero?: string }) {
+    await api.perfilSalvar(a, c.numero, d); setSalvo('✓ a IA vai usar isso'); setTimeout(() => setSalvo(''), 2500)
+  }
+  return (
+    <div className={`perfil-pessoa ${intimo ? 'intimo' : ''}`}>
+      <div className="perfil-linha">
+        <select aria-label="Quem é essa pessoa" value={rel} onChange={e => { const v = e.target.value as Relacao; setRel(v); void salvar({ relacao: v }) }}>
+          {!rel && <option value="">ainda aprendendo…</option>}
+          {RELACOES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+        </select>
+        <select aria-label="Gênero" value={gen} onChange={e => { setGen(e.target.value as typeof gen); void salvar({ genero: e.target.value }) }}>
+          <option value="nao_sei">—</option><option value="mulher">mulher</option><option value="homem">homem</option>
+        </select>
+        <span className="etiqueta">desde {c.primeira ? fmt(c.primeira) : '—'}{p?.editado_manual ? ' · corrigido por você' : p ? ' · a IA percebeu' : ''}</span>
+        {salvo && <span className="copiado">{salvo}</span>}
+      </div>
+      {p?.tom && <div className="item-texto"><b>Tom:</b> {p.tom}</div>}
+      {p?.resumo && <div className="item-texto"><b>Quem é:</b> {p.resumo}</div>}
+      {p?.cuidados && <div className="item-texto"><b>Cuidados:</b> {p.cuidados}</div>}
+      {intimo && <div className="etiqueta">Íntimo: a IA responde com carinho e cuidado — sem promessas, sem compromisso e sem assunto delicado.</div>}
     </div>
   )
 }

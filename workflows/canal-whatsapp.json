@@ -308,11 +308,36 @@
     },
     {
       "id": "c0000000-0000-4000-8000-000000000154",
+      "name": "Perfil do contato",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1700,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT CASE WHEN $3 = 'dono' THEN '' ELSE nucleo.perfil_texto($1, $2) END AS perfil",
+        "options": {
+          "queryReplacement": "={{ [$('Lote pronto').first().json.agente, String($('Lote pronto').first().json.numero || ''), $('Lote pronto').first().json.dono ? 'dono' : ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000155",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
       "position": [
-        1760,
+        1860,
         260
       ],
       "parameters": {
@@ -326,12 +351,12 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "agente": "={{ $json.agente }}",
-            "cliente_id": "={{ $json.cliente_id || '' }}",
-            "nome": "={{ $json.nome }}",
-            "chatInput": "={{ $json.chatInput }}",
-            "sessionId": "={{ $json.sessionId }}",
-            "numero": "={{ $json.numero || '' }}"
+            "agente": "={{ $('Lote pronto').first().json.agente }}",
+            "cliente_id": "={{ $('Lote pronto').first().json.cliente_id || '' }}",
+            "nome": "={{ $('Lote pronto').first().json.nome }}",
+            "chatInput": "={{ ($json.perfil || '') + $('Lote pronto').first().json.chatInput }}",
+            "sessionId": "={{ $('Lote pronto').first().json.sessionId }}",
+            "numero": "={{ $('Lote pronto').first().json.numero || '' }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -405,7 +430,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000155",
+      "id": "c0000000-0000-4000-8000-000000000156",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -428,7 +453,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000156",
+      "id": "c0000000-0000-4000-8000-000000000157",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -442,7 +467,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000157",
+      "id": "c0000000-0000-4000-8000-000000000158",
       "name": "Guardar ids",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -466,7 +491,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000158",
+      "id": "c0000000-0000-4000-8000-000000000159",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -564,7 +589,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000159",
+      "id": "c0000000-0000-4000-8000-000000000160",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -578,7 +603,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000160",
+      "id": "c0000000-0000-4000-8000-000000000161",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -809,6 +834,17 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Perfil do contato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfil do contato": {
+      "main": [
         [
           {
             "node": "Atendente",

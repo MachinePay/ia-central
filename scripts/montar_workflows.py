@@ -1022,13 +1022,19 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
             "mode": "expression", "numberOutputs": 2,
             "output": "={{ $json.saida === 2 ? 1 : 0 }}",   # 0 = IA do usuario | 1 = atendente (cliente)
         }),
-        chamar_atendente("Atendente", [1760, 260], {
-            "agente": "={{ $json.agente }}",
-            "cliente_id": "={{ $json.cliente_id || '' }}",
-            "nome": "={{ $json.nome }}",
-            "chatInput": "={{ $json.chatInput }}",
-            "sessionId": "={{ $json.sessionId }}",
-            "numero": "={{ $json.numero || '' }}",
+        # quem e essa pessoa para a IA (nova, cliente antigo, amigo, intima...) -> ajusta tom e cuidados
+        node("Perfil do contato", "n8n-nodes-base.postgres", 2.6, [1700, 400], {
+            "operation": "executeQuery",
+            "query": "SELECT CASE WHEN $3 = 'dono' THEN '' ELSE nucleo.perfil_texto($1, $2) END AS perfil",
+            "options": {"queryReplacement": "={{ [$('Lote pronto').first().json.agente, String($('Lote pronto').first().json.numero || ''), $('Lote pronto').first().json.dono ? 'dono' : ''] }}"},
+        }, credentials=PG, alwaysOutputData=True, onError="continueRegularOutput"),
+        chamar_atendente("Atendente", [1860, 260], {
+            "agente": "={{ $('Lote pronto').first().json.agente }}",
+            "cliente_id": "={{ $('Lote pronto').first().json.cliente_id || '' }}",
+            "nome": "={{ $('Lote pronto').first().json.nome }}",
+            "chatInput": "={{ ($json.perfil || '') + $('Lote pronto').first().json.chatInput }}",
+            "sessionId": "={{ $('Lote pronto').first().json.sessionId }}",
+            "numero": "={{ $('Lote pronto').first().json.numero || '' }}",
         }),
         node("Registrar atendimento", "n8n-nodes-base.postgres", 2.6, [1980, 260], {
             "operation": "executeQuery",
@@ -1080,8 +1086,9 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
                 ("Cerebro", "Responder no WhatsApp"), ("Responder no WhatsApp", "Registrar resposta"))
     con["Quem responde"] = {"main": [
         [{"node": "Cerebro", "type": "main", "index": 0}],
-        [{"node": "Atendente", "type": "main", "index": 0}],
+        [{"node": "Perfil do contato", "type": "main", "index": 0}],
     ]}
+    con["Perfil do contato"] = {"main": [[{"node": "Atendente", "type": "main", "index": 0}]]}
     con["Rota"] = {"main": [
         [],
         [{"node": "Preparar", "type": "main", "index": 0}],
@@ -1443,6 +1450,8 @@ Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", {
 
 REGRAS_CLIENTE = """Regras com o cliente (sempre, sem excecao):
 - O cliente pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
+- Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Use para acertar o tom:
+  pessoa nova = mais educado e apresente-se; cliente antigo = mais direto e caloroso.
 - Escreva como uma pessoa do time escreve no WhatsApp: natural, curto (no maximo 4 frases), sem listas formais,
   sem titulos, *negrito* so em 1 ou 2 palavras. Nada de "como assistente virtual", "sou uma IA" ou frases de robo.
 - Nao se apresente como IA. Mas se o cliente perguntar DIRETAMENTE se fala com robo, IA ou pessoa, nunca minta:
@@ -1655,6 +1664,8 @@ Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", {
 
 Regras (sempre):
 - A pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
+- Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Siga o tom e os cuidados dele:
+  pessoa nova = educado; amigo = solto; familia/intimo = carinhoso, sem prometer nada e sem assunto delicado.
 - Escreva exatamente como ele: tamanho das mensagens, girias, pontuacao, risadas, emojis. Mensagem curta de WhatsApp.
 - Nao invente fatos, compromissos, datas, valores, promessas, decisoes ou opinioes fortes que ele nao registrou.
   Pedido de compromisso, dinheiro, emprestimo, decisao importante, saude, briga ou assunto delicado: ganhe tempo
@@ -1809,10 +1820,23 @@ JS_APRENDIZ = r"""
 const pendentes = $input.all().map(i => i.json).filter(p => p.chave && p.transcricao);
 const item = { type: 'object', additionalProperties: false, required: ['area', 'titulo', 'conteudo'], properties: {
   area: { type: 'string', enum: ['suporte', 'comercial', 'geral'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };
-const schema = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: item } } };
+const contato = { type: 'object', additionalProperties: false, required: ['nome', 'relacao', 'genero', 'tom', 'resumo', 'cuidados'], properties: {
+  nome: { type: 'string' },
+  relacao: { type: 'string', enum: ['novo', 'conhecido', 'cliente', 'cliente_antigo', 'amigo', 'familia', 'namorada_conjuge', 'trabalho', 'outro'] },
+  genero: { type: 'string', enum: ['homem', 'mulher', 'nao_sei'] },
+  tom: { type: 'string' }, resumo: { type: 'string' }, cuidados: { type: 'string' } } };
+const schema = { type: 'object', additionalProperties: false, required: ['itens', 'contato'], properties: { itens: { type: 'array', items: item }, contato } };
 const itemLeo = { type: 'object', additionalProperties: false, required: ['tipo', 'titulo', 'conteudo'], properties: {
   tipo: { type: 'string', enum: ['jeito_de_falar', 'como_resolve', 'fato'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };
-const schemaLeo = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: itemLeo } } };
+const schemaLeo = { type: 'object', additionalProperties: false, required: ['itens', 'contato'], properties: { itens: { type: 'array', items: itemLeo }, contato } };
+const SOBRE_CONTATO = `
+Alem dos itens, descreva o CONTATO desta conversa em "contato" (quem ele e para o dono/empresa), para a IA saber como falar com ele:
+- relacao: novo (primeiras conversas) | conhecido | cliente | cliente_antigo (ja compra/fala faz tempo) | amigo | familia |
+  namorada_conjuge (namorada, esposa, marido, ficante: relacao intima) | trabalho | outro. Decida pelo jeito que conversam.
+- genero: homem | mulher | nao_sei (pelo nome, pelo jeito de falar ou como sao tratados).
+- nome: como a pessoa e chamada (ou vazio). tom: como o dono fala com ela (ex.: "carinhoso, chama de amor", "formal").
+- resumo: 1 frase de quem e (sem dados sensiveis). cuidados: o que evitar com essa pessoa (ou vazio).
+Na conversa interna do dono com a IA (nao ha contato), devolva contato com relacao "outro" e o resto vazio.`;
 const PROMPT_JOAO = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.
 Extraia SO conhecimento reutilizavel que o atendente humano informou ou praticou (mensagens com "🎤" eram audios transcritos): precos, prazos, condicoes, politicas,
 horarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o jeito de escrever
@@ -1874,10 +1898,12 @@ for (const p of pendentes) {
       body: { model: '__MODELO__', reasoning_effort: 'low',
         response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: (p.tipo === 'leo' || p.tipo === 'gabriel') ? schemaLeo : schema } },
         messages: [{ role: 'system', content: (String(p.chave).startsWith('dono:') ? PROMPT_DONO.replace('__IA__', NOME_IA[p.tipo] || p.tipo) : p.tipo === 'leo' ? PROMPT_LEO : p.tipo === 'gabriel' ? PROMPT_GABRIEL : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
-                                               + (p.contexto || '(vazia)') },
+                                               + (p.contexto || '(vazia)') + SOBRE_CONTATO },
                    { role: 'user', content: p.transcricao }] } });
-    const itens = JSON.parse(r.choices[0].message.content).itens || [];
-    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length } });
+    const res = JSON.parse(r.choices[0].message.content);
+    const itens = res.itens || [];
+    const perfil = String(p.chave).startsWith('dono:') ? '' : JSON.stringify(res.contato || {});
+    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil } });
   } catch (e) {
     saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
   }
@@ -1915,8 +1941,9 @@ def aprendiz():
                      "  WHEN $3 IN ('joao', 'suporte') THEN nucleo.aprendiz_salvar_agente(nullif($1, '')::int, $2::jsonb, $3)\n"
                      "  ELSE 0 END AS salvos,\n"
                      "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte', 'gabriel') THEN $3 ELSE 'aprendiz' END,\n"
-                     "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento",
-            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || ''] }}"},
+                     "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento,\n"
+                     "  CASE WHEN $6 <> '' THEN nucleo.perfil_salvar($3, $1, $6::jsonb) END AS perfil",
+            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || '', $json.perfil || ''] }}"},
         }, credentials=PG),
         node("Resultado", "n8n-nodes-base.code", 2, [1120, 180], {
             "mode": "runOnceForAllItems",

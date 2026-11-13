@@ -79,9 +79,15 @@ export interface SaudeAgente {
   ultima_atividade: string | null; erros_24h: number; ultimo_erro: Evento | null
 }
 export interface Saude { agentes: SaudeAgente[]; outros_erros: Evento[]; sistemas_fora: number; chamados_abertos: number }
+export type Relacao = 'novo' | 'conhecido' | 'cliente' | 'cliente_antigo' | 'amigo' | 'familia' | 'namorada_conjuge' | 'trabalho' | 'outro'
+export interface PerfilContato {
+  numero: string; nome: string | null; relacao: Relacao; genero: 'homem' | 'mulher' | 'nao_sei'
+  tom: string | null; resumo: string | null; cuidados: string | null; editado_manual: boolean; atualizado_em: string
+}
 export interface ConversaLida {
-  numero: string; nome: string | null; mensagens: number; ultima: string; ultimo_papel: string; ultima_mensagem: string
+  numero: string; nome: string | null; mensagens: number; ultima: string; primeira?: string; ultimo_papel: string; ultima_mensagem: string
   historico: { papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[]
+  perfil?: PerfilContato | null
 }
 export interface ItemAprendido { id: number; titulo: string | null; conteudo: string; area: string | null; aprovado: boolean; origem: string; em: string; de?: string | null; copiado_de?: string | null }
 export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[]; eventos: Evento[] }
@@ -123,6 +129,8 @@ export const api = {
   saude: () => chamar<Saude>('admin_saude'),
   feed: (agente: AgenteId) => chamar<Feed>('admin_agente_feed', { agente }),
   eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
+  perfilSalvar: (agente: AgenteId, numero: string, d: { relacao?: Relacao; genero?: string; cuidados?: string }) =>
+    chamar('admin_perfil_salvar', { agente, numero, ...d }),
   atendimento: (agente: AgenteAtend) => chamar<AtendimentoPainel>('admin_atendimento', { agente }),
   gabriel: () => chamar<GabrielPainel>('admin_gabriel'),
   gabrielConfig: (modo: string) => chamar<GabrielPainel>('admin_gabriel_config', { modo }),
