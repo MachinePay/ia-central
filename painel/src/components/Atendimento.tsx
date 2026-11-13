@@ -272,7 +272,7 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
           {salvo && <div className="aviso ok">{salvo}</div>}
           <div className="linha-2">
             <div className="campo"><label htmlFor="e-nome">Empresa</label><input id="e-nome" value={empresa.nome} onChange={e => setEmpresa({ ...empresa, nome: e.target.value })} /></div>
-            <div className="campo"><label htmlFor="e-pers">Nome de quem atende</label><input id="e-pers" placeholder="Leo 2.0" value={empresa.persona || ''} onChange={e => setEmpresa({ ...empresa, persona: e.target.value })} /></div>
+            <div className="campo"><label htmlFor="e-pers">Nome de quem atende</label><input id="e-pers" placeholder="João" value={empresa.persona || ''} onChange={e => setEmpresa({ ...empresa, persona: e.target.value })} /></div>
           </div>
           <div className="campo"><label htmlFor="e-desc">O que a empresa faz</label><textarea id="e-desc" rows={2} value={empresa.descricao} onChange={e => setEmpresa({ ...empresa, descricao: e.target.value })} /></div>
           <div className="linha-2">

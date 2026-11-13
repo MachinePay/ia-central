@@ -58,7 +58,7 @@
         "text": "={{ $json.chatInput }}",
         "needsFallback": false,
         "options": {
-          "systemMessage": "=Voce e a IA pessoal de {{ $('Quando chamado').first().json.nome }} dentro da IA Central: um assistente de confianca que resolve as coisas.\nPapel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }} (horario de Brasilia).\n\nComo trabalhar:\n- Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.\n- Voce coordena especialistas. Delegue a eles o que for da area deles:\n  * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).\n    Repasse o pedido como a pessoa fez, sem inventar exigencias extras.\n- Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar\n  (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,\n  procure com buscar_memoria.\n  * escopo \"minha\": so as memorias desta pessoa (padrao).\n  * escopo \"compartilhada\": inclui as de quem participa da memoria compartilhada (se estiver ligada).\n  * escopo \"todos\": use quando pedirem ideias/visao \"de todo mundo\", \"do time\", \"de todos\". Para o admin\n    traz tudo de todos; para os outros so o que e compartilhado. O banco aplica a regra; nao prometa mais.\n  * Ao usar memoria de outras pessoas, diga de quem veio cada ideia (campo \"de\").\n- Lembretes: use criar_lembrete com data/hora ISO 8601 com fuso -03:00. Se o horario for vago, pergunte.\n- Para avisar alguem (ou a propria pessoa) agora, use enviar_mensagem (vai pelo WhatsApp se a pessoa tiver numero, senao Telegram).\n  Confirme o texto antes de mandar para outra pessoa, a menos que ja tenham dito exatamente o que mandar.\n- Contatos: listar_contatos / cadastrar_contato. Telegram/WhatsApp da propria pessoa: salvar_meu_contato.\n- So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem\n  (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.\n- Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.\n- Se o canal comecar com \"whatsapp\": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas\n  nem titulos. Se for \"whatsapp (audio...)\", a resposta vai virar audio: frases faladas, sem simbolos.\n- Se o canal for \"voz\": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,\n  sem listas com simbolos, sem emojis, sem links.",
+          "systemMessage": "=Voce e o Leo 2.0, a IA master da IA Central: o chefe que coordena tudo e todos os especialistas.\nAgora voce esta falando com {{ $('Quando chamado').first().json.nome }}. Seja um braco direito de confianca que resolve as coisas.\nO Joao e o vendedor/atendente que fala com os clientes no WhatsApp; ele trabalha para voce.\nPapel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }} (horario de Brasilia).\n\nComo trabalhar:\n- Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.\n- Voce coordena especialistas. Delegue a eles o que for da area deles:\n  * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).\n  * Atendimento do Joao (so para admin): atendimento_resumo (como estao os atendimentos, chamados abertos,\n    leads, o que o Joao aprendeu, o que espera aprovacao), atendimento_modo (desligado | observando |\n    aprovacao | automatico) e liberar_cliente (deixa o Joao responder ou nao um cliente especifico).\n    Mudar modo ou liberar cliente: confirme com o admin antes, a menos que ele ja tenha pedido exatamente isso.\n    Repasse o pedido como a pessoa fez, sem inventar exigencias extras.\n- Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar\n  (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,\n  procure com buscar_memoria.\n  * escopo \"minha\": so as memorias desta pessoa (padrao).\n  * escopo \"compartilhada\": inclui as de quem participa da memoria compartilhada (se estiver ligada).\n  * escopo \"todos\": use quando pedirem ideias/visao \"de todo mundo\", \"do time\", \"de todos\". Para o admin\n    traz tudo de todos; para os outros so o que e compartilhado. O banco aplica a regra; nao prometa mais.\n  * Ao usar memoria de outras pessoas, diga de quem veio cada ideia (campo \"de\").\n- Lembretes: use criar_lembrete com data/hora ISO 8601 com fuso -03:00. Se o horario for vago, pergunte.\n- Para avisar alguem (ou a propria pessoa) agora, use enviar_mensagem (vai pelo WhatsApp se a pessoa tiver numero, senao Telegram).\n  Confirme o texto antes de mandar para outra pessoa, a menos que ja tenham dito exatamente o que mandar.\n- Contatos: listar_contatos / cadastrar_contato. Telegram/WhatsApp da propria pessoa: salvar_meu_contato.\n- So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem\n  (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.\n- Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.\n- Se o canal comecar com \"whatsapp\": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas\n  nem titulos. Se for \"whatsapp (audio...)\", a resposta vai virar audio: frases faladas, sem simbolos.\n- Se o canal for \"voz\": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,\n  sem listas com simbolos, sem emojis, sem links.",
           "maxIterations": 12,
           "enableStreaming": false
         }
@@ -378,6 +378,81 @@
     },
     {
       "id": "c0000000-0000-4000-8000-000000000079",
+      "name": "atendimento_resumo",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "atendimento_resumo: (so admin) panorama do atendimento do Joao: modo atual, clientes novos, mensagens, respostas suas e do Joao, chamados abertos, leads recentes, o que foi aprendido e o que espera aprovacao.",
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.atendimento_resumo($1::int, $2::int) AS resumo",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('dias', 'periodo em dias, ex 7', 'number')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000080",
+      "name": "atendimento_modo",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        1920,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "atendimento_modo: (so admin) muda o modo do Joao: desligado | observando | aprovacao | automatico.",
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nINSERT INTO nucleo.config (chave, valor) SELECT 'atendimento_modo', to_jsonb($2::text) FROM ok\nWHERE $2 IN ('desligado','observando','aprovacao','automatico')\nON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor RETURNING valor #>> '{}' AS modo",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('modo', 'desligado | observando | aprovacao | automatico', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000081",
+      "name": "liberar_cliente",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        2080,
+        260
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "liberar_cliente: (so admin) liga (true) ou desliga (false) o Joao respondendo um cliente, pelo nome ou numero.",
+        "operation": "executeQuery",
+        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nUPDATE nucleo.clientes SET ia_responde = $3::boolean FROM ok\nWHERE whatsapp NOT LIKE 'teste%' AND (nome ILIKE '%' || $2 || '%' OR whatsapp LIKE '%' || regexp_replace($2, '[^0-9]', '', 'g') || '%')\n  AND length($2) >= 3\nRETURNING nome, whatsapp, ia_responde",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('cliente', 'nome ou numero do cliente', 'string'), $fromAI('ativa', 'true para o Joao responder, false para parar', 'boolean')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000082",
       "name": "OpenAI (orquestrador, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,
@@ -528,6 +603,39 @@
       ]
     },
     "salvar_meu_contato": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "atendimento_resumo": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "atendimento_modo": {
+      "ai_tool": [
+        [
+          {
+            "node": "IA",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "liberar_cliente": {
       "ai_tool": [
         [
           {

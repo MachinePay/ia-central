@@ -10,7 +10,7 @@ const SUGESTOES = [
   'Como estão meus sistemas?',
   'O que você lembra sobre mim?',
   'Me lembra amanhã às 9h de revisar as metas',
-  'Junta as ideias do time sobre um tema',
+  'Como estão os atendimentos do João?',
 ]
 
 /** Negrito (**x**) e quebras de linha; o resto fica como texto puro (sem HTML vindo da IA). */
@@ -164,7 +164,7 @@ export function Conversa({ sessao, estado, setEstado, aoSair, aoMudar }: {
         </button>
         <textarea
           rows={1}
-          placeholder={gravando ? 'Ouvindo… toque de novo para enviar' : 'Fale ou digite…'}
+          placeholder={gravando ? 'Ouvindo… toque de novo para enviar' : 'Fale com o Leo 2.0…'}
           value={texto}
           onChange={e => setTexto(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void enviar(texto) } }}

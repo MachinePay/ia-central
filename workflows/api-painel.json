@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000083",
+      "id": "c0000000-0000-4000-8000-000000000086",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -23,7 +23,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000002"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000084",
+      "id": "c0000000-0000-4000-8000-000000000087",
       "name": "Regras (banco)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -46,7 +46,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000085",
+      "id": "c0000000-0000-4000-8000-000000000088",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -61,7 +61,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000086",
+      "id": "c0000000-0000-4000-8000-000000000089",
       "name": "WhatsApp (Evolution)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -76,7 +76,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000087",
+      "id": "c0000000-0000-4000-8000-000000000090",
       "name": "Resposta WhatsApp",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000088",
+      "id": "c0000000-0000-4000-8000-000000000091",
       "name": "Rodar monitor",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -139,7 +139,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000089",
+      "id": "c0000000-0000-4000-8000-000000000092",
       "name": "Verificado",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -157,7 +157,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000090",
+      "id": "c0000000-0000-4000-8000-000000000093",
       "name": "Enviar aprovada",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -172,7 +172,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000091",
+      "id": "c0000000-0000-4000-8000-000000000094",
       "name": "Guardar ids aprovada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -197,7 +197,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000092",
+      "id": "c0000000-0000-4000-8000-000000000095",
       "name": "Rodar aprendiz",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -243,7 +243,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000093",
+      "id": "c0000000-0000-4000-8000-000000000096",
       "name": "Aprendido",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -261,7 +261,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000094",
+      "id": "c0000000-0000-4000-8000-000000000097",
       "name": "Aprovada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -279,7 +279,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000095",
+      "id": "c0000000-0000-4000-8000-000000000098",
       "name": "Simular atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -355,7 +355,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000096",
+      "id": "c0000000-0000-4000-8000-000000000099",
       "name": "Resposta simulada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -373,7 +373,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000097",
+      "id": "c0000000-0000-4000-8000-000000000100",
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -391,7 +391,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000098",
+      "id": "c0000000-0000-4000-8000-000000000101",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -489,7 +489,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000099",
+      "id": "c0000000-0000-4000-8000-000000000102",
       "name": "Resposta da IA",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -507,7 +507,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000100",
+      "id": "c0000000-0000-4000-8000-000000000103",
       "name": "Voz (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -540,7 +540,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000101",
+      "id": "c0000000-0000-4000-8000-000000000104",
       "name": "Audio",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -564,7 +564,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000102",
+      "id": "c0000000-0000-4000-8000-000000000105",
       "name": "Voz falhou",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,

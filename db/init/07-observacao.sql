@@ -130,9 +130,47 @@ BEGIN
     RETURN n;
 END $$;
 
--- nome de quem atende (persona); so preenche se ainda nao tiver
-UPDATE nucleo.config SET valor = valor || '{"persona": "Leo 2.0"}'::jsonb
+-- nome do vendedor/atendente (persona) = Joao. (Leo 2.0 e a IA master, nao o atendente.)
+-- Corrige uma vez quem ficou com "Leo 2.0" por engano; depois disso o nome e o que o admin escolher.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM nucleo.config WHERE chave = 'migracao_persona_joao') THEN
+        UPDATE nucleo.config SET valor = valor || '{"persona": "João"}'::jsonb
+         WHERE chave = 'atendimento_empresa'
+           AND (NOT (valor ? 'persona') OR valor->>'persona' IN ('', 'Leo 2.0'));
+        INSERT INTO nucleo.config VALUES ('migracao_persona_joao', 'true');
+    END IF;
+END $$;
+UPDATE nucleo.config SET valor = valor || '{"persona": "João"}'::jsonb
  WHERE chave = 'atendimento_empresa' AND NOT (valor ? 'persona');
+
+-- Leo 2.0 (IA master) supervisionando o atendimento do Joao: so admin
+CREATE OR REPLACE FUNCTION nucleo.atendimento_resumo(p_usuario int, p_dias int DEFAULT 7)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM nucleo.exigir_admin(p_usuario);
+    RETURN jsonb_build_object(
+        'config', nucleo.atendimento_config() - 'empresa',
+        'periodo_dias', p_dias,
+        'clientes_novos', (SELECT count(*) FROM nucleo.clientes WHERE criado_em > now() - make_interval(days => p_dias) AND whatsapp NOT LIKE 'teste%'),
+        'mensagens_de_clientes', (SELECT count(*) FROM nucleo.conversas WHERE cliente_id IS NOT NULL AND papel = 'usuario' AND criado_em > now() - make_interval(days => p_dias)),
+        'respostas_suas', (SELECT count(*) FROM nucleo.conversas WHERE cliente_id IS NOT NULL AND papel = 'humano' AND criado_em > now() - make_interval(days => p_dias)),
+        'respostas_do_joao', (SELECT count(*) FROM nucleo.conversas WHERE cliente_id IS NOT NULL AND papel = 'ia' AND criado_em > now() - make_interval(days => p_dias)),
+        'aguardando_aprovacao', (SELECT count(*) FROM nucleo.atendimento_fila WHERE status = 'pendente'),
+        'sugestoes_para_revisar', (SELECT count(*) FROM nucleo.conhecimento WHERE usuario_id IS NULL AND NOT aprovado AND origem = 'observacao'),
+        'chamados_abertos', coalesce((SELECT jsonb_agg(jsonb_build_object('id', h.id, 'area', h.area, 'titulo', h.titulo,
+                'prioridade', h.prioridade, 'cliente', c.nome, 'aberto_em', to_char(h.criado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI')))
+            FROM nucleo.chamados h LEFT JOIN nucleo.clientes c ON c.id = h.cliente_id WHERE h.status = 'aberto'), '[]'),
+        'leads_recentes', coalesce((SELECT jsonb_agg(x) FROM (
+            SELECT nome, empresa, interesse, etapa, to_char(ultimo_contato AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') AS ultimo_contato
+              FROM nucleo.clientes WHERE etapa IN ('lead', 'cliente') AND whatsapp NOT LIKE 'teste%'
+             ORDER BY ultimo_contato DESC LIMIT 10) x), '[]'),
+        'aprendido_recente', coalesce((SELECT jsonb_agg(x) FROM (
+            SELECT dominio AS area, titulo, conteudo, aprovado FROM nucleo.conhecimento
+             WHERE usuario_id IS NULL AND origem IN ('observacao', 'aprendido_observando', 'resposta_aprovada')
+               AND criado_em > now() - make_interval(days => p_dias)
+             ORDER BY criado_em DESC LIMIT 15) x), '[]'));
+END $$;
 
 -- registra ids de mensagens que a IA enviou (usada pelo n8n)
 CREATE OR REPLACE FUNCTION nucleo.whatsapp_registrar_ids(p_ids text[]) RETURNS void

@@ -9,7 +9,7 @@
 
 INSERT INTO nucleo.config VALUES ('atendimento_modo', '"observando"') ON CONFLICT DO NOTHING;
 INSERT INTO nucleo.config VALUES ('atendimento_empresa',
-  '{"nome": "Minha empresa", "descricao": "", "horario": "segunda a sexta, 9h as 18h", "tom": "simpatico, objetivo e profissional", "persona": "Leo 2.0"}')
+  '{"nome": "Minha empresa", "descricao": "", "horario": "segunda a sexta, 9h as 18h", "tom": "simpatico, objetivo e profissional", "persona": "João"}')
   ON CONFLICT DO NOTHING;
 
 -- sistemas que os clientes podem saber se estao fora (o resto e interno)

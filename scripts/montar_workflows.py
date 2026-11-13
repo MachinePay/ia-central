@@ -332,7 +332,9 @@ def especialista_sistemas():
 # ---------------------------------------------------------------------------
 # 3) CEREBRO (a IA de cada usuario). Chamado pelo chat do n8n, pelo painel e pelo audio.
 # ---------------------------------------------------------------------------
-PROMPT_CEREBRO = """Voce e a IA pessoal de {{ $('Quando chamado').first().json.nome }} dentro da IA Central: um assistente de confianca que resolve as coisas.
+PROMPT_CEREBRO = """Voce e o Leo 2.0, a IA master da IA Central: o chefe que coordena tudo e todos os especialistas.
+Agora voce esta falando com {{ $('Quando chamado').first().json.nome }}. Seja um braco direito de confianca que resolve as coisas.
+O Joao e o vendedor/atendente que fala com os clientes no WhatsApp; ele trabalha para voce.
 Papel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }} (horario de Brasilia).
 
@@ -340,6 +342,10 @@ Como trabalhar:
 - Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.
 - Voce coordena especialistas. Delegue a eles o que for da area deles:
   * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).
+  * Atendimento do Joao (so para admin): atendimento_resumo (como estao os atendimentos, chamados abertos,
+    leads, o que o Joao aprendeu, o que espera aprovacao), atendimento_modo (desligado | observando |
+    aprovacao | automatico) e liberar_cliente (deixa o Joao responder ou nao um cliente especifico).
+    Mudar modo ou liberar cliente: confirme com o admin antes, a menos que ele ja tenha pedido exatamente isso.
     Repasse o pedido como a pessoa fez, sem inventar exigencias extras.
 - Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar
   (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,
@@ -458,6 +464,29 @@ def cerebro():
             sql_usuario([ia("telegram_chat_id", "chat_id do Telegram; vazio para nao mudar"),
                          ia("whatsapp", "numero com DDI; vazio para nao mudar")]),
             [1600, 260]),
+        ferramenta_sql(
+            "atendimento_resumo", "atendimento_resumo",
+            "(so admin) panorama do atendimento do Joao: modo atual, clientes novos, mensagens, respostas suas e do Joao, "
+            "chamados abertos, leads recentes, o que foi aprendido e o que espera aprovacao.",
+            "SELECT nucleo.atendimento_resumo($1::int, $2::int) AS resumo",
+            sql_usuario([ia("dias", "periodo em dias, ex 7", "number")]), [1760, 260]),
+        ferramenta_sql(
+            "atendimento_modo", "atendimento_modo",
+            "(so admin) muda o modo do Joao: desligado | observando | aprovacao | automatico.",
+            "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\n"
+            "INSERT INTO nucleo.config (chave, valor) SELECT 'atendimento_modo', to_jsonb($2::text) FROM ok\n"
+            "WHERE $2 IN ('desligado','observando','aprovacao','automatico')\n"
+            "ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor RETURNING valor #>> '{}' AS modo",
+            sql_usuario([ia("modo", "desligado | observando | aprovacao | automatico")]), [1920, 260]),
+        ferramenta_sql(
+            "liberar_cliente", "liberar_cliente",
+            "(so admin) liga (true) ou desliga (false) o Joao respondendo um cliente, pelo nome ou numero.",
+            "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\n"
+            "UPDATE nucleo.clientes SET ia_responde = $3::boolean FROM ok\n"
+            "WHERE whatsapp NOT LIKE 'teste%' AND (nome ILIKE '%' || $2 || '%' OR whatsapp LIKE '%' || regexp_replace($2, '[^0-9]', '', 'g') || '%')\n"
+            "  AND length($2) >= 3\nRETURNING nome, whatsapp, ia_responde",
+            sql_usuario([ia("cliente", "nome ou numero do cliente"), ia("ativa", "true para o Joao responder, false para parar", "boolean")]),
+            [2080, 260]),
     ]
     modelos, lig_modelos = modelos_do_agente("IA", "orquestrador", -160, 260)
     nodes += modelos
@@ -466,7 +495,8 @@ def cerebro():
         ligar_ia(con, origem, destino, "ai_languageModel", idx)
     ligar_ia(con, "Memoria da conversa", "IA", "ai_memory")
     for t in ["especialista_sistemas", "enviar_mensagem", "lembrar", "buscar_memoria", "criar_lembrete",
-              "listar_lembretes", "listar_contatos", "cadastrar_contato", "salvar_meu_contato"]:
+              "listar_lembretes", "listar_contatos", "cadastrar_contato", "salvar_meu_contato",
+              "atendimento_resumo", "atendimento_modo", "liberar_cliente"]:
         ligar_ia(con, t, "IA", "ai_tool")
     return workflow("iaCerebro00001", "Cerebro IA (por usuario)", nodes, con)
 
@@ -489,8 +519,8 @@ def ia_pessoal():
     nodes = [
         node("Chat", "@n8n/n8n-nodes-langchain.chatTrigger", 1.5, [0, 0], {
             "availableInChat": True,
-            "agentName": "IA Pessoal",
-            "agentDescription": "Sua IA central (como admin): sistemas, lembretes, memoria e mensagens.",
+            "agentName": "Leo 2.0",
+            "agentDescription": "A IA master: sistemas, atendimento do Joao, lembretes, memoria e mensagens.",
             "options": {"responseMode": "lastNode"},
         }, webhookId="9b1f6c2e-1a00-4000-8000-000000000001"),
         node("Admin", "n8n-nodes-base.postgres", 2.6, [220, 0], {

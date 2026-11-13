@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000112",
+      "id": "c0000000-0000-4000-8000-000000000115",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -21,7 +21,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000004"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000113",
+      "id": "c0000000-0000-4000-8000-000000000116",
       "name": "Ler mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -35,7 +35,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000114",
+      "id": "c0000000-0000-4000-8000-000000000117",
       "name": "Quem e",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000115",
+      "id": "c0000000-0000-4000-8000-000000000118",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -73,7 +73,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000116",
+      "id": "c0000000-0000-4000-8000-000000000119",
       "name": "Dados do audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -87,7 +87,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000117",
+      "id": "c0000000-0000-4000-8000-000000000120",
       "name": "Audio em arquivo",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.2,
@@ -107,7 +107,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000118",
+      "id": "c0000000-0000-4000-8000-000000000121",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -150,7 +150,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000119",
+      "id": "c0000000-0000-4000-8000-000000000122",
       "name": "Preparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,7 +164,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000120",
+      "id": "c0000000-0000-4000-8000-000000000123",
       "name": "Quem responde",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -179,7 +179,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000121",
+      "id": "c0000000-0000-4000-8000-000000000124",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -255,7 +255,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000122",
+      "id": "c0000000-0000-4000-8000-000000000125",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -278,7 +278,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000123",
+      "id": "c0000000-0000-4000-8000-000000000126",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -292,7 +292,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000124",
+      "id": "c0000000-0000-4000-8000-000000000127",
       "name": "Guardar ids",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -316,7 +316,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000125",
+      "id": "c0000000-0000-4000-8000-000000000128",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -414,7 +414,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000126",
+      "id": "c0000000-0000-4000-8000-000000000129",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -428,7 +428,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000127",
+      "id": "c0000000-0000-4000-8000-000000000130",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

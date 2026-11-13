@@ -77,8 +77,8 @@ export default function App() {
           <div className="topo-meio">
             {usuario.papel === 'admin' ? (
               <div className="seletor-tela">
-                <button className={aba !== 'atend' ? 'ativo' : ''} onClick={() => setAba('ia')}><MessageSquare size={13} /> IA Pessoal</button>
-                <button className={aba === 'atend' ? 'ativo' : ''} onClick={() => setAba('atend')}><Headset size={13} /> Atendimento</button>
+                <button className={aba !== 'atend' ? 'ativo' : ''} onClick={() => setAba('ia')}><MessageSquare size={13} /> Leo 2.0</button>
+                <button className={aba === 'atend' ? 'ativo' : ''} onClick={() => setAba('atend')}><Headset size={13} /> Atendimento (João)</button>
               </div>
             ) : <Relogio />}
           </div>
