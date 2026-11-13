@@ -737,6 +737,11 @@ if (corpo.op === 'conectar') {
   }
   await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook });
   await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA);
+  // ja estava esperando leitura: a Evolution devolve o MESMO QR (ja vencido). Zera a tentativa para gerar um novo.
+  if ((await estado()) === 'connecting') {
+    try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ja estava zerado */ }
+    await new Promise(r => setTimeout(r, 1500));
+  }
   if ((await estado()) !== 'open') {
     const num = String(corpo.numero || '').replace(/\D/g, '');
     const q = await evo('GET', `/instance/connect/${I}` + (num ? `?number=${num}` : ''));
