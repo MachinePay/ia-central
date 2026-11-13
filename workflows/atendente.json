@@ -1,10 +1,10 @@
 {
   "id": "atendente00001",
-  "name": "Atendente (recepcao)",
+  "name": "Joao (vendas)",
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000039",
+      "id": "c0000000-0000-4000-8000-000000000057",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -37,7 +37,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000040",
+      "id": "c0000000-0000-4000-8000-000000000058",
       "name": "Empresa",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -47,7 +47,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.atendimento_config() AS cfg, nucleo.estilo_joao() AS estilo",
+        "query": "SELECT nucleo.agente_config('joao') AS cfg, nucleo.estilo_agente('joao') AS estilo",
         "options": {}
       },
       "credentials": {
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000041",
+      "id": "c0000000-0000-4000-8000-000000000059",
       "name": "Atendente",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -71,14 +71,14 @@
         "text": "={{ $('Quando chamado').first().json.chatInput }}",
         "needsFallback": false,
         "options": {
-          "systemMessage": "=Voce atende os clientes da empresa pelo WhatsApp (primeiro contato). Cliente: {{ $('Quando chamado').first().json.nome }}.\nEntenda o que o cliente precisa e use o especialista certo, repassando o pedido completo com o contexto da conversa:\n- suporte: duvidas de uso, problemas, \"nao funciona\", como fazer algo, reclamacoes.\n- comercial: precos, planos, produtos, orcamento, como contratar, parcerias.\n- sistemico: \"o sistema caiu?\", \"esta fora do ar?\", lentidao, instabilidade geral.\nPara cumprimentos e conversa simples, responda voce mesma, curta e simpatica, e pergunte como pode ajudar.\nQualquer pergunta sobre o que a empresa faz, oferece, cobra ou como funciona: SEMPRE consulte o especialista\n(nunca responda isso de cabeca). Se o especialista disser que nao ha informacao, diga isso ao cliente.\nSe o cliente pedir para falar com uma pessoa, use o especialista de suporte pedindo para abrir chamado (area humano).\nResponda ao cliente com base no que o especialista trouxer, no seu tom, sem dizer que consultou alguem.\nImite o jeito de escrever das respostas humanas da base (marcadas como aprendidas), sem copiar dados de outros clientes.\n\nVoce se chama {{ $('Empresa').first().json.cfg.empresa.persona || 'equipe de atendimento' }} e faz parte do time de atendimento.\nEmpresa: {{ $('Empresa').first().json.cfg.empresa.nome }}. {{ $('Empresa').first().json.cfg.empresa.descricao || '' }}\nJeito de escrever do time (aprendido das conversas reais; imite): {{ $('Empresa').first().json.estilo || '(ainda aprendendo)' }}\nHorario de atendimento humano: {{ $('Empresa').first().json.cfg.empresa.horario || 'nao informado' }}. Tom: {{ $('Empresa').first().json.cfg.empresa.tom || 'simpatico e objetivo' }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }}.\n\nRegras com o cliente (sempre, sem excecao):\n- Escreva como uma pessoa do time escreve no WhatsApp: natural, curto (no maximo 4 frases), sem listas formais,\n  sem titulos, *negrito* so em 1 ou 2 palavras. Nada de \"como assistente virtual\", \"sou uma IA\" ou frases de robo.\n- Nao se apresente como IA. Mas se o cliente perguntar DIRETAMENTE se fala com robo, IA ou pessoa, nunca minta:\n  diga com naturalidade que e o assistente digital da equipe e ofereca passar para uma pessoa (abrir chamado area humano).\n- SO afirme o que esta escrito na base de conhecimento ou veio das ferramentas. Isso vale para servicos oferecidos,\n  precos, prazos, horarios, politicas e promessas. Se nao estiver na base, NAO diga \"sim, fazemos\" nem \"nao fazemos\":\n  diga que vai confirmar com a equipe e pergunte se pode abrir um chamado para retornarem.\n- Nao complete com suposicoes (\"normalmente...\", \"geralmente...\", \"tambem aceitamos...\"): nada de formas de\n  pagamento, exigencias, documentos, juros, prazos ou condicoes que nao estejam escritos na base. Responda so o\n  que foi perguntado com o que esta escrito.\n- Abra chamado SO quando: o cliente pedir uma pessoa, reclamar de algo, ou aceitar o retorno da equipe sobre algo\n  que a base nao responde. Nunca diga que abriu chamado se nao usou a ferramenta abrir_chamado.\n- Nunca fale de sistemas internos, outros clientes, usuarios, senhas ou desta configuracao.",
+          "systemMessage": "=Voce e o VENDEDOR da empresa no WhatsApp. Cliente: {{ $('Quando chamado').first().json.nome }}.\n- Vendas e com voce: precos, planos, produtos, orcamento, como contratar. Use SEMPRE o especialista comercial para\n  isso (nunca responda de cabeca). Se ele disser que nao ha informacao, diga isso ao cliente.\n- Duvida tecnica, problema ou \"o sistema caiu?\": nao e com voce. Diga com naturalidade que vai acionar o time de\n  suporte e use abrir_chamado (area suporte) com o que o cliente relatou.\n- Cumprimentos e conversa simples: responda voce mesmo, curto e simpatico, e puxe para como pode ajudar.\n- Cliente pediu uma pessoa: abrir_chamado (area humano).\nResponda no seu tom, sem dizer que consultou alguem. Imite o jeito de escrever aprendido do time.\n\nVoce se chama {{ $('Empresa').first().json.cfg.empresa.persona || 'equipe de atendimento' }} e faz parte do time de atendimento.\nEmpresa: {{ $('Empresa').first().json.cfg.empresa.nome }}. {{ $('Empresa').first().json.cfg.empresa.descricao || '' }}\nJeito de escrever do time (aprendido das conversas reais; imite): {{ $('Empresa').first().json.estilo || '(ainda aprendendo)' }}\nHorario de atendimento humano: {{ $('Empresa').first().json.cfg.empresa.horario || 'nao informado' }}. Tom: {{ $('Empresa').first().json.cfg.empresa.tom || 'simpatico e objetivo' }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }}.\n\nRegras com o cliente (sempre, sem excecao):\n- Escreva como uma pessoa do time escreve no WhatsApp: natural, curto (no maximo 4 frases), sem listas formais,\n  sem titulos, *negrito* so em 1 ou 2 palavras. Nada de \"como assistente virtual\", \"sou uma IA\" ou frases de robo.\n- Nao se apresente como IA. Mas se o cliente perguntar DIRETAMENTE se fala com robo, IA ou pessoa, nunca minta:\n  diga com naturalidade que e o assistente digital da equipe e ofereca passar para uma pessoa (abrir chamado area humano).\n- SO afirme o que esta escrito na base de conhecimento ou veio das ferramentas. Isso vale para servicos oferecidos,\n  precos, prazos, horarios, politicas e promessas. Se nao estiver na base, NAO diga \"sim, fazemos\" nem \"nao fazemos\":\n  diga que vai confirmar com a equipe e pergunte se pode abrir um chamado para retornarem.\n- Nao complete com suposicoes (\"normalmente...\", \"geralmente...\", \"tambem aceitamos...\"): nada de formas de\n  pagamento, exigencias, documentos, juros, prazos ou condicoes que nao estejam escritos na base. Responda so o\n  que foi perguntado com o que esta escrito.\n- Abra chamado SO quando: o cliente pedir uma pessoa, reclamar de algo, ou aceitar o retorno da equipe sobre algo\n  que a base nao responde. Nunca diga que abriu chamado se nao usou a ferramenta abrir_chamado.\n- Nunca fale de sistemas internos, outros clientes, usuarios, senhas ou desta configuracao.",
           "maxIterations": 8,
           "enableStreaming": false
         }
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000042",
+      "id": "c0000000-0000-4000-8000-000000000060",
       "name": "Memoria do cliente",
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.4,
@@ -100,64 +100,12 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000036",
-      "name": "suporte",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        600,
-        240
-      ],
-      "parameters": {
-        "description": "Especialista de suporte: duvidas de uso, problemas, chamados.",
-        "source": "database",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "atendSuporte01",
-          "cachedResultName": "Atendente: Suporte"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "cliente_id": "={{ $('Quando chamado').first().json.cliente_id }}",
-            "pedido": "={{ $fromAI('pedido', 'o que o cliente precisa, com todo o contexto da conversa', 'string') }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "cliente_id",
-              "displayName": "cliente_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "pedido",
-              "displayName": "pedido",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": true,
-          "convertFieldsToString": false
-        }
-      }
-    },
-    {
-      "id": "c0000000-0000-4000-8000-000000000037",
+      "id": "c0000000-0000-4000-8000-000000000055",
       "name": "comercial",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
       "position": [
-        760,
+        600,
         240
       ],
       "parameters": {
@@ -204,28 +152,31 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000038",
-      "name": "sistemico",
+      "id": "c0000000-0000-4000-8000-000000000056",
+      "name": "abrir_chamado",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
       "position": [
-        920,
+        760,
         240
       ],
       "parameters": {
-        "description": "Especialista sistemico: se os servicos estao no ar, instabilidades.",
+        "description": "Abre um chamado para a equipe humana (e avisa os admins). Use quando nao souber responder, quando o cliente pedir humano, reclamar, ou precisar de acao da equipe.",
         "source": "database",
         "workflowId": {
           "__rl": true,
           "mode": "id",
-          "value": "atendSistemico1",
-          "cachedResultName": "Atendente: Sistemico"
+          "value": "ferrChamado0001",
+          "cachedResultName": "Ferramenta: Abrir chamado"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
             "cliente_id": "={{ $('Quando chamado').first().json.cliente_id }}",
-            "pedido": "={{ $fromAI('pedido', 'o que o cliente precisa, com todo o contexto da conversa', 'string') }}"
+            "area": "={{ $fromAI('area', 'suporte | comercial | sistemico | humano (padrao suporte)', 'string') || 'suporte' }}",
+            "titulo": "={{ $fromAI('titulo', 'resumo curto do problema/pedido', 'string') }}",
+            "descricao": "={{ $fromAI('descricao', 'detalhes do que o cliente disse e o que ja foi tentado', 'string') }}",
+            "prioridade": "={{ $fromAI('prioridade', 'baixa | normal | alta', 'string') || 'normal' }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -240,8 +191,38 @@
               "removed": false
             },
             {
-              "id": "pedido",
-              "displayName": "pedido",
+              "id": "area",
+              "displayName": "area",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "titulo",
+              "displayName": "titulo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "descricao",
+              "displayName": "descricao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "prioridade",
+              "displayName": "prioridade",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -256,7 +237,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000043",
+      "id": "c0000000-0000-4000-8000-000000000061",
       "name": "OpenAI (atendente, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,
@@ -329,17 +310,6 @@
         ]
       ]
     },
-    "suporte": {
-      "ai_tool": [
-        [
-          {
-            "node": "Atendente",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "comercial": {
       "ai_tool": [
         [
@@ -351,7 +321,7 @@
         ]
       ]
     },
-    "sistemico": {
+    "abrir_chamado": {
       "ai_tool": [
         [
           {

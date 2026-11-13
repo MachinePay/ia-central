@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000032",
+      "id": "c0000000-0000-4000-8000-000000000051",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -29,7 +29,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000033",
+      "id": "c0000000-0000-4000-8000-000000000052",
       "name": "Empresa",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -39,7 +39,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.atendimento_config() AS cfg, nucleo.estilo_joao() AS estilo",
+        "query": "SELECT nucleo.agente_config('suporte') AS cfg, nucleo.estilo_agente('suporte') AS estilo",
         "options": {}
       },
       "credentials": {
@@ -50,7 +50,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000034",
+      "id": "c0000000-0000-4000-8000-000000000053",
       "name": "Especialista Sistemico",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -70,7 +70,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000029",
+      "id": "c0000000-0000-4000-8000-000000000048",
       "name": "status_servicos",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -93,7 +93,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000030",
+      "id": "c0000000-0000-4000-8000-000000000049",
       "name": "incidentes_recentes",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -116,7 +116,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000031",
+      "id": "c0000000-0000-4000-8000-000000000050",
       "name": "abrir_chamado",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -201,7 +201,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000035",
+      "id": "c0000000-0000-4000-8000-000000000054",
       "name": "OpenAI (atendente, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,

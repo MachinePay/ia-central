@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { BookOpen, Check, CircleUser, Eye, Headset, Inbox, MessagesSquare, RefreshCw, Send, Settings2, Trash2, X, LifeBuoy, Sparkles, UserPlus, ChevronDown } from 'lucide-react'
-import { api, ErroApi, type Area, type AtendimentoPainel, type Empresa } from '../api'
+import { api, ErroApi, type Area, type AgenteAtend, type AtendimentoPainel, type Empresa } from '../api'
 import { FiltroObservacao } from './Whatsapp'
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -16,9 +16,9 @@ function Hud({ titulo, icone, extra, children, className = '' }: { titulo: strin
 }
 
 // ------------------------------------------------------------------ fila de aprovacao
-function ItemFila({ f, aoMudar }: { f: AtendimentoPainel['fila'][number]; aoMudar: () => void }) {
+export function ItemFila({ f, aoMudar, areaPadrao = 'geral', aprender = true }: { f: AtendimentoPainel['fila'][number]; aoMudar: () => void; areaPadrao?: Area; aprender?: boolean }) {
   const [texto, setTexto] = useState(f.rascunho)
-  const [area, setArea] = useState<Area>('geral')
+  const [area, setArea] = useState<Area>(areaPadrao)
   const [msg, setMsg] = useState('')
   const [ocupado, setOcupado] = useState(false)
   async function aprovar() {
@@ -38,11 +38,11 @@ function ItemFila({ f, aoMudar }: { f: AtendimentoPainel['fila'][number]; aoMuda
         <textarea id={`r-${f.id}`} rows={4} value={texto} onChange={e => setTexto(e.target.value)} />
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div className="campo" style={{ margin: 0, width: 130 }}>
+        {aprender && <div className="campo" style={{ margin: 0, width: 130 }}>
           <select aria-label="Aprender como" value={area} onChange={e => setArea(e.target.value as Area)}>
             <option value="geral">Aprender: geral</option><option value="suporte">Aprender: suporte</option><option value="comercial">Aprender: comercial</option>
           </select>
-        </div>
+        </div>}
         <button className="botao" style={{ width: 'auto', flex: 1 }} disabled={ocupado || !texto.trim()} onClick={aprovar}><Check size={14} /> Aprovar e enviar</button>
         <button className="botao secundario" style={{ width: 'auto' }} disabled={ocupado} onClick={async () => { await api.filaRejeitar(f.id); aoMudar() }} aria-label="Rejeitar"><X size={14} /></button>
       </div>
@@ -52,7 +52,7 @@ function ItemFila({ f, aoMudar }: { f: AtendimentoPainel['fila'][number]; aoMuda
 }
 
 // ------------------------------------------------------------------ simulador
-function Simulador({ aoMudar }: { aoMudar: () => void }) {
+export function Simulador({ aoMudar, agente, dica }: { aoMudar: () => void; agente: AgenteAtend | 'gabriel'; dica?: string }) {
   const [msgs, setMsgs] = useState<{ de: 'cliente' | 'ia' | 'erro'; texto: string }[]>([])
   const [texto, setTexto] = useState('')
   const [sessao, setSessao] = useState(() => String(Date.now()))
@@ -67,7 +67,7 @@ function Simulador({ aoMudar }: { aoMudar: () => void }) {
     setTexto('')
     setMsgs(m => [...m, { de: 'cliente', texto: t }])
     setOcupado(true)
-    try { const r = await api.atendimentoTeste(t, sessao); setMsgs(m => [...m, { de: 'ia', texto: r.resposta }]); aoMudar() }
+    try { const r = await api.atendimentoTeste(t, sessao, agente); setMsgs(m => [...m, { de: 'ia', texto: r.resposta }]); aoMudar() }
     catch (err) { setMsgs(m => [...m, { de: 'erro', texto: err instanceof Error ? err.message : 'Falhou' }]) }
     finally { setOcupado(false) }
   }
@@ -75,7 +75,7 @@ function Simulador({ aoMudar }: { aoMudar: () => void }) {
     <Hud titulo="Simular cliente" icone={<MessagesSquare size={14} />}
       extra={<button className="botao-icone" style={{ width: 'auto', height: 22, padding: '0 8px', fontSize: 10, display: 'flex', gap: 5 }}
         onClick={() => { setMsgs([]); setSessao(String(Date.now())) }}><RefreshCw size={12} /> nova</button>}>
-      <div className="etiqueta" style={{ marginBottom: 8 }}>Você é o cliente. Resposta direta (sem fila de aprovação). Chamados de teste não avisam ninguém.</div>
+      <div className="etiqueta" style={{ marginBottom: 8 }}>{dica || 'Você é o cliente. Resposta direta (sem fila de aprovação). Chamados de teste não avisam ninguém.'}</div>
       <div className="sim-mensagens">
         {msgs.length === 0 && <div className="vazio">Ex.: "oi, quanto custa?", "o sistema caiu?", "não consigo entrar"</div>}
         {msgs.map((m, i) => <div key={i} className={`sim-msg ${m.de}`}>{m.texto}</div>)}
@@ -114,7 +114,7 @@ function ItemSugestao({ s: sg, aoMudar }: { s: AtendimentoPainel['sugestoes'][nu
 
 // ------------------------------------------------------------------ cliente (com conversa)
 const ROTULO_PAPEL = { usuario: 'CLIENTE', humano: 'VOCÊ', ia: 'IA' } as const
-function ItemCliente({ c, alcance, aoMudar }: { c: AtendimentoPainel['clientes'][number]; alcance: string; aoMudar: () => void }) {
+function ItemCliente({ c, alcance, aoMudar, agente }: { c: AtendimentoPainel['clientes'][number]; alcance: string; aoMudar: () => void; agente: AgenteAtend }) {
   const [aberto, setAberto] = useState(false)
   const [msgs, setMsgs] = useState<{ papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[] | null>(null)
   async function abrir() {
@@ -133,7 +133,7 @@ function ItemCliente({ c, alcance, aoMudar }: { c: AtendimentoPainel['clientes']
         <button role="switch" aria-checked={c.ia_responde} aria-label={`IA responde ${c.nome || c.whatsapp}`}
           className={`interruptor ${c.ia_responde || alcance === 'todos' ? 'ligado' : ''}`} disabled={alcance === 'todos'}
           title={alcance === 'todos' ? 'A IA responde todos (mude o alcance para escolher)' : ''}
-          onClick={async () => { await api.clienteIa(c.id, !c.ia_responde); aoMudar() }} />
+          onClick={async () => { await api.clienteIa(c.id, !c.ia_responde, agente); aoMudar() }} />
       </div>
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
         <button className="botao-icone" style={{ width: 'auto', height: 24, padding: '0 8px', fontSize: 11, display: 'flex', gap: 4 }} onClick={abrir}>
@@ -160,20 +160,21 @@ function ItemCliente({ c, alcance, aoMudar }: { c: AtendimentoPainel['clientes']
 }
 
 // ------------------------------------------------------------------ tela
-export function Atendimento({ aoSair }: { aoSair: () => void }) {
+export function Atendimento({ aoSair, agente }: { aoSair: () => void; agente: AgenteAtend }) {
   const [d, setD] = useState<AtendimentoPainel | null>(null)
   const [erro, setErro] = useState('')
   const [empresa, setEmpresa] = useState<Empresa | null>(null)
   const [salvo, setSalvo] = useState('')
-  const [nova, setNova] = useState<{ area: Area; titulo: string; conteudo: string }>({ area: 'comercial', titulo: '', conteudo: '' })
+  const [nova, setNova] = useState<{ area: Area; titulo: string; conteudo: string }>({ area: agente === 'suporte' ? 'suporte' : 'comercial', titulo: '', conteudo: '' })
   const [filtro, setFiltro] = useState<Area | 'todas'>('todas')
   const [novoCli, setNovoCli] = useState({ nome: '', whatsapp: '' })
   const [aprendendo, setAprendendo] = useState('')
 
   const carregar = useCallback(async () => {
-    try { const r = await api.atendimento(); setD(r); setEmpresa(e => e ?? r.config.empresa); setErro('') }
+    try { const r = await api.atendimento(agente); setD(r); setEmpresa(e => e ?? r.config.empresa); setErro('') }
     catch (e) { if (e instanceof ErroApi && e.status === 401) aoSair(); else setErro(e instanceof Error ? e.message : 'Falhou') }
-  }, [aoSair])
+  }, [aoSair, agente])
+  useEffect(() => { setD(null); setEmpresa(null) }, [agente])
   useEffect(() => { void carregar(); const t = setInterval(carregar, 15000); return () => clearInterval(t) }, [carregar])
 
   if (!d || !empresa) return <div className="atendimento"><div className="vazio">{erro || 'Carregando…'}</div></div>
@@ -183,10 +184,10 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
   return (
     <div className="atendimento">
       <div className="atend-coluna">
-        <Hud titulo="Atendente" icone={<Headset size={14} />}>
+        <Hud titulo={d.config.persona} icone={<Headset size={14} />}>
           <div className="modos">
             {(['desligado', 'observando', 'aprovacao', 'automatico'] as const).map(m => (
-              <button key={m} className={modo === m ? 'ativo' : ''} onClick={async () => { await api.atendimentoConfig({ modo: m }); void carregar() }}>
+              <button key={m} className={modo === m ? 'ativo' : ''} onClick={async () => { await api.atendimentoConfig(agente, { modo: m }); void carregar() }}>
                 {m === 'desligado' ? 'Desligada' : m === 'observando' ? 'Só observando' : m === 'aprovacao' ? 'Com aprovação' : 'Automática'}
               </button>
             ))}
@@ -201,17 +202,17 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
               <div className="chave-texto"><b>Responde para</b><span>{d.config.alcance === 'todos' ? 'Todos os clientes' : 'Só os clientes marcados (interruptor IA na lista)'}</span></div>
               <div className="modos" style={{ flexWrap: 'nowrap' }}>
                 {(['selecionados', 'todos'] as const).map(a => (
-                  <button key={a} className={d.config.alcance === a ? 'ativo' : ''} onClick={async () => { await api.atendimentoConfig({ alcance: a }); void carregar() }}>{a === 'todos' ? 'Todos' : 'Marcados'}</button>
+                  <button key={a} className={d.config.alcance === a ? 'ativo' : ''} onClick={async () => { await api.atendimentoConfig(agente, { alcance: a }); void carregar() }}>{a === 'todos' ? 'Todos' : 'Marcados'}</button>
                 ))}
               </div>
             </div>
           )}
-          <FiltroObservacao agente="joao" />
+          <FiltroObservacao agente={agente} />
         </Hud>
 
         <Hud titulo={`Para aprovar`} icone={<Inbox size={14} />} extra={<span className="contagem">{d.fila.length}</span>}>
           {d.fila.length === 0 && <div className="vazio">Nada esperando aprovação.</div>}
-          {d.fila.map(f => <ItemFila key={f.id} f={f} aoMudar={carregar} />)}
+          {d.fila.map(f => <ItemFila key={f.id} f={f} aoMudar={carregar} areaPadrao={agente === 'suporte' ? 'suporte' : 'comercial'} />)}
         </Hud>
 
         <Hud titulo="Aprendido para revisar" icone={<Sparkles size={14} />}
@@ -226,7 +227,7 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
           {d.sugestoes.map(sg => <ItemSugestao key={sg.id} s={sg} aoMudar={carregar} />)}
         </Hud>
 
-        <Simulador aoMudar={carregar} />
+        <Simulador aoMudar={carregar} agente={agente} />
       </div>
 
       <div className="atend-coluna">
@@ -262,14 +263,14 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
           {salvo && <div className="aviso ok">{salvo}</div>}
           <div className="linha-2">
             <div className="campo"><label htmlFor="e-nome">Empresa</label><input id="e-nome" value={empresa.nome} onChange={e => setEmpresa({ ...empresa, nome: e.target.value })} /></div>
-            <div className="campo"><label htmlFor="e-pers">Nome de quem atende</label><input id="e-pers" placeholder="João" value={empresa.persona || ''} onChange={e => setEmpresa({ ...empresa, persona: e.target.value })} /></div>
+            <div className="campo"><label htmlFor="e-pers">Nome de quem atende</label><input id="e-pers" placeholder={agente === 'suporte' ? 'Suporte24hrs' : 'João'} value={empresa.persona || ''} onChange={e => setEmpresa({ ...empresa, persona: e.target.value })} /></div>
           </div>
           <div className="campo"><label htmlFor="e-desc">O que a empresa faz</label><textarea id="e-desc" rows={2} value={empresa.descricao} onChange={e => setEmpresa({ ...empresa, descricao: e.target.value })} /></div>
           <div className="linha-2">
             <div className="campo"><label htmlFor="e-hor">Horário humano</label><input id="e-hor" value={empresa.horario} onChange={e => setEmpresa({ ...empresa, horario: e.target.value })} /></div>
             <div className="campo"><label htmlFor="e-tom">Tom de voz</label><input id="e-tom" value={empresa.tom} onChange={e => setEmpresa({ ...empresa, tom: e.target.value })} /></div>
           </div>
-          <button className="botao secundario" onClick={async () => { await api.atendimentoConfig({ empresa }); setSalvo('Salvo ✓'); setTimeout(() => setSalvo(''), 2000) }}>Salvar empresa</button>
+          <button className="botao secundario" onClick={async () => { await api.atendimentoConfig(agente, { empresa }); setSalvo('Salvo ✓'); setTimeout(() => setSalvo(''), 2000) }}>Salvar empresa</button>
         </Hud>
       </div>
 
@@ -297,7 +298,7 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
           </form>
           <div className="etiqueta" style={{ marginBottom: 4 }}>Clientes cadastrados são lidos pela IA. O interruptor IA libera a resposta automática para aquele cliente.</div>
           {d.clientes.length === 0 && <div className="vazio">Nenhum cliente ainda.</div>}
-          {d.clientes.map(c => <ItemCliente key={c.id} c={c} alcance={d.config.alcance} aoMudar={carregar} />)}
+          {d.clientes.map(c => <ItemCliente key={c.id} c={c} alcance={d.config.alcance} aoMudar={carregar} agente={agente} />)}
         </Hud>
 
         <Hud titulo="Visível para clientes" icone={<Eye size={14} />}>

@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000067",
+      "id": "c0000000-0000-4000-8000-000000000085",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -45,7 +45,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000068",
+      "id": "c0000000-0000-4000-8000-000000000086",
       "name": "Estilo",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -69,7 +69,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000069",
+      "id": "c0000000-0000-4000-8000-000000000087",
       "name": "IA",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
@@ -82,14 +82,14 @@
         "text": "={{ $('Quando chamado').first().json.chatInput }}",
         "needsFallback": false,
         "options": {
-          "systemMessage": "=Voce e o Leo 2.0, a IA master da IA Central: o chefe que coordena tudo e todos os especialistas.\nAgora voce esta falando com {{ $('Quando chamado').first().json.nome }}. Seja um braco direito de confianca que resolve as coisas.\nO Joao e o vendedor/atendente que fala com os clientes no WhatsApp; ele trabalha para voce.\nPapel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }} (horario de Brasilia).\n\nComo trabalhar:\n- Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.\n- Voce coordena especialistas. Delegue a eles o que for da area deles:\n  * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).\n  * Atendimento do Joao (so para admin): atendimento_resumo (como estao os atendimentos, chamados abertos,\n    leads, o que o Joao aprendeu, o que espera aprovacao), atendimento_modo (desligado | observando |\n    aprovacao | automatico) e liberar_cliente (deixa o Joao responder ou nao um cliente especifico).\n    Mudar modo ou liberar cliente: confirme com o admin antes, a menos que ele ja tenha pedido exatamente isso.\n    Repasse o pedido como a pessoa fez, sem inventar exigencias extras.\n- Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar\n  (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,\n  procure com buscar_memoria.\n  * escopo \"minha\": so as memorias desta pessoa (padrao).\n  * escopo \"compartilhada\": inclui as de quem participa da memoria compartilhada (se estiver ligada).\n  * escopo \"todos\": use quando pedirem ideias/visao \"de todo mundo\", \"do time\", \"de todos\". Para o admin\n    traz tudo de todos; para os outros so o que e compartilhado. O banco aplica a regra; nao prometa mais.\n  * Ao usar memoria de outras pessoas, diga de quem veio cada ideia (campo \"de\").\n- Lembretes: use criar_lembrete com data/hora ISO 8601 com fuso -03:00. Se o horario for vago, pergunte.\n- Para avisar alguem (ou a propria pessoa) agora, use enviar_mensagem (vai pelo WhatsApp se a pessoa tiver numero, senao Telegram).\n  Confirme o texto antes de mandar para outra pessoa, a menos que ja tenham dito exatamente o que mandar.\n- Contatos: listar_contatos / cadastrar_contato. Telegram/WhatsApp da propria pessoa: salvar_meu_contato.\n- So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem\n  (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.\n- Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.\n- Se o canal comecar com \"whatsapp\": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas\n  nem titulos. Se for \"whatsapp (audio...)\", a resposta vai virar audio: frases faladas, sem simbolos.\n- Se o canal for \"voz\": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,\n  sem listas com simbolos, sem emojis, sem links.\n\nJeito de falar e de resolver problemas do dono (aprendido lendo as conversas dele; quando falar com ELE ou\nescrever em nome dele, imite esse jeito):\n{{ $('Estilo').first().json.estilo || '(ainda aprendendo)' }}",
+          "systemMessage": "=Voce e o Leo 2.0, a IA master da IA Central: o chefe que coordena tudo e todos os especialistas.\nAgora voce esta falando com {{ $('Quando chamado').first().json.nome }}. Seja um braco direito de confianca que resolve as coisas.\nSua equipe: Joao (vendedor, chip proprio), Suporte24hrs (suporte, chip proprio) e Gabriel (o clone do dono, que\nresponde contatos liberados no numero pessoal). Todos trabalham para voce e comecam so observando e aprendendo.\nPapel desta pessoa: {{ $('Quando chamado').first().json.papel }}. Canal: {{ $('Quando chamado').first().json.canal }}.\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }} (horario de Brasilia).\n\nComo trabalhar:\n- Fale em portugues, direto e sem enrolacao. Use os dados das ferramentas; nunca invente.\n- Voce coordena especialistas. Delegue a eles o que for da area deles:\n  * especialista_sistemas: tudo sobre sites/APIs/servidores monitorados (status, quedas, cadastrar, pausar).\n  * Equipe (so para admin): atendimento_resumo (como estao Joao, Suporte24hrs e Gabriel: mensagens, aprovacoes\n    pendentes, o que aprenderam, chamados, leads), atendimento_modo (muda o modo de um agente: desligado |\n    observando | aprovacao | automatico) e liberar_cliente (deixa Joao ou Suporte24hrs responder um cliente).\n    Mudar modo ou liberar cliente: confirme com o admin antes, a menos que ele ja tenha pedido exatamente isso.\n    Repasse o pedido como a pessoa fez, sem inventar exigencias extras.\n- Memoria de longo prazo (de cada pessoa, separada): quando a pessoa contar algo que vale lembrar\n  (preferencias, dados, decisoes, ideias; senhas NAO), salve com lembrar. Antes de dizer que nao sabe,\n  procure com buscar_memoria.\n  * escopo \"minha\": so as memorias desta pessoa (padrao).\n  * escopo \"compartilhada\": inclui as de quem participa da memoria compartilhada (se estiver ligada).\n  * escopo \"todos\": use quando pedirem ideias/visao \"de todo mundo\", \"do time\", \"de todos\". Para o admin\n    traz tudo de todos; para os outros so o que e compartilhado. O banco aplica a regra; nao prometa mais.\n  * Ao usar memoria de outras pessoas, diga de quem veio cada ideia (campo \"de\").\n- Lembretes: use criar_lembrete com data/hora ISO 8601 com fuso -03:00. Se o horario for vago, pergunte.\n- Para avisar alguem (ou a propria pessoa) agora, use enviar_mensagem (vai pelo WhatsApp se a pessoa tiver numero, senao Telegram).\n  Confirme o texto antes de mandar para outra pessoa, a menos que ja tenham dito exatamente o que mandar.\n- Contatos: listar_contatos / cadastrar_contato. Telegram/WhatsApp da propria pessoa: salvar_meu_contato.\n- So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem\n  (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.\n- Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.\n- Se o canal comecar com \"whatsapp\": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas\n  nem titulos. Se for \"whatsapp (audio...)\", a resposta vai virar audio: frases faladas, sem simbolos.\n- Se o canal for \"voz\": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,\n  sem listas com simbolos, sem emojis, sem links.\n\nJeito de falar e de resolver problemas do dono (aprendido lendo as conversas dele; quando falar com ELE ou\nescrever em nome dele, imite esse jeito):\n{{ $('Estilo').first().json.estilo || '(ainda aprendendo)' }}",
           "maxIterations": 12,
           "enableStreaming": false
         }
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000070",
+      "id": "c0000000-0000-4000-8000-000000000088",
       "name": "Memoria da conversa",
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.4,
@@ -111,7 +111,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000071",
+      "id": "c0000000-0000-4000-8000-000000000089",
       "name": "especialista_sistemas",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -163,7 +163,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000072",
+      "id": "c0000000-0000-4000-8000-000000000090",
       "name": "enviar_mensagem",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
       "typeVersion": 2.2,
@@ -226,7 +226,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000073",
+      "id": "c0000000-0000-4000-8000-000000000091",
       "name": "lembrar",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -251,7 +251,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000074",
+      "id": "c0000000-0000-4000-8000-000000000092",
       "name": "buscar_memoria",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -276,7 +276,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000075",
+      "id": "c0000000-0000-4000-8000-000000000093",
       "name": "criar_lembrete",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -301,7 +301,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000076",
+      "id": "c0000000-0000-4000-8000-000000000094",
       "name": "listar_lembretes",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -326,7 +326,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000077",
+      "id": "c0000000-0000-4000-8000-000000000095",
       "name": "listar_contatos",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -351,7 +351,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000078",
+      "id": "c0000000-0000-4000-8000-000000000096",
       "name": "cadastrar_contato",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -376,7 +376,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000079",
+      "id": "c0000000-0000-4000-8000-000000000097",
       "name": "salvar_meu_contato",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -401,7 +401,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000080",
+      "id": "c0000000-0000-4000-8000-000000000098",
       "name": "atendimento_resumo",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -426,7 +426,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000081",
+      "id": "c0000000-0000-4000-8000-000000000099",
       "name": "atendimento_modo",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -436,11 +436,11 @@
       ],
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "atendimento_modo: (so admin) muda o modo do Joao: desligado | observando | aprovacao | automatico.",
+        "toolDescription": "atendimento_modo: (so admin) muda o modo de um agente (joao | suporte | gabriel): desligado | observando | aprovacao | automatico.",
         "operation": "executeQuery",
-        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nINSERT INTO nucleo.config (chave, valor) SELECT 'atendimento_modo', to_jsonb($2::text) FROM ok\nWHERE $2 IN ('desligado','observando','aprovacao','automatico')\nON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor RETURNING valor #>> '{}' AS modo",
+        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nINSERT INTO nucleo.config (chave, valor) SELECT $3 || '_modo', to_jsonb($2::text) FROM ok\nWHERE $2 IN ('desligado','observando','aprovacao','automatico') AND $3 IN ('joao','suporte','gabriel')\nON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor RETURNING chave, valor #>> '{}' AS modo",
         "options": {
-          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('modo', 'desligado | observando | aprovacao | automatico', 'string')] }}"
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('modo', 'desligado | observando | aprovacao | automatico', 'string'), $fromAI('agente', 'joao | suporte | gabriel', 'string')] }}"
         }
       },
       "credentials": {
@@ -451,7 +451,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000082",
+      "id": "c0000000-0000-4000-8000-000000000100",
       "name": "liberar_cliente",
       "type": "n8n-nodes-base.postgresTool",
       "typeVersion": 2.6,
@@ -461,11 +461,11 @@
       ],
       "parameters": {
         "descriptionType": "manual",
-        "toolDescription": "liberar_cliente: (so admin) liga (true) ou desliga (false) o Joao respondendo um cliente, pelo nome ou numero.",
+        "toolDescription": "liberar_cliente: (so admin) liga (true) ou desliga (false) o Joao ou o Suporte24hrs respondendo um cliente, pelo nome ou numero.",
         "operation": "executeQuery",
-        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nUPDATE nucleo.clientes SET ia_responde = $3::boolean FROM ok\nWHERE whatsapp NOT LIKE 'teste%' AND (nome ILIKE '%' || $2 || '%' OR whatsapp LIKE '%' || regexp_replace($2, '[^0-9]', '', 'g') || '%')\n  AND length($2) >= 3\nRETURNING nome, whatsapp, ia_responde",
+        "query": "WITH ok AS (SELECT nucleo.exigir_admin($1::int))\nUPDATE nucleo.clientes SET ia_responde = CASE WHEN $4 = 'suporte' THEN ia_responde ELSE $3::boolean END,\n  suporte_responde = CASE WHEN $4 = 'suporte' THEN $3::boolean ELSE suporte_responde END FROM ok\nWHERE whatsapp NOT LIKE 'teste%' AND (nome ILIKE '%' || $2 || '%' OR whatsapp LIKE '%' || regexp_replace($2, '[^0-9]', '', 'g') || '%')\n  AND length($2) >= 3\nRETURNING nome, whatsapp, ia_responde AS joao_responde, suporte_responde",
         "options": {
-          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('cliente', 'nome ou numero do cliente', 'string'), $fromAI('ativa', 'true para o Joao responder, false para parar', 'boolean')] }}"
+          "queryReplacement": "={{ [$('Quando chamado').first().json.usuario_id, $fromAI('cliente', 'nome ou numero do cliente', 'string'), $fromAI('ativa', 'true para responder, false para parar', 'boolean'), $fromAI('agente', 'joao | suporte', 'string')] }}"
         }
       },
       "credentials": {
@@ -476,7 +476,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000083",
+      "id": "c0000000-0000-4000-8000-000000000101",
       "name": "OpenAI (orquestrador, principal)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,

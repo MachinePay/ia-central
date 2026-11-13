@@ -258,15 +258,22 @@ BEGIN
 
     -- ---------------------------------------------------------------- ATENDIMENTO (admin)
     IF p_acao = 'admin_atendimento' THEN
-        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.atendimento_painel());
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_painel((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END)));
+
+    ELSIF p_acao = 'admin_gabriel' THEN
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.gabriel_painel(u.id));
 
     ELSIF p_acao = 'admin_atendimento_config' THEN
         IF d->>'modo' IN ('desligado','observando','aprovacao','automatico') THEN
-            INSERT INTO nucleo.config VALUES ('atendimento_modo', to_jsonb(d->>'modo'))
+            INSERT INTO nucleo.config VALUES ((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) || '_modo', to_jsonb(d->>'modo'))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
         IF d->>'alcance' IN ('selecionados','todos') THEN
-            INSERT INTO nucleo.config VALUES ('atendimento_alcance', to_jsonb(d->>'alcance'))
+            INSERT INTO nucleo.config VALUES ((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) || '_alcance', to_jsonb(d->>'alcance'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        IF coalesce(d->>'persona', '') <> '' THEN
+            INSERT INTO nucleo.config VALUES ((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) || '_persona', to_jsonb(d->>'persona'))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
         IF d->>'observar' IN ('clientes','todos') THEN
@@ -274,10 +281,14 @@ BEGIN
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
         IF jsonb_typeof(d->'empresa') = 'object' THEN
-            INSERT INTO nucleo.config VALUES ('atendimento_empresa', d->'empresa')
+            IF coalesce(d->'empresa'->>'persona', '') <> '' THEN   -- o nome e de cada agente
+                INSERT INTO nucleo.config VALUES ((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) || '_persona', to_jsonb(d->'empresa'->>'persona'))
+                ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+            END IF;
+            INSERT INTO nucleo.config VALUES ('atendimento_empresa', (d->'empresa') - 'persona')
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
-        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.atendimento_config());
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_config((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END)));
 
     ELSIF p_acao = 'admin_base_salvar' THEN
         IF coalesce(d->>'conteudo','') = '' OR d->>'area' NOT IN ('suporte','comercial','geral') THEN
@@ -327,8 +338,12 @@ BEGIN
             RETURN jsonb_build_object('saida',0,'status',200,'corpo',jsonb_build_object('id', cli.id));
         END;
 
-    ELSIF p_acao = 'admin_cliente_ia' THEN          -- liga/desliga a IA para um cliente
-        UPDATE nucleo.clientes SET ia_responde = (d->>'ativa')::boolean WHERE id = (d->>'id')::int;
+    ELSIF p_acao = 'admin_cliente_ia' THEN          -- liga/desliga o agente (joao/suporte) para um cliente
+        IF d->>'agente' = 'suporte' THEN
+            UPDATE nucleo.clientes SET suporte_responde = (d->>'ativa')::boolean WHERE id = (d->>'id')::int;
+        ELSE
+            UPDATE nucleo.clientes SET ia_responde = (d->>'ativa')::boolean WHERE id = (d->>'id')::int;
+        END IF;
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
 
     ELSIF p_acao = 'admin_cliente_apagar' THEN      -- deixa de observar e apaga as conversas guardadas
@@ -358,15 +373,22 @@ BEGIN
     ELSIF p_acao = 'admin_observacao' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.observacao_painel(u.id));
 
+    ELSIF p_acao = 'admin_gabriel_config' THEN
+        IF d->>'modo' IN ('desligado','observando','aprovacao','automatico') THEN
+            INSERT INTO nucleo.config VALUES ('gabriel_modo', to_jsonb(d->>'modo'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.gabriel_painel(u.id));
+
     ELSIF p_acao = 'admin_observacao_config' THEN   -- filtro: todos | exceto | somente
-        IF d->>'agente' IN ('leo','joao') AND d->>'modo' IN ('todos','exceto','somente') THEN
+        IF d->>'agente' IN ('leo','joao','suporte') AND d->>'modo' IN ('todos','exceto','somente') THEN
             INSERT INTO nucleo.config VALUES ((d->>'agente') || '_observar', to_jsonb(d->>'modo'))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.observacao_painel(u.id));
 
     ELSIF p_acao = 'admin_observacao_add' THEN
-        IF d->>'agente' NOT IN ('leo','joao') OR d->>'regra' NOT IN ('incluir','excluir')
+        IF d->>'agente' NOT IN ('leo','joao','suporte','gabriel') OR d->>'regra' NOT IN ('incluir','excluir')
            OR length(regexp_replace(coalesce(d->>'numero',''), '[^0-9]', '', 'g')) < 10 THEN
             RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Informe agente, regra e um numero valido'));
         END IF;
@@ -394,8 +416,11 @@ BEGIN
         BEGIN
             cli := nucleo.cliente_por_whatsapp('teste-u' || u.id, 'Cliente de teste');
             RETURN jsonb_build_object('saida',6,'status',200,'corpo',jsonb_build_object(
-                'cliente_id', cli.id, 'nome', 'Cliente de teste', 'chatInput', coalesce(d->>'mensagem',''),
-                'sessionId', 'c' || cli.id || ':teste-' || coalesce(nullif(d->>'sessao',''), '1')));
+                'agente', (CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END), 'cliente_id', CASE WHEN (CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) = 'gabriel' THEN NULL ELSE cli.id END,
+                'nome', CASE WHEN (CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) = 'gabriel' THEN 'Amigo de teste' ELSE 'Cliente de teste' END,
+                'numero', 'teste', 'chatInput', coalesce(d->>'mensagem',''),
+                'sessionId', CASE WHEN (CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) = 'gabriel' THEN 'g:teste-' ELSE 'c' || cli.id || ':teste-' END
+                             || (CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END) || '-' || coalesce(nullif(d->>'sessao',''), '1')));
         END;
     END IF;
 

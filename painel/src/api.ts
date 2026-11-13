@@ -37,24 +37,35 @@ export interface WhatsappStatus {
 
 
 export type Area = 'suporte' | 'comercial' | 'geral'
-export type Agente = 'leo' | 'joao'
+export type Agente = 'leo' | 'joao' | 'suporte'
+export type AgenteAtend = 'joao' | 'suporte'
 export type ModoObservar = 'todos' | 'exceto' | 'somente'
 export interface ItemLista { id: number; numero: string; nome: string | null; regra: 'incluir' | 'excluir' }
 export interface Observacao {
   leo: { modo: ModoObservar; lista: ItemLista[] }
   joao: { modo: ModoObservar; lista: ItemLista[] }
+  suporte: { modo: ModoObservar; lista: ItemLista[] }
   leo_sugestoes: { id: number; titulo: string | null; conteudo: string; contato: string | null; criado_em: string }[]
   leo_conversas_lidas: number
 }
 export interface Empresa { nome: string; descricao: string; horario: string; tom: string; persona?: string }
 export interface AtendimentoPainel {
-  config: { modo: 'desligado' | 'observando' | 'aprovacao' | 'automatico'; alcance: 'selecionados' | 'todos'; observar: 'clientes' | 'todos'; empresa: Empresa }
+  config: { agente: AgenteAtend; persona: string; modo: 'desligado' | 'observando' | 'aprovacao' | 'automatico'; alcance: 'selecionados' | 'todos'; empresa: Empresa }
   fila: { id: number; pergunta: string; rascunho: string; criado_em: string; nome: string | null; whatsapp: string | null }[]
   chamados: { id: number; area: string; titulo: string; descricao: string | null; prioridade: string; criado_em: string; nome: string | null; whatsapp: string | null }[]
   clientes: { id: number; nome: string | null; whatsapp: string; empresa: string | null; interesse: string | null; etapa: string; ultimo_contato: string; ia_responde: boolean; mensagens: number; respostas_humanas: number }[]
   sugestoes: { id: number; dominio: Area; titulo: string | null; conteudo: string; criado_em: string; cliente: string | null }[]
   base: { id: number; dominio: Area; titulo: string | null; conteudo: string; origem: string; criado_em: string }[]
   sistemas: { id: number; nome: string; publico: boolean }[]
+}
+
+export interface GabrielPainel {
+  modo: 'desligado' | 'observando' | 'aprovacao' | 'automatico'
+  contatos: { id: number; numero: string; nome: string | null }[]
+  fila: AtendimentoPainel['fila']
+  estilo: string
+  conversas_lidas: number
+  aprendidos: number
 }
 
 export class ErroApi extends Error {
@@ -91,10 +102,12 @@ export const api = {
   historico: (sessao: string) => chamar<{ mensagens: Mensagem[] }>('historico', { sessao }),
   chat: (mensagem: string, sessao: string) => chamar<{ resposta: string }>('chat', { mensagem, sessao }),
   verificar: () => chamar<{ ok: boolean }>('verificar'),
-  atendimento: () => chamar<AtendimentoPainel>('admin_atendimento'),
-  atendimentoConfig: (d: { modo?: string; alcance?: string; observar?: string; empresa?: Empresa }) => chamar('admin_atendimento_config', d),
+  atendimento: (agente: AgenteAtend) => chamar<AtendimentoPainel>('admin_atendimento', { agente }),
+  gabriel: () => chamar<GabrielPainel>('admin_gabriel'),
+  gabrielConfig: (modo: string) => chamar<GabrielPainel>('admin_gabriel_config', { modo }),
+  atendimentoConfig: (agente: AgenteAtend, d: { modo?: string; alcance?: string; empresa?: Empresa }) => chamar('admin_atendimento_config', { agente, ...d }),
   clienteSalvar: (nome: string, whatsapp: string) => chamar('admin_cliente_salvar', { nome, whatsapp }),
-  clienteIa: (id: number, ativa: boolean) => chamar('admin_cliente_ia', { id, ativa }),
+  clienteIa: (id: number, ativa: boolean, agente: AgenteAtend) => chamar('admin_cliente_ia', { id, ativa, agente }),
   clienteApagar: (id: number) => chamar('admin_cliente_apagar', { id }),
   clienteConversa: (id: number) => chamar<{ mensagens: { papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[] }>('admin_cliente_conversa', { id }),
   sugestaoAprovar: (id: number, area: Area, titulo: string, conteudo: string) => chamar('admin_sugestao_aprovar', { id, area, titulo, conteudo }),
@@ -106,15 +119,15 @@ export const api = {
   sistemaPublico: (id: number, publico: boolean) => chamar('admin_sistema_publico', { id, publico }),
   filaRejeitar: (id: number) => chamar('admin_fila_rejeitar', { id }),
   filaAprovar: (id: number, texto: string, area: Area) => chamar<{ ok: boolean; enviado: boolean; motivo?: string }>('admin_fila_aprovar', { id, texto, area }),
-  atendimentoTeste: (mensagem: string, sessao: string) => chamar<{ resposta: string }>('admin_atendimento_teste', { mensagem, sessao }),
+  atendimentoTeste: (mensagem: string, sessao: string, agente: AgenteAtend | 'gabriel') => chamar<{ resposta: string }>('admin_atendimento_teste', { mensagem, sessao, agente }),
   participar: (compartilha: boolean) => chamar('participar', { compartilha }),
   esquecer: (id: number) => chamar('esquecer', { id }),
   perfil: (dados: { telegram_chat_id?: string; whatsapp?: string }) => chamar('perfil', dados),
-  whatsapp: (op: 'status' | 'conectar' | 'desconectar', extra: { numero?: string; instancia?: 'nucleo' | 'joao' } = {}) =>
+  whatsapp: (op: 'status' | 'conectar' | 'desconectar', extra: { numero?: string; instancia?: 'nucleo' | 'joao' | 'suporte' } = {}) =>
     chamar<WhatsappStatus>('admin_whatsapp', { op, ...extra }),
   observacao: () => chamar<Observacao>('admin_observacao'),
   observacaoConfig: (agente: Agente, modo: ModoObservar) => chamar<Observacao>('admin_observacao_config', { agente, modo }),
-  observacaoAdd: (agente: Agente, numero: string, nome: string, regra: 'incluir' | 'excluir') => chamar<Observacao>('admin_observacao_add', { agente, numero, nome, regra }),
+  observacaoAdd: (agente: Agente | 'gabriel', numero: string, nome: string, regra: 'incluir' | 'excluir') => chamar<Observacao>('admin_observacao_add', { agente, numero, nome, regra }),
   observacaoDel: (id: number) => chamar<Observacao>('admin_observacao_del', { id }),
   leoSugestaoAprovar: (id: number, titulo: string, conteudo: string) => chamar('admin_leo_sugestao_aprovar', { id, titulo, conteudo }),
   leoSugestaoDescartar: (id: number) => chamar('admin_leo_sugestao_descartar', { id }),

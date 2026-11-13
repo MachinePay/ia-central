@@ -1,0 +1,222 @@
+{
+  "id": "gabriel000001",
+  "name": "Gabriel (clone do dono)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000009",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "cliente_id",
+              "type": "string"
+            },
+            {
+              "name": "nome",
+              "type": "string"
+            },
+            {
+              "name": "chatInput",
+              "type": "string"
+            },
+            {
+              "name": "sessionId",
+              "type": "string"
+            },
+            {
+              "name": "numero",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000010",
+      "name": "Contexto",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        200,
+        -160
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome, nucleo.estilo_dono(u.id) AS estilo,\n  (SELECT coalesce(string_agg('- ' || coalesce(k.titulo, '') || ': ' || left(k.conteudo, 200), E'\\n'), '(vazia)')\n     FROM (SELECT * FROM nucleo.conhecimento WHERE usuario_id = u.id AND aprovado\n            ORDER BY criado_em DESC LIMIT 60) k) AS memoria\nFROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000011",
+      "name": "Gabriel",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Quando chamado').first().json.chatInput }}",
+        "needsFallback": false,
+        "options": {
+          "systemMessage": "=Voce e o {{ $('Contexto').first().json.dono_nome }} respondendo no seu proprio WhatsApp para {{ $('Quando chamado').first().json.nome }}.\nQuem le nao pode notar diferenca no jeito de escrever.\n\nJeito de falar e de resolver do {{ $('Contexto').first().json.dono_nome }} (aprendido das conversas reais dele; imite a risca):\n{{ $('Contexto').first().json.estilo || '(ainda aprendendo: seja curto, natural e informal)' }}\n\nO que voce sabe sobre ele (use buscar_memoria para mais):\n{{ $('Contexto').first().json.memoria }}\n\nAgora: {{ $now.setZone('America/Sao_Paulo').toFormat(\"cccc, dd/MM/yyyy HH:mm\", { locale: 'pt-BR' }) }}.\n\nRegras (sempre):\n- Escreva exatamente como ele: tamanho das mensagens, girias, pontuacao, risadas, emojis. Mensagem curta de WhatsApp.\n- Nao invente fatos, compromissos, datas, valores, promessas, decisoes ou opinioes fortes que ele nao registrou.\n  Pedido de compromisso, dinheiro, emprestimo, decisao importante, saude, briga ou assunto delicado: ganhe tempo\n  no jeito dele (\"deixa eu ver aqui e te falo\", \"mais tarde te respondo direito\") em vez de decidir.\n- Nao repasse informacoes de outras conversas nem fale de terceiros.\n- Nunca mande links, pedidos de pagamento, PIX, senhas ou codigos.\n- Se perguntarem DIRETAMENTE se e robo, IA, assistente ou se e ele mesmo: nao negue. No jeito dele, diga que e o\n  assistente do {{ $('Contexto').first().json.dono_nome }} respondendo e que ele ve a mensagem depois.",
+          "maxIterations": 6,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000012",
+      "name": "Memoria da conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.4,
+      "position": [
+        440,
+        240
+      ],
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Quando chamado').first().json.sessionId }}",
+        "tableName": "nucleo_memoria_chat",
+        "contextWindowLength": 20
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000013",
+      "name": "buscar_memoria",
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [
+        600,
+        240
+      ],
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "buscar_memoria: procura na memoria do dono (fatos, pessoas, preferencias, jeito de resolver).",
+        "operation": "executeQuery",
+        "query": "SELECT titulo, conteudo FROM nucleo.buscar_memoria($1::int, $2, 'minha')",
+        "options": {
+          "queryReplacement": "={{ [$('Contexto').first().json.dono_id, $fromAI('busca', 'palavras-chave simples', 'string')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000014",
+      "name": "OpenAI (orquestrador, principal)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        200,
+        240
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gpt-5"
+        },
+        "responsesApiEnabled": true,
+        "builtInTools": {},
+        "options": {
+          "reasoningEffort": "low"
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openai01",
+          "name": "OpenAI"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contexto": {
+      "main": [
+        [
+          {
+            "node": "Gabriel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI (orquestrador, principal)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gabriel",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memoria da conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "Gabriel",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "buscar_memoria": {
+      "ai_tool": [
+        [
+          {
+            "node": "Gabriel",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {}
+}

@@ -9,7 +9,7 @@ const ROTULO: Record<WhatsappStatus['estado'], string> = {
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 // ------------------------------------------------------------------ uma conexao (Leo ou Joao)
-function Conexao({ instancia, titulo, dica }: { instancia: 'nucleo' | 'joao'; titulo: string; dica: string }) {
+function Conexao({ instancia, titulo, dica }: { instancia: 'nucleo' | 'joao' | 'suporte'; titulo: string; dica: string }) {
   const [st, setSt] = useState<WhatsappStatus | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState('')
@@ -82,6 +82,11 @@ const TEXTO_MODO: Record<Agente, Record<ModoObservar, string>> = {
     exceto: 'Lê todas as suas conversas, menos os contatos da lista.',
     somente: 'Lê só as conversas com os contatos da lista.',
   },
+  suporte: {
+    todos: 'Lê todas as conversas do chip do Suporte24hrs.',
+    exceto: 'Lê todas as conversas do chip, menos os números da lista.',
+    somente: 'Lê só os números da lista e os clientes cadastrados.',
+  },
   joao: {
     todos: 'Lê todas as conversas do chip (todo mundo que falar com o João é cliente).',
     exceto: 'Lê todas as conversas do chip, menos os números da lista.',
@@ -98,7 +103,7 @@ export function FiltroObservacao({ agente }: { agente: Agente }) {
   const cfg = d[agente]
   const regraNova = cfg.modo === 'exceto' ? 'excluir' : 'incluir'
   const lista = cfg.lista.filter(l => cfg.modo === 'todos' ? false : l.regra === regraNova)
-  const nome = agente === 'leo' ? 'Leo' : 'João'
+  const nome = agente === 'leo' ? 'Leo' : agente === 'suporte' ? 'Suporte24hrs' : 'João'
   return (
     <div className="filtro">
       <div className="chave-texto" style={{ marginBottom: 6 }}><b><Eye size={12} style={{ verticalAlign: -1 }} /> O que o {nome} lê</b><span>{TEXTO_MODO[agente][cfg.modo]}</span></div>
@@ -139,11 +144,14 @@ export function PainelWhatsapp() {
     <section className="hud">
       <div className="hud-titulo"><span style={{ display: 'flex', gap: 8, alignItems: 'center' }}><MessageCircle size={14} />WhatsApp</span></div>
       <div className="hud-corpo">
-        <Conexao instancia="nucleo" titulo="Leo 2.0 · seu número" dica="Conecte o SEU WhatsApp. Você fala com o Leo na conversa “Você”." />
+        <Conexao instancia="nucleo" titulo="Leo 2.0 + Gabriel · seu número" dica="Conecte o SEU WhatsApp. Você fala com o Leo na conversa “Você”; o Gabriel responde só os contatos que você liberar." />
         <FiltroObservacao agente="leo" />
         <div className="divisor" />
         <Conexao instancia="joao" titulo="João · chip do vendedor" dica="Conecte o chip do João. Clientes falam com ele; você ou vendedores também respondem por esse número." />
         <FiltroObservacao agente="joao" />
+        <div className="divisor" />
+        <Conexao instancia="suporte" titulo="Suporte24hrs · chip do suporte" dica="Conecte o chip do suporte. Clientes com problema falam com ele; quem responde por esse número ensina o Suporte24hrs." />
+        <FiltroObservacao agente="suporte" />
       </div>
     </section>
   )

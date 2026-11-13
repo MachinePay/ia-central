@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogOut, MessageSquare, LayoutGrid, Headset } from 'lucide-react'
+import { LogOut, MessageSquare, LayoutGrid, Headset, LifeBuoy, UserRound } from 'lucide-react'
 import { api, ErroApi, token, type Resumo, type Usuario } from './api'
 import { Login } from './components/Login'
 import { Orbe, type EstadoOrbe } from './components/Orbe'
@@ -7,6 +7,7 @@ import { Conversa } from './components/Conversa'
 import { PainelControle, PainelPessoal, PainelSistemas } from './components/Paineis'
 import { Atendimento } from './components/Atendimento'
 import { LeoAprendeu } from './components/Whatsapp'
+import { Gabriel } from './components/Gabriel'
 
 function Fundo() {
   return <div className="fundo" aria-hidden="true"><div className="estrelas" /><div className="grade" /><div className="scan" /></div>
@@ -33,7 +34,7 @@ export default function App() {
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [verificando, setVerificando] = useState(!!token.get())
   const [estado, setEstado] = useState<EstadoOrbe>('parado')
-  const [aba, setAba] = useState<'ia' | 'painel' | 'atend'>('ia')
+  const [aba, setAba] = useState<'ia' | 'painel' | 'joao' | 'suporte' | 'gabriel'>('ia')
   const largura = useLargura()
 
   const sair = useCallback(() => {
@@ -78,8 +79,10 @@ export default function App() {
           <div className="topo-meio">
             {usuario.papel === 'admin' ? (
               <div className="seletor-tela">
-                <button className={aba !== 'atend' ? 'ativo' : ''} onClick={() => setAba('ia')}><MessageSquare size={13} /> Leo 2.0</button>
-                <button className={aba === 'atend' ? 'ativo' : ''} onClick={() => setAba('atend')}><Headset size={13} /> Atendimento (João)</button>
+                <button className={aba === 'ia' || aba === 'painel' ? 'ativo' : ''} onClick={() => setAba('ia')}><MessageSquare size={13} /> Leo 2.0</button>
+                <button className={aba === 'joao' ? 'ativo' : ''} onClick={() => setAba('joao')}><Headset size={13} /> João</button>
+                <button className={aba === 'suporte' ? 'ativo' : ''} onClick={() => setAba('suporte')}><LifeBuoy size={13} /> Suporte24hrs</button>
+                <button className={aba === 'gabriel' ? 'ativo' : ''} onClick={() => setAba('gabriel')}><UserRound size={13} /> Gabriel</button>
               </div>
             ) : <Relogio />}
           </div>
@@ -90,7 +93,8 @@ export default function App() {
           </div>
         </header>
 
-        {aba === 'atend' && usuario.papel === 'admin' ? <Atendimento aoSair={sair} /> : (
+        {(aba === 'joao' || aba === 'suporte') && usuario.papel === 'admin' ? <Atendimento aoSair={sair} agente={aba} />
+          : aba === 'gabriel' && usuario.papel === 'admin' ? <Gabriel aoSair={sair} /> : (
         <main className="grade-principal" data-aba={aba}>
           <aside className="coluna esquerda">{resumo && <PainelSistemas r={resumo} aoMudar={atualizar} />}</aside>
 
@@ -115,7 +119,11 @@ export default function App() {
         <nav className="abas">
           <button className={aba === 'ia' ? 'ativa' : ''} onClick={() => setAba('ia')}><MessageSquare size={14} /> IA</button>
           <button className={aba === 'painel' ? 'ativa' : ''} onClick={() => setAba('painel')}><LayoutGrid size={14} /> PAINEL</button>
-          {usuario.papel === 'admin' && <button className={aba === 'atend' ? 'ativa' : ''} onClick={() => setAba('atend')}><Headset size={14} /> ATEND.</button>}
+          {usuario.papel === 'admin' && <>
+            <button className={aba === 'joao' ? 'ativa' : ''} onClick={() => setAba('joao')} aria-label="João"><Headset size={14} /></button>
+            <button className={aba === 'suporte' ? 'ativa' : ''} onClick={() => setAba('suporte')} aria-label="Suporte24hrs"><LifeBuoy size={14} /></button>
+            <button className={aba === 'gabriel' ? 'ativa' : ''} onClick={() => setAba('gabriel')} aria-label="Gabriel"><UserRound size={14} /></button>
+          </>}
         </nav>
       </div>
     </>

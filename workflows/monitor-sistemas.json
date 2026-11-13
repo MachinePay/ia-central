@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000044",
+      "id": "c0000000-0000-4000-8000-000000000062",
       "name": "A cada minuto",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000045",
+      "id": "c0000000-0000-4000-8000-000000000063",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000046",
+      "id": "c0000000-0000-4000-8000-000000000064",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -56,7 +56,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000047",
+      "id": "c0000000-0000-4000-8000-000000000065",
       "name": "Plataformas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -71,7 +71,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000048",
+      "id": "c0000000-0000-4000-8000-000000000066",
       "name": "Sincronizar",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000049",
+      "id": "c0000000-0000-4000-8000-000000000067",
       "name": "Buscar sistemas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -116,7 +116,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000050",
+      "id": "c0000000-0000-4000-8000-000000000068",
       "name": "Checar tudo",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -130,7 +130,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000051",
+      "id": "c0000000-0000-4000-8000-000000000069",
       "name": "Registrar e decidir alertas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -153,7 +153,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000052",
+      "id": "c0000000-0000-4000-8000-000000000070",
       "name": "Avisar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -167,7 +167,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000053",
+      "id": "c0000000-0000-4000-8000-000000000071",
       "name": "Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

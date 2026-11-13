@@ -4,8 +4,8 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000001",
-      "name": "A cada 30 minutos",
+      "id": "c0000000-0000-4000-8000-000000000020",
+      "name": "A cada 15 minutos",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
@@ -17,14 +17,14 @@
           "interval": [
             {
               "field": "minutes",
-              "minutesInterval": 30
+              "minutesInterval": 15
             }
           ]
         }
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000002",
+      "id": "c0000000-0000-4000-8000-000000000021",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000003",
+      "id": "c0000000-0000-4000-8000-000000000022",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -56,7 +56,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000004",
+      "id": "c0000000-0000-4000-8000-000000000023",
       "name": "Base atual",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -77,7 +77,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000005",
+      "id": "c0000000-0000-4000-8000-000000000024",
       "name": "Conversas novas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -87,7 +87,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT tipo, chave, dono_id, transcricao,\n  CASE WHEN tipo = 'leo' THEN nucleo.memoria_resumo(dono_id) ELSE nucleo.base_resumo() END AS contexto\nFROM nucleo.aprendiz_pendentes_todos(10)",
+        "query": "SELECT tipo, chave, dono_id, transcricao,\n  CASE WHEN tipo = 'leo' THEN nucleo.memoria_resumo(dono_id) ELSE nucleo.base_resumo() END AS contexto\nFROM nucleo.aprendiz_pendentes_todos(25)",
         "options": {}
       },
       "credentials": {
@@ -99,7 +99,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000006",
+      "id": "c0000000-0000-4000-8000-000000000025",
       "name": "Extrair conhecimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -109,11 +109,11 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst pendentes = $input.all().map(i => i.json).filter(p => p.chave && p.transcricao);\nconst item = { type: 'object', additionalProperties: false, required: ['area', 'titulo', 'conteudo'], properties: {\n  area: { type: 'string', enum: ['suporte', 'comercial', 'geral'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };\nconst schema = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: item } } };\nconst PROMPT_JOAO = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.\nExtraia SO conhecimento reutilizavel que o atendente humano informou ou praticou: precos, prazos, condicoes, politicas,\nhorarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o jeito de escrever\n(se for marcante, num item area \"geral\" com titulo comecando por \"Jeito de responder\").\nRegras:\n- Use so o que o ATENDENTE HUMANO disse. Ignore o que o cliente afirmou e o que a IA escreveu.\n- Precos de tabela de produtos/servicos SAO conhecimento: inclua com o valor exato (ex.: kit X custa R$ Y).\n- NUNCA inclua dados pessoais ou do caso: nomes, telefones, enderecos, numero de pedido, total da compra daquele cliente.\n- Cada item: area (suporte | comercial | geral), titulo curto, conteudo autoexplicativo (1 a 3 frases).\n- Nao repita o que ja esta na base. Se nao houver nada novo e util, devolva itens vazio.\nBase atual:\n`;\nconst PROMPT_LEO = `Voce e o aprendiz do Leo 2.0, a IA pessoal do DONO. Observe a conversa de WhatsApp do DONO com um contato\ne aprenda sobre o DONO para poder agir como ele:\n- Jeito de falar: vocabulario, girias, tom, tamanho das mensagens, como cumprimenta e se despede, emojis\n  (titulo comecando por \"Jeito de falar\").\n- Como resolve problemas e decide: como negocia, cobra, delega, prioriza, responde a reclamacoes\n  (titulo comecando por \"Como resolve\").\n- Fatos de trabalho e rotina uteis: projetos, compromissos recorrentes, quem e quem para ele (papel da pessoa,\n  ex.: \"Fulano e o socio que cuida do financeiro\"), preferencias.\nRegras:\n- Aprenda do que o DONO escreveu; o CONTATO serve so de contexto.\n- NUNCA guarde senhas, codigos, dados bancarios/cartao, documentos, saude, vida intima ou segredos de terceiros.\n- Cada item: area \"geral\", titulo curto, conteudo autoexplicativo (1 a 3 frases).\n- Nao repita a memoria atual. Se nao houver nada novo e util, devolva itens vazio.\nMemoria atual do dono:\n`;\nconst saida = [];\nfor (const p of pendentes) {\n  try {\n    const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 120000,\n      headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },\n      body: { model: 'gpt-5-mini', reasoning_effort: 'low',\n        response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema } },\n        messages: [{ role: 'system', content: (p.tipo === 'leo' ? PROMPT_LEO : PROMPT_JOAO) + (p.contexto || '(vazia)') },\n                   { role: 'user', content: p.transcricao }] } });\n    const itens = JSON.parse(r.choices[0].message.content).itens || [];\n    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length } });\n  } catch (e) {\n    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });\n  }\n}\nreturn saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total: 0 } }];\n"
+        "jsCode": "\nconst pendentes = $input.all().map(i => i.json).filter(p => p.chave && p.transcricao);\nconst item = { type: 'object', additionalProperties: false, required: ['area', 'titulo', 'conteudo'], properties: {\n  area: { type: 'string', enum: ['suporte', 'comercial', 'geral'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };\nconst schema = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: item } } };\nconst itemLeo = { type: 'object', additionalProperties: false, required: ['tipo', 'titulo', 'conteudo'], properties: {\n  tipo: { type: 'string', enum: ['jeito_de_falar', 'como_resolve', 'fato'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };\nconst schemaLeo = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: itemLeo } } };\nconst PROMPT_JOAO = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.\nExtraia SO conhecimento reutilizavel que o atendente humano informou ou praticou: precos, prazos, condicoes, politicas,\nhorarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o jeito de escrever\n(SEMPRE que der para perceber, num item com titulo comecando por \"Jeito de responder\", na area do agente: __AREA__).\nRegras:\n- Use so o que o ATENDENTE HUMANO disse. Ignore o que o cliente afirmou e o que a IA escreveu.\n- Precos de tabela de produtos/servicos SAO conhecimento: inclua com o valor exato (ex.: kit X custa R$ Y).\n- NUNCA inclua dados pessoais ou do caso: nomes, telefones, enderecos, numero de pedido, total da compra daquele cliente.\n- Cada item: area (suporte | comercial | geral), titulo curto, conteudo autoexplicativo (1 a 3 frases).\n- Aprenda MUITO: extraia tudo que for reutilizavel, ate 10 itens por conversa (cada fato, preco, passo, objecao\n  respondida, frase-padrao que funcionou). Nao repita o que ja esta na base. Se nao houver nada novo, itens vazio.\nBase atual:\n`;\nconst PROMPT_LEO = `Voce e o aprendiz do Leo 2.0, a IA pessoal do DONO. Observe a conversa de WhatsApp do DONO com um contato\ne aprenda sobre o DONO para poder agir como ele:\n- tipo \"jeito_de_falar\": vocabulario, girias, tom, tamanho das mensagens, como cumprimenta e se despede, risadas, emojis.\n- tipo \"como_resolve\": como negocia, cobra, delega, prioriza, combina coisas, responde a pedidos e reclamacoes.\n- tipo \"fato\": trabalho e rotina uteis: projetos, compromissos recorrentes, quem e quem para ele (papel da pessoa,\n  ex.: \"Fulano e o socio que cuida do financeiro\"), preferencias.\nRegras:\n- Aprenda do que o DONO escreveu; o CONTATO serve so de contexto.\n- NUNCA guarde senhas, codigos, dados bancarios/cartao, documentos, saude, vida intima ou segredos de terceiros.\n- Cada item: tipo, titulo curto, conteudo autoexplicativo (1 a 3 frases). Sempre que houver mensagens do DONO,\n  inclua pelo menos um item \"jeito_de_falar\".\n- Aprenda MUITO: ate 10 itens por conversa (cada expressao tipica, forma de negociar, decisao, pessoa e seu papel,\n  compromisso recorrente). Nao repita a memoria atual. Se nao houver nada novo e util, devolva itens vazio.\nMemoria atual do dono:\n`;\nconst saida = [];\nfor (const p of pendentes) {\n  try {\n    const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 120000,\n      headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },\n      body: { model: 'gpt-5-mini', reasoning_effort: 'low',\n        response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: p.tipo === 'leo' ? schemaLeo : schema } },\n        messages: [{ role: 'system', content: (p.tipo === 'leo' ? PROMPT_LEO : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))\n                                               + (p.contexto || '(vazia)') },\n                   { role: 'user', content: p.transcricao }] } });\n    const itens = JSON.parse(r.choices[0].message.content).itens || [];\n    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length } });\n  } catch (e) {\n    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });\n  }\n}\nreturn saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total: 0 } }];\n"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000007",
+      "id": "c0000000-0000-4000-8000-000000000026",
       "name": "Salvar sugestoes",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -123,7 +123,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT CASE\n  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n  WHEN $3 = 'joao' THEN nucleo.aprendiz_salvar(nullif($1, '')::int, $2::jsonb)\n  ELSE 0 END AS salvos",
+        "query": "SELECT CASE\n  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n  WHEN $3 IN ('joao', 'suporte') THEN nucleo.aprendiz_salvar_agente(nullif($1, '')::int, $2::jsonb, $3)\n  ELSE 0 END AS salvos",
         "options": {
           "queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || '')] }}"
         }
@@ -136,7 +136,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000008",
+      "id": "c0000000-0000-4000-8000-000000000027",
       "name": "Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -151,7 +151,7 @@
     }
   ],
   "connections": {
-    "A cada 30 minutos": {
+    "A cada 15 minutos": {
       "main": [
         [
           {

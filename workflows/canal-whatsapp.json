@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000116",
+      "id": "c0000000-0000-4000-8000-000000000134",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -21,7 +21,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000004"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000117",
+      "id": "c0000000-0000-4000-8000-000000000135",
       "name": "Ler mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -35,7 +35,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000118",
+      "id": "c0000000-0000-4000-8000-000000000136",
       "name": "Quem e",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000119",
+      "id": "c0000000-0000-4000-8000-000000000137",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -73,7 +73,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000120",
+      "id": "c0000000-0000-4000-8000-000000000138",
       "name": "Dados do audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -87,7 +87,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000121",
+      "id": "c0000000-0000-4000-8000-000000000139",
       "name": "Audio em arquivo",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.2,
@@ -107,7 +107,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000122",
+      "id": "c0000000-0000-4000-8000-000000000140",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -150,7 +150,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000123",
+      "id": "c0000000-0000-4000-8000-000000000141",
       "name": "Preparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,7 +164,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000124",
+      "id": "c0000000-0000-4000-8000-000000000142",
       "name": "Quem responde",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -179,7 +179,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000125",
+      "id": "c0000000-0000-4000-8000-000000000143",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -192,19 +192,31 @@
         "workflowId": {
           "__rl": true,
           "mode": "id",
-          "value": "atendente00001",
-          "cachedResultName": "Atendente (recepcao)"
+          "value": "roteadorAg0001",
+          "cachedResultName": "Roteador de agentes"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "cliente_id": "={{ $json.cliente_id }}",
+            "agente": "={{ $json.agente }}",
+            "cliente_id": "={{ $json.cliente_id || '' }}",
             "nome": "={{ $json.nome }}",
             "chatInput": "={{ $json.chatInput }}",
-            "sessionId": "={{ $json.sessionId }}"
+            "sessionId": "={{ $json.sessionId }}",
+            "numero": "={{ $json.numero || '' }}"
           },
           "matchingColumns": [],
           "schema": [
+            {
+              "id": "agente",
+              "displayName": "agente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
             {
               "id": "cliente_id",
               "displayName": "cliente_id",
@@ -244,6 +256,16 @@
               "canBeUsedToMatch": true,
               "type": "string",
               "removed": false
+            },
+            {
+              "id": "numero",
+              "displayName": "numero",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
             }
           ],
           "attemptToConvertTypes": true,
@@ -255,7 +277,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000126",
+      "id": "c0000000-0000-4000-8000-000000000144",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -265,9 +287,9 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.atendimento_registrar($1::int, $2, $3) AS r",
+        "query": "SELECT nucleo.agente_registrar(nullif($1, '')::int, $2, $3, $4, nullif($5, ''), nullif($6, '')) AS r",
         "options": {
-          "queryReplacement": "={{ [$('Preparar').first().json.cliente_id, $('Preparar').first().json.chatInput, $json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.'] }}"
+          "queryReplacement": "={{ [String($('Preparar').first().json.cliente_id || ''), $('Preparar').first().json.chatInput, $json.output || 'Desculpe, tive um problema agora. Ja ja te respondo.', $('Preparar').first().json.agente, String($('Preparar').first().json.numero || ''), $('Preparar').first().json.nome || ''] }}"
         }
       },
       "credentials": {
@@ -278,7 +300,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000127",
+      "id": "c0000000-0000-4000-8000-000000000145",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -288,11 +310,11 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// automatico: manda para o cliente | aprovacao: guarda na fila e avisa os admins\nconst r = $input.first().json.r;\nconst fila = $('Atendente').first().json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.';\nif (r.enviar) {\n  const env = await enviarWhatsapp(r.numero, fila, false, $('Ler mensagem').first().json.instancia);\n  return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];\n}\nconst conectado = await whatsappConectado();\nfor (const n of r.avisar || []) {\n  try { if (conectado) await enviarWhatsapp(n, `📥 Cliente aguardando: resposta da IA para aprovar no painel (Atendimento).`); } catch (e) {}\n}\nreturn [{ json: { enviado: false, fila_id: r.fila_id, aguardando_aprovacao: true, ids: '' } }];\n"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// automatico: manda para o cliente | aprovacao: guarda na fila e avisa os admins\nconst r = $input.first().json.r;\nconst fila = r.texto || 'Desculpe, tive um problema agora. Ja ja te respondo.';\nconst NOMES = { joao: 'João', suporte: 'Suporte24hrs', gabriel: 'Gabriel (seu clone)' };\nif (r.enviar) {\n  const env = await enviarWhatsapp(r.numero, fila, false, r.instancia || $('Ler mensagem').first().json.instancia);\n  return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];\n}\nconst conectado = await whatsappConectado();\nfor (const n of r.avisar || []) {\n  try { if (conectado) await enviarWhatsapp(n, `📥 ${NOMES[r.agente] || r.agente}: resposta esperando sua aprovacao no painel.`); } catch (e) {}\n}\nreturn [{ json: { enviado: false, fila_id: r.fila_id, aguardando_aprovacao: true, ids: '' } }];\n"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000128",
+      "id": "c0000000-0000-4000-8000-000000000146",
       "name": "Guardar ids",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -316,7 +338,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000129",
+      "id": "c0000000-0000-4000-8000-000000000147",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -414,7 +436,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000130",
+      "id": "c0000000-0000-4000-8000-000000000148",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -428,7 +450,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000131",
+      "id": "c0000000-0000-4000-8000-000000000149",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
