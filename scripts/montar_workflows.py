@@ -364,6 +364,8 @@ Como trabalhar:
 - So ofereca o que suas ferramentas fazem de verdade. Nao prometa recursos que nao existem
   (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.
 - Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.
+- No WhatsApp a pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia TODAS e responda tudo
+  de uma vez, numa resposta so, como uma pessoa faria.
 - Se o canal comecar com "whatsapp": escreva como no WhatsApp, curto, *negrito* com um asterisco, sem tabelas
   nem titulos. Se for "whatsapp (audio...)", a resposta vai virar audio: frases faladas, sem simbolos.
 - Se o canal for "voz": a resposta sera falada em voz alta. Frases curtas e naturais, sem markdown,
@@ -783,13 +785,12 @@ JS_PREPARAR = r"""
 const msg = $('Ler mensagem').first().json;
 const quem = $('Quem e').first().json.r;
 const texto = msg.tipo === 'audio' ? ($input.first().json.text || '') : (quem.texto || msg.texto);
-try { await evo('POST', `/chat/sendPresence/${msg.instancia}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}
 return [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender)' } }];
 """
 
 JS_RESPONDER_WHATSAPP = r"""
 const msg = $('Ler mensagem').first().json;
-const quem = $('Preparar').first().json;
+const quem = $('Lote pronto').first().json;
 const resposta = $input.first().json.output || 'Tive um problema para responder agora. Tenta de novo em instantes?';
 let enviado = 'texto';
 const ids = [];
@@ -888,6 +889,32 @@ def canal_whatsapp():
         node("Preparar", "n8n-nodes-base.code", 2, [1540, 0], {
             "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_PREPARAR,
         }),
+        node("Guardar no lote", "n8n-nodes-base.postgres", 2.6, [1600, -140], {
+            "operation": "executeQuery",
+            "query": "SELECT * FROM nucleo.lote_adicionar($1, $2)",
+            "options": {"queryReplacement": "={{ [$('Ler mensagem').first().json.instancia + ':' + $('Ler mensagem').first().json.numero + ':' + ($('Preparar').first().json.agente || 'leo'), $json.chatInput] }}"},
+        }, credentials=PG),
+        node("Esperar a pessoa terminar", "n8n-nodes-base.code", 2, [1700, -140], {
+            "mode": "runOnceForAllItems",
+            "jsCode": "// espera alguns segundos: se chegar outra mensagem, a execucao dela responde por todas\n"
+                      "await new Promise(r => setTimeout(r, (+$input.first().json.espera || 12) * 1000));\n"
+                      "return $input.all();",
+        }),
+        node("Fechar lote", "n8n-nodes-base.postgres", 2.6, [1800, -140], {
+            "operation": "executeQuery",
+            "query": "SELECT * FROM nucleo.lote_fechar($1, $2::bigint)",
+            "options": {"queryReplacement": "={{ [$('Ler mensagem').first().json.instancia + ':' + $('Ler mensagem').first().json.numero + ':' + ($('Preparar').first().json.agente || 'leo'), String($json.id)] }}"},
+        }, credentials=PG, alwaysOutputData=True),
+        node("Lote pronto", "n8n-nodes-base.code", 2, [1900, -140], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_ENVIOS + r"""
+// so a ultima mensagem da sequencia segue; ela leva o texto de TODAS
+const lote = $input.all().map(i => i.json).find(j => j.texto);
+if (!lote) return [];
+const msg = $('Ler mensagem').first().json;
+try { await evo('POST', `/chat/sendPresence/${msg.instancia}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}
+return [{ json: { ...$('Preparar').first().json, chatInput: lote.texto, mensagens_juntas: lote.quantidade } }];""",
+        }),
         node("Quem responde", "n8n-nodes-base.switch", 3.2, [1650, 0], {
             "mode": "expression", "numberOutputs": 2,
             "output": "={{ $json.saida === 2 ? 1 : 0 }}",   # 0 = IA do usuario | 1 = atendente (cliente)
@@ -903,10 +930,10 @@ def canal_whatsapp():
         node("Registrar atendimento", "n8n-nodes-base.postgres", 2.6, [1980, 260], {
             "operation": "executeQuery",
             "query": "SELECT nucleo.agente_registrar(nullif($1, '')::int, $2, $3, $4, nullif($5, ''), nullif($6, '')) AS r",
-            "options": {"queryReplacement": "={{ [String($('Preparar').first().json.cliente_id || ''), $('Preparar').first().json.chatInput, "
+            "options": {"queryReplacement": "={{ [String($('Lote pronto').first().json.cliente_id || ''), $('Lote pronto').first().json.chatInput, "
                                             "$json.output || 'Desculpe, tive um problema agora. Ja ja te respondo.', "
-                                            "$('Preparar').first().json.agente, String($('Preparar').first().json.numero || ''), "
-                                            "$('Preparar').first().json.nome || ''] }}"},
+                                            "$('Lote pronto').first().json.agente, String($('Lote pronto').first().json.numero || ''), "
+                                            "$('Lote pronto').first().json.nome || ''] }}"},
         }, credentials=PG),
         node("Entregar atendimento", "n8n-nodes-base.code", 2, [2200, 260], {
             "mode": "runOnceForAllItems",
@@ -936,7 +963,9 @@ def canal_whatsapp():
     ]
     con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Quem e"), ("Quem e", "Rota"),
                 ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (OpenAI)"),
-                ("Transcrever (OpenAI)", "Preparar"), ("Preparar", "Quem responde"),
+                ("Transcrever (OpenAI)", "Preparar"), ("Preparar", "Guardar no lote"),
+                ("Guardar no lote", "Esperar a pessoa terminar"), ("Esperar a pessoa terminar", "Fechar lote"),
+                ("Fechar lote", "Lote pronto"), ("Lote pronto", "Quem responde"),
                 ("Atendente", "Registrar atendimento"), ("Registrar atendimento", "Entregar atendimento"),
                 ("Entregar atendimento", "Guardar ids"),
                 ("Cerebro", "Responder no WhatsApp"), ("Responder no WhatsApp", "Registrar resposta"))
@@ -1299,6 +1328,7 @@ Horario de atendimento humano: {{ """ + EMPRESA + """.horario || 'nao informado'
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}."""
 
 REGRAS_CLIENTE = """Regras com o cliente (sempre, sem excecao):
+- O cliente pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
 - Escreva como uma pessoa do time escreve no WhatsApp: natural, curto (no maximo 4 frases), sem listas formais,
   sem titulos, *negrito* so em 1 ou 2 palavras. Nada de "como assistente virtual", "sou uma IA" ou frases de robo.
 - Nao se apresente como IA. Mas se o cliente perguntar DIRETAMENTE se fala com robo, IA ou pessoa, nunca minta:
@@ -1510,6 +1540,7 @@ O que voce sabe sobre ele (use buscar_memoria para mais):
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}.
 
 Regras (sempre):
+- A pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
 - Escreva exatamente como ele: tamanho das mensagens, girias, pontuacao, risadas, emojis. Mensagem curta de WhatsApp.
 - Nao invente fatos, compromissos, datas, valores, promessas, decisoes ou opinioes fortes que ele nao registrou.
   Pedido de compromisso, dinheiro, emprestimo, decisao importante, saude, briga ou assunto delicado: ganhe tempo

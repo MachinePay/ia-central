@@ -13,7 +13,7 @@ sh scripts/gerar-credenciais.sh
 python scripts/montar_workflows.py
 
 if [ $# -eq 0 ]; then
-  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql db/init/09-agentes.sql; do
+  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql db/init/09-agentes.sql db/init/10-lote.sql; do
     docker compose exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' < "$f" 2>&1 | grep -v NOTICE || true
   done
   sh scripts/criar-admin.sh
@@ -37,6 +37,12 @@ docker compose exec -T n8n sh -c '
   for par in '"$ESCOLHIDOS"'; do
     n8n publish:workflow --id=${par#*:} 2>&1 | grep -iE "publishing|error"
   done'
+# garante a ativacao (o restart logo depois do publish as vezes deixa algum inativo) - igual ao Render
+IDS_SQL=$(for par in $ESCOLHIDOS; do printf "'%s'," "${par#*:}"; done | sed 's/,$//')
+docker compose exec -T postgres sh -c "psql -q -U \"\$POSTGRES_USER\" \"\$POSTGRES_DB\" -c \"UPDATE workflow_entity SET active = true, \\\"activeVersionId\\\" = \\\"versionId\\\" WHERE id IN ($IDS_SQL)\""
 docker compose restart n8n >/dev/null
 for i in $(seq 40); do curl -s localhost:5678/healthz >/dev/null 2>&1 && break; sleep 3; done
+for i in $(seq 30); do [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:5678/webhook/whatsapp -d '{}')" != "404" ] && break; sleep 3; done
+INATIVOS=$(docker compose exec -T postgres sh -c 'psql -tA -U "$POSTGRES_USER" "$POSTGRES_DB" -c "SELECT string_agg(name, '"'"', '"'"') FROM workflow_entity WHERE NOT active"')
+[ -n "$INATIVOS" ] && echo "ATENCAO, inativos: $INATIVOS"
 echo "pronto: workflows importados e publicados"
