@@ -394,3 +394,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .sim-msg.cliente-de-la { align-self: flex-start; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); }
 .sim-msg.voce { align-self: flex-end; background: rgba(61, 255, 168, 0.12); border: 1px solid rgba(61, 255, 168, 0.3); }
 .sim-msg .via { display: block; font-family: var(--f-mono); font-size: 9px; color: var(--texto-3); margin-bottom: 2px; letter-spacing: 0.08em; }
+
+.conexao { padding-bottom: 10px; }
+.filtro { padding: 10px 0 4px; }
+.divisor { height: 1px; margin: 14px 0; background: linear-gradient(90deg, transparent, var(--linha-forte), transparent); }

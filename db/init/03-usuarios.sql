@@ -229,6 +229,7 @@ BEGIN
             'config', nucleo.whatsapp_config(),
             'op', coalesce(d->>'op','status'),
             'numero', d->>'numero',
+            'instancia', CASE WHEN d->>'instancia' = 'joao' THEN 'joao' ELSE 'nucleo' END,
             'desconhecidos', nucleo.whatsapp_desconhecidos()));
 
     ELSIF p_acao LIKE 'admin_%' AND NOT adm THEN
@@ -353,6 +354,40 @@ BEGIN
 
     ELSIF p_acao = 'admin_aprender_agora' THEN      -- roda o aprendiz agora (n8n)
         RETURN jsonb_build_object('saida',7,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_observacao' THEN
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.observacao_painel(u.id));
+
+    ELSIF p_acao = 'admin_observacao_config' THEN   -- filtro: todos | exceto | somente
+        IF d->>'agente' IN ('leo','joao') AND d->>'modo' IN ('todos','exceto','somente') THEN
+            INSERT INTO nucleo.config VALUES ((d->>'agente') || '_observar', to_jsonb(d->>'modo'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.observacao_painel(u.id));
+
+    ELSIF p_acao = 'admin_observacao_add' THEN
+        IF d->>'agente' NOT IN ('leo','joao') OR d->>'regra' NOT IN ('incluir','excluir')
+           OR length(regexp_replace(coalesce(d->>'numero',''), '[^0-9]', '', 'g')) < 10 THEN
+            RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Informe agente, regra e um numero valido'));
+        END IF;
+        INSERT INTO nucleo.observacao_lista (agente, numero, nome, regra)
+        VALUES (d->>'agente', nucleo.so_digitos(d->>'numero'), nullif(d->>'nome',''), d->>'regra')
+        ON CONFLICT (agente, numero) DO UPDATE SET nome = EXCLUDED.nome, regra = EXCLUDED.regra;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.observacao_painel(u.id));
+
+    ELSIF p_acao = 'admin_observacao_del' THEN
+        DELETE FROM nucleo.observacao_lista WHERE id = (d->>'id')::int;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.observacao_painel(u.id));
+
+    ELSIF p_acao = 'admin_leo_sugestao_aprovar' THEN
+        UPDATE nucleo.conhecimento SET aprovado = true, origem = 'aprendido_leo',
+               titulo = coalesce(nullif(d->>'titulo',''), titulo), conteudo = coalesce(nullif(d->>'conteudo',''), conteudo)
+         WHERE id = (d->>'id')::bigint AND usuario_id = u.id AND NOT aprovado;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_leo_sugestao_descartar' THEN
+        DELETE FROM nucleo.conhecimento WHERE id = (d->>'id')::bigint AND usuario_id = u.id AND NOT aprovado;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
 
     ELSIF p_acao = 'admin_atendimento_teste' THEN  -- simulador: o admin finge ser um cliente
         DECLARE cli record;

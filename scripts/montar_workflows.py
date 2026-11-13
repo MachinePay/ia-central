@@ -170,19 +170,20 @@ def sql_usuario(params_ia):
 # ---------------------------------------------------------------------------
 JS_ENVIOS = r"""
 const comHttp = u => (u && !/^https?:\/\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta
-const EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';
+const EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo
+const INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao
 const evo = (method, caminho, body) => this.helpers.httpRequest({
   method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });
 // markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos
 const paraWhatsapp = t => String(t || '').replace(/\*\*(.+?)\*\*/g, '*$1*').replace(/^#{1,6}\s*/gm, '');
-async function whatsappConectado() {
-  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }
+async function whatsappConectado(inst = INST) {
+  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }
   catch { return false; }
 }
-async function enviarWhatsapp(numero, texto, marcar = true) {
+async function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {
   let t = paraWhatsapp(texto);
   if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma
-  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\D/g, ''), text: t });
+  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\D/g, ''), text: t });
 }
 // nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)
 const CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,
@@ -368,14 +369,26 @@ Como trabalhar:
   sem listas com simbolos, sem emojis, sem links."""
 
 
+ESTILO_LEO = """
+
+Jeito de falar e de resolver problemas do dono (aprendido lendo as conversas dele; quando falar com ELE ou
+escrever em nome dele, imite esse jeito):
+{{ $('Estilo').first().json.estilo || '(ainda aprendendo)' }}"""
+
+
 def cerebro():
     nodes = [
         gatilho_subworkflow(["usuario_id", "nome", "papel", "chatInput", "sessionId", "canal"]),
+        node("Estilo", "n8n-nodes-base.postgres", 2.6, [150, -160], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.estilo_dono($1::int) AS estilo",
+            "options": {"queryReplacement": "={{ [$json.usuario_id] }}"},
+        }, credentials=PG, alwaysOutputData=True),
         node("IA", "@n8n/n8n-nodes-langchain.agent", 3.1, [300, 0], {
             "promptType": "define",
-            "text": "={{ $json.chatInput }}",
+            "text": "={{ $('Quando chamado').first().json.chatInput }}",
             **opcoes_agente(),
-            "options": {"systemMessage": "=" + PROMPT_CEREBRO, "maxIterations": 12,
+            "options": {"systemMessage": "=" + PROMPT_CEREBRO + ESTILO_LEO, "maxIterations": 12,
                         "enableStreaming": False},
         }),
         node("Memoria da conversa", "@n8n/n8n-nodes-langchain.memoryPostgresChat", 1.4, [160, 260], {
@@ -490,7 +503,7 @@ def cerebro():
     ]
     modelos, lig_modelos = modelos_do_agente("IA", "orquestrador", -160, 260)
     nodes += modelos
-    con = ligar(("Quando chamado", "IA"))
+    con = ligar(("Quando chamado", "Estilo"), ("Estilo", "IA"))
     for origem, destino, idx in lig_modelos:
         ligar_ia(con, origem, destino, "ai_languageModel", idx)
     ligar_ia(con, "Memoria da conversa", "IA", "ai_memory")
@@ -593,8 +606,9 @@ def api_painel():
             "jsCode": JS_ENVIOS + r"""
 const c = $input.first().json.r.corpo;
 if (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];
-if (!(await whatsappConectado())) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];
-const env = await enviarWhatsapp(c.numero, c.texto, false);
+const inst = (await whatsappConectado(INST_JOAO)) ? INST_JOAO : ((await whatsappConectado(INST)) ? INST : null);
+if (!inst) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];
+const env = await enviarWhatsapp(c.numero, c.texto, false, inst);
 return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) || '' } }];""",
         }, onError="continueRegularOutput"),
         node("Guardar ids aprovada", "n8n-nodes-base.postgres", 2.6, [810, 800], {
@@ -679,43 +693,46 @@ return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) |
 JS_WHATSAPP_ADMIN = r"""
 // status / conectar (QR ou codigo de pareamento) / desconectar
 const corpo = $input.first().json.r.corpo;
+const I = corpo.instancia || INST;
+const TOKEN = I === INST ? $env.WHATSAPP_WEBHOOK_SEGREDO : `${$env.WHATSAPP_WEBHOOK_SEGREDO}-${I}`;
 const urlWebhook = comHttp($env.WHATSAPP_WEBHOOK_BASE || 'n8n:5678') + '/webhook/whatsapp';
 const eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
 const cfgWebhook = { enabled: true, url: urlWebhook, byEvents: false, base64: true, events: eventos };
 async function estado() {
-  try { const x = await evo('GET', `/instance/connectionState/${INST}`); return (x.instance || x).state || 'close'; }
+  try { const x = await evo('GET', `/instance/connectionState/${I}`); return (x.instance || x).state || 'close'; }
   catch (e) { return /404|not exist/i.test(String(e.message) + JSON.stringify(e.description || '')) ? 'inexistente' : 'erro'; }
 }
 const saida = {};
 if (corpo.op === 'conectar') {
   if ((await estado()) === 'inexistente') {
-    await evo('POST', '/instance/create', { instanceName: INST, token: $env.WHATSAPP_WEBHOOK_SEGREDO,
+    await evo('POST', '/instance/create', { instanceName: I, token: TOKEN,
       integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });
   }
-  await evo('POST', `/webhook/set/${INST}`, { webhook: cfgWebhook });
-  await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA);
+  await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook });
+  await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA);
   if ((await estado()) !== 'open') {
     const num = String(corpo.numero || '').replace(/\D/g, '');
-    const q = await evo('GET', `/instance/connect/${INST}` + (num ? `?number=${num}` : ''));
+    const q = await evo('GET', `/instance/connect/${I}` + (num ? `?number=${num}` : ''));
     saida.qr = q.base64 || null;
     saida.codigo = q.pairingCode || null;
   }
 } else if (corpo.op === 'desconectar') {
-  try { await evo('DELETE', `/instance/logout/${INST}`); } catch (e) { /* ja desconectado */ }
+  try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ja desconectado */ }
 }
 saida.estado = await estado();
 if (saida.estado !== 'inexistente' && saida.estado !== 'erro') {
-  try { await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }
+  try { await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }
 }
 saida.config = corpo.config || {};
 if (saida.estado === 'open') {
   try {
-    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${INST}`);
+    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${I}`);
     const i = Array.isArray(lista) ? lista[0] : lista;
     saida.numero = String(i.ownerJid || i.owner || '').split('@')[0];
     saida.perfil = i.profileName || null;
   } catch (e) { /* sem detalhes */ }
 }
+saida.instancia = I;
 saida.desconhecidos = corpo.desconhecidos || [];
 return [{ json: saida }];
 """
@@ -728,7 +745,8 @@ return [{ json: saida }];
 JS_LER_MENSAGEM = r"""
 const b = $input.first().json.body || {};
 // so aceita o que veio da nossa instancia (token secreto configurado ao conectar)
-if (!$env.WHATSAPP_WEBHOOK_SEGREDO || b.apikey !== $env.WHATSAPP_WEBHOOK_SEGREDO) return [];
+// (Leo usa o segredo; o Joao usa segredo-joao)
+if (!$env.WHATSAPP_WEBHOOK_SEGREDO || !String(b.apikey || '').startsWith($env.WHATSAPP_WEBHOOK_SEGREDO)) return [];
 if (String(b.event || '').toLowerCase().replace(/_/g, '.') !== 'messages.upsert') return [];
 const d = Array.isArray(b.data) ? b.data[0] : b.data;
 if (!d || !d.key) return [];
@@ -750,6 +768,7 @@ return [{ json: {
   numero: jid.split('@')[0], nome: d.pushName || '', texto,
   tipo: audio ? 'audio' : 'texto', audio_b64: audio,
   de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,
+  instancia: b.instance || $env.EVOLUTION_INSTANCIA || 'nucleo', dono,
 } }];
 """
 
@@ -757,7 +776,7 @@ JS_PREPARAR = r"""
 const msg = $('Ler mensagem').first().json;
 const quem = $('Quem e').first().json.r;
 const texto = msg.tipo === 'audio' ? ($input.first().json.text || '') : (quem.texto || msg.texto);
-try { await evo('POST', `/chat/sendPresence/${INST}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}
+try { await evo('POST', `/chat/sendPresence/${msg.instancia}`, { number: msg.numero, presence: msg.tipo === 'audio' ? 'recording' : 'composing', delay: 1500 }); } catch (e) {}
 return [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender)' } }];
 """
 
@@ -774,14 +793,14 @@ if (msg.tipo === 'audio' && $env.OPENAI_API_KEY) {
       body: JSON.stringify({ model: 'gpt-4o-mini-tts', voice: 'nova', response_format: 'mp3', input: resposta,
         instructions: 'Fale em portugues do Brasil, tom natural e amigavel, como num audio de WhatsApp.' }),
       encoding: 'arraybuffer', timeout: 60000 });
-    const r = await evo('POST', `/message/sendWhatsAppAudio/${INST}`, { number: msg.numero, audio: Buffer.from(mp3).toString('base64') });
+    const r = await evo('POST', `/message/sendWhatsAppAudio/${msg.instancia}`, { number: msg.numero, audio: Buffer.from(mp3).toString('base64') });
     if (r && r.key && r.key.id) ids.push(r.key.id);
     enviado = 'audio';
   } catch (e) { enviado = 'texto (audio falhou: ' + e.message + ')'; }
 }
 let erro = null;
 if (!enviado.startsWith('audio')) {
-  try { const r = await enviarWhatsapp(msg.numero, resposta); if (r && r.key && r.key.id) ids.push(r.key.id); }
+  try { const r = await enviarWhatsapp(msg.numero, resposta, true, msg.instancia); if (r && r.key && r.key.id) ids.push(r.key.id); }
   catch (e) { erro = e.message; }
 }
 return [{ json: { usuario_id: quem.usuario_id, numero: msg.numero, resposta, enviado, erro, ids: ids.join(',') } }];
@@ -793,7 +812,7 @@ JS_ENTREGAR_ATENDIMENTO = r"""
 const r = $input.first().json.r;
 const fila = $('Atendente').first().json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.';
 if (r.enviar) {
-  const env = await enviarWhatsapp(r.numero, fila, false);
+  const env = await enviarWhatsapp(r.numero, fila, false, $('Ler mensagem').first().json.instancia);
   return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];
 }
 const conectado = await whatsappConectado();
@@ -814,9 +833,9 @@ def canal_whatsapp():
         }),
         node("Quem e", "n8n-nodes-base.postgres", 2.6, [440, 0], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7) AS r",
+            "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7, $8, $9) AS r",
             "options": {"queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, "
-                                            "$json.de_mim, $json.conversa_propria, $json.msg_id] }}"},
+                                            "$json.de_mim, $json.conversa_propria, $json.msg_id, $json.instancia, $json.dono] }}"},
         }, credentials=PG),
         node("Rota", "n8n-nodes-base.switch", 3.2, [660, 0], {
             "mode": "expression", "numberOutputs": 3,
@@ -1256,13 +1275,14 @@ def sql_cliente(params_ia):
 def no_empresa(pos):
     return node("Empresa", "n8n-nodes-base.postgres", 2.6, pos, {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.atendimento_config() AS cfg",
+        "query": "SELECT nucleo.atendimento_config() AS cfg, nucleo.estilo_joao() AS estilo",
         "options": {},
     }, credentials=PG)
 
 
 BLOCO_EMPRESA = """Voce se chama {{ """ + EMPRESA + """.persona || 'equipe de atendimento' }} e faz parte do time de atendimento.
 Empresa: {{ """ + EMPRESA + """.nome }}. {{ """ + EMPRESA + """.descricao || '' }}
+Jeito de escrever do time (aprendido das conversas reais; imite): {{ $('Empresa').first().json.estilo || '(ainda aprendendo)' }}
 Horario de atendimento humano: {{ """ + EMPRESA + """.horario || 'nao informado' }}. Tom: {{ """ + EMPRESA + """.tom || 'simpatico e objetivo' }}.
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}."""
 
@@ -1514,15 +1534,14 @@ def chamar_atendente(nome, pos, valores):
 # reutilizavel (sem dados pessoais) como SUGESTAO para o admin aprovar no painel.
 # ---------------------------------------------------------------------------
 JS_APRENDIZ = r"""
-const base = $('Base atual').first().json.base || '(vazia)';
-const pendentes = $input.all().map(i => i.json).filter(p => p.cliente_id && p.transcricao);
-const schema = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: {
-  type: 'object', additionalProperties: false, required: ['area', 'titulo', 'conteudo'], properties: {
-    area: { type: 'string', enum: ['suporte', 'comercial', 'geral'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } } } } };
-const sistema = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.
+const pendentes = $input.all().map(i => i.json).filter(p => p.chave && p.transcricao);
+const item = { type: 'object', additionalProperties: false, required: ['area', 'titulo', 'conteudo'], properties: {
+  area: { type: 'string', enum: ['suporte', 'comercial', 'geral'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };
+const schema = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: item } } };
+const PROMPT_JOAO = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.
 Extraia SO conhecimento reutilizavel que o atendente humano informou ou praticou: precos, prazos, condicoes, politicas,
-horarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o estilo de escrita
-(se for marcante, num item area "geral" titulo "Jeito de responder").
+horarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o jeito de escrever
+(se for marcante, num item area "geral" com titulo comecando por "Jeito de responder").
 Regras:
 - Use so o que o ATENDENTE HUMANO disse. Ignore o que o cliente afirmou e o que a IA escreveu.
 - Precos de tabela de produtos/servicos SAO conhecimento: inclua com o valor exato (ex.: kit X custa R$ Y).
@@ -1530,7 +1549,22 @@ Regras:
 - Cada item: area (suporte | comercial | geral), titulo curto, conteudo autoexplicativo (1 a 3 frases).
 - Nao repita o que ja esta na base. Se nao houver nada novo e util, devolva itens vazio.
 Base atual:
-${base}`;
+`;
+const PROMPT_LEO = `Voce e o aprendiz do Leo 2.0, a IA pessoal do DONO. Observe a conversa de WhatsApp do DONO com um contato
+e aprenda sobre o DONO para poder agir como ele:
+- Jeito de falar: vocabulario, girias, tom, tamanho das mensagens, como cumprimenta e se despede, emojis
+  (titulo comecando por "Jeito de falar").
+- Como resolve problemas e decide: como negocia, cobra, delega, prioriza, responde a reclamacoes
+  (titulo comecando por "Como resolve").
+- Fatos de trabalho e rotina uteis: projetos, compromissos recorrentes, quem e quem para ele (papel da pessoa,
+  ex.: "Fulano e o socio que cuida do financeiro"), preferencias.
+Regras:
+- Aprenda do que o DONO escreveu; o CONTATO serve so de contexto.
+- NUNCA guarde senhas, codigos, dados bancarios/cartao, documentos, saude, vida intima ou segredos de terceiros.
+- Cada item: area "geral", titulo curto, conteudo autoexplicativo (1 a 3 frases).
+- Nao repita a memoria atual. Se nao houver nada novo e util, devolva itens vazio.
+Memoria atual do dono:
+`;
 const saida = [];
 for (const p of pendentes) {
   try {
@@ -1538,14 +1572,15 @@ for (const p of pendentes) {
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
       body: { model: '__MODELO__', reasoning_effort: 'low',
         response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema } },
-        messages: [{ role: 'system', content: sistema }, { role: 'user', content: p.transcricao }] } });
+        messages: [{ role: 'system', content: (p.tipo === 'leo' ? PROMPT_LEO : PROMPT_JOAO) + (p.contexto || '(vazia)') },
+                   { role: 'user', content: p.transcricao }] } });
     const itens = JSON.parse(r.choices[0].message.content).itens || [];
-    saida.push({ json: { cliente_id: p.cliente_id, itens: JSON.stringify(itens), total: itens.length } });
+    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length } });
   } catch (e) {
-    saida.push({ json: { cliente_id: p.cliente_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
+    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
   }
 }
-return saida.length ? saida : [{ json: { cliente_id: '', itens: '[]', total: 0 } }];
+return saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total: 0 } }];
 """
 
 
@@ -1560,7 +1595,9 @@ def aprendiz():
         }, credentials=PG),
         node("Conversas novas", "n8n-nodes-base.postgres", 2.6, [460, 180], {
             "operation": "executeQuery",
-            "query": "SELECT cliente_id, transcricao FROM nucleo.aprendiz_pendentes(10)", "options": {},
+            "query": "SELECT tipo, chave, dono_id, transcricao,\n"
+                     "  CASE WHEN tipo = 'leo' THEN nucleo.memoria_resumo(dono_id) ELSE nucleo.base_resumo() END AS contexto\n"
+                     "FROM nucleo.aprendiz_pendentes_todos(10)", "options": {},
         }, credentials=PG, alwaysOutputData=True),
         node("Extrair conhecimento", "n8n-nodes-base.code", 2, [680, 180], {
             "mode": "runOnceForAllItems",
@@ -1568,9 +1605,11 @@ def aprendiz():
         }),
         node("Salvar sugestoes", "n8n-nodes-base.postgres", 2.6, [900, 180], {
             "operation": "executeQuery",
-            "query": "SELECT coalesce((SELECT nucleo.aprendiz_salvar(nullif($1, '')::int, $2::jsonb)\n"
-                     "  WHERE nullif($1, '') IS NOT NULL), 0) AS salvos",
-            "options": {"queryReplacement": "={{ [String($json.cliente_id || ''), $json.itens || '[]'] }}"},
+            "query": "SELECT CASE\n"
+                     "  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
+                     "  WHEN $3 = 'joao' THEN nucleo.aprendiz_salvar(nullif($1, '')::int, $2::jsonb)\n"
+                     "  ELSE 0 END AS salvos",
+            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || '')] }}"},
         }, credentials=PG),
         node("Resultado", "n8n-nodes-base.code", 2, [1120, 180], {
             "mode": "runOnceForAllItems",

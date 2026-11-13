@@ -13,7 +13,7 @@ sh scripts/gerar-credenciais.sh
 python scripts/montar_workflows.py
 
 if [ $# -eq 0 ]; then
-  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql; do
+  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql; do
     docker compose exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' < "$f" 2>&1 | grep -v NOTICE || true
   done
   sh scripts/criar-admin.sh

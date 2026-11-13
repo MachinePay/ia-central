@@ -37,6 +37,15 @@ export interface WhatsappStatus {
 
 
 export type Area = 'suporte' | 'comercial' | 'geral'
+export type Agente = 'leo' | 'joao'
+export type ModoObservar = 'todos' | 'exceto' | 'somente'
+export interface ItemLista { id: number; numero: string; nome: string | null; regra: 'incluir' | 'excluir' }
+export interface Observacao {
+  leo: { modo: ModoObservar; lista: ItemLista[] }
+  joao: { modo: ModoObservar; lista: ItemLista[] }
+  leo_sugestoes: { id: number; titulo: string | null; conteudo: string; contato: string | null; criado_em: string }[]
+  leo_conversas_lidas: number
+}
 export interface Empresa { nome: string; descricao: string; horario: string; tom: string; persona?: string }
 export interface AtendimentoPainel {
   config: { modo: 'desligado' | 'observando' | 'aprovacao' | 'automatico'; alcance: 'selecionados' | 'todos'; observar: 'clientes' | 'todos'; empresa: Empresa }
@@ -101,8 +110,14 @@ export const api = {
   participar: (compartilha: boolean) => chamar('participar', { compartilha }),
   esquecer: (id: number) => chamar('esquecer', { id }),
   perfil: (dados: { telegram_chat_id?: string; whatsapp?: string }) => chamar('perfil', dados),
-  whatsapp: (op: 'status' | 'conectar' | 'desconectar' | 'modo', extra: { numero?: string; modo?: 'pessoal' | 'dedicado' } = {}) =>
+  whatsapp: (op: 'status' | 'conectar' | 'desconectar', extra: { numero?: string; instancia?: 'nucleo' | 'joao' } = {}) =>
     chamar<WhatsappStatus>('admin_whatsapp', { op, ...extra }),
+  observacao: () => chamar<Observacao>('admin_observacao'),
+  observacaoConfig: (agente: Agente, modo: ModoObservar) => chamar<Observacao>('admin_observacao_config', { agente, modo }),
+  observacaoAdd: (agente: Agente, numero: string, nome: string, regra: 'incluir' | 'excluir') => chamar<Observacao>('admin_observacao_add', { agente, numero, nome, regra }),
+  observacaoDel: (id: number) => chamar<Observacao>('admin_observacao_del', { id }),
+  leoSugestaoAprovar: (id: number, titulo: string, conteudo: string) => chamar('admin_leo_sugestao_aprovar', { id, titulo, conteudo }),
+  leoSugestaoDescartar: (id: number) => chamar('admin_leo_sugestao_descartar', { id }),
   configurar: (memoria_compartilhada: boolean) => chamar('admin_config', { memoria_compartilhada }),
   criarUsuario: (d: { nome: string; login: string; senha: string; papel: Papel }) => chamar('admin_criar_usuario', d),
   ativarUsuario: (id: number, ativo: boolean) => chamar('admin_ativar_usuario', { id, ativo }),

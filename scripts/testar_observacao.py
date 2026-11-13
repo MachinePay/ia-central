@@ -44,7 +44,8 @@ def confere(nome, cond, extra=""):
 
 
 def zap(numero, texto, de_mim=False):
-    post("whatsapp", {"event": "messages.upsert", "apikey": env["WHATSAPP_WEBHOOK_SEGREDO"], "sender": f"{DONO}@s.whatsapp.net",
+    post("whatsapp", {"event": "messages.upsert", "instance": "joao", "apikey": env["WHATSAPP_WEBHOOK_SEGREDO"] + "-joao",
+                      "sender": f"{DONO}@s.whatsapp.net",
                       "data": {"key": {"remoteJid": f"{numero}@s.whatsapp.net", "fromMe": de_mim, "id": f"T{time.time_ns()}"},
                                "pushName": "" if de_mim else "Carlos Teste", "message": {"conversation": texto}}})
     time.sleep(4 if de_mim else 2)
@@ -52,15 +53,15 @@ def zap(numero, texto, de_mim=False):
 
 TOK = post("painel", {"acao": "login", "dados": {"login": env["ADMIN_LOGIN"], "senha": env["ADMIN_SENHA"]}})[1]["token"]
 antes = {k: sql(f"SELECT valor::text FROM nucleo.config WHERE chave = '{k}'") for k in
-         ["atendimento_modo", "atendimento_alcance", "atendimento_observar", "whatsapp_modo", "atendimento_empresa"]}
+         ["atendimento_modo", "atendimento_alcance", "joao_observar", "atendimento_empresa"]}
 inicio = sql("SELECT now()")
 
 try:
-    print("\n== so observando, numero pessoal, le so clientes cadastrados")
-    sql("UPDATE nucleo.config SET valor = '\"pessoal\"' WHERE chave = 'whatsapp_modo'")
-    api("admin_atendimento_config", {"modo": "observando", "observar": "clientes", "alcance": "selecionados",
+    print("\n== chip do Joao, so observando, filtro: so escolhidos (clientes cadastrados)")
+    api("admin_observacao_config", {"agente": "joao", "modo": "somente"})
+    api("admin_atendimento_config", {"modo": "observando", "alcance": "selecionados",
                                      "empresa": {"nome": "TESTE Solar Sol", "descricao": "instala paineis solares", "horario": "seg a sex 8h-18h",
-                                                 "tom": "simpatico", "persona": "Leo 2.0"}})
+                                                 "tom": "simpatico", "persona": "João"}})
     cid = api("admin_cliente_salvar", {"nome": "Carlos Teste", "whatsapp": CLI})["id"]
 
     zap(FAMILIA, "oi filho, vem almocar domingo?")
@@ -108,10 +109,10 @@ try:
     confere("cliente marcado: IA sugeriu resposta (na fila)", bool(fila))
     confere("usou o que aprendeu (10x)", bool(fila) and "10" in fila[0]["rascunho"], fila)
 
-    print("\n== persona Leo 2.0")
+    print("\n== persona Joao")
     s, r = post("painel", {"acao": "admin_atendimento_teste", "dados": {"mensagem": "Oi, com quem eu falo?", "sessao": "p1"}}, TOK)
     print(f"    > Oi, com quem eu falo?\n    < {r.get('resposta')}")
-    confere("se apresenta como Leo", "leo" in (r.get("resposta") or "").lower(), r)
+    confere("se apresenta como Joao", "joão" in (r.get("resposta") or "").lower() or "joao" in (r.get("resposta") or "").lower(), r)
     s, r = post("painel", {"acao": "admin_atendimento_teste", "dados": {"mensagem": "Voce e um robo ou uma pessoa de verdade?", "sessao": "p1"}}, TOK)
     resp = (r.get("resposta") or "").lower()
     print(f"    > Voce e um robo ou uma pessoa de verdade?\n    < {r.get('resposta')}")

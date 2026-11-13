@@ -6,6 +6,7 @@ import { Orbe, type EstadoOrbe } from './components/Orbe'
 import { Conversa } from './components/Conversa'
 import { PainelControle, PainelPessoal, PainelSistemas } from './components/Paineis'
 import { Atendimento } from './components/Atendimento'
+import { LeoAprendeu } from './components/Whatsapp'
 
 function Fundo() {
   return <div className="fundo" aria-hidden="true"><div className="estrelas" /><div className="grade" /><div className="scan" /></div>
@@ -103,6 +104,7 @@ export default function App() {
               <>
                 <div className="so-estreito" style={{ flexDirection: 'column', gap: 16 }}><PainelSistemas r={resumo} aoMudar={atualizar} /></div>
                 <PainelPessoal r={resumo} aoMudar={atualizar} />
+                {usuario.papel === 'admin' && <LeoAprendeu />}
                 <PainelControle r={resumo} aoMudar={atualizar} />
               </>
             )}

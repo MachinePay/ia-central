@@ -48,8 +48,8 @@ BEGIN
      WHERE whatsapp NOT LIKE 'teste%' AND nucleo.variantes_numero(whatsapp) && nucleo.variantes_numero(p_numero)
      LIMIT 1;
     IF NOT FOUND THEN
-        -- o dono falando com quem nao e cliente: conversa pessoal, nao le
-        IF p_de_mim THEN RETURN jsonb_build_object('saida', 0, 'motivo', 'conversa pessoal'); END IF;
+        -- numero pessoal: o dono falando com quem nao e cliente = conversa pessoal, nao le
+        IF p_de_mim AND p_modo_whats <> 'dedicado' THEN RETURN jsonb_build_object('saida', 0, 'motivo', 'conversa pessoal'); END IF;
         -- chip dedicado: todo desconhecido e cliente | numero pessoal: so se "observar todos"
         IF p_modo_whats = 'dedicado' OR cfg->>'observar' = 'todos' THEN
             c := nucleo.cliente_por_whatsapp(p_numero, p_nome);

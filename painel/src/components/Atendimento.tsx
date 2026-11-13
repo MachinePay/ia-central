@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { BookOpen, Check, CircleUser, Eye, Headset, Inbox, MessagesSquare, RefreshCw, Send, Settings2, Trash2, X, LifeBuoy, Sparkles, UserPlus, ChevronDown } from 'lucide-react'
 import { api, ErroApi, type Area, type AtendimentoPainel, type Empresa } from '../api'
+import { FiltroObservacao } from './Whatsapp'
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 const ROTULO_AREA: Record<string, string> = { suporte: 'SUPORTE', comercial: 'COMERCIAL', sistemico: 'SISTÊMICO', humano: 'HUMANO', geral: 'GERAL' }
@@ -205,18 +206,7 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
               </div>
             </div>
           )}
-          <div className="chave">
-            <div className="chave-texto"><b>Lê conversas de</b>
-              <span>{d.config.observar === 'todos' ? '⚠ Todos os números que falarem com você (inclui família e amigos)' : 'Só números cadastrados como cliente (abaixo). Família e amigos ficam de fora.'}</span></div>
-            <div className="modos" style={{ flexWrap: 'nowrap' }}>
-              {(['clientes', 'todos'] as const).map(o => (
-                <button key={o} className={d.config.observar === o ? 'ativo' : ''} onClick={async () => {
-                  if (o === 'todos' && !confirm('A IA vai ler e guardar as conversas de TODOS os números que falarem com você, inclusive pessoais. Continuar?')) return
-                  await api.atendimentoConfig({ observar: o }); void carregar()
-                }}>{o === 'todos' ? 'Todos' : 'Clientes'}</button>
-              ))}
-            </div>
-          </div>
+          <FiltroObservacao agente="joao" />
         </Hud>
 
         <Hud titulo={`Para aprovar`} icone={<Inbox size={14} />} extra={<span className="contagem">{d.fila.length}</span>}>

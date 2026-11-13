@@ -97,15 +97,18 @@ Um número de WhatsApp vira o "número da IA". Cada usuário cadastra o próprio
    de pareamento para "Conectar com número de telefone".)
 3. Cada pessoa cadastra o próprio número em "Meu WhatsApp" (o admin também, mesmo que seja o número conectado).
 
-### Dois modos (cartão WhatsApp → interruptor)
+### Dois números: Leo 2.0 e João
 
-| | **Pessoal** (padrão) — o número da IA é o seu celular | **Dedicado** — chip só da IA |
+| | **Leo 2.0** (o chefe, IA master) | **João** (o vendedor) |
 |---|---|---|
-| Você fala com a IA | na conversa **"Você"** (mensagem para si mesmo) | mandando mensagem para o número da IA |
-| Outros usuários cadastrados | só se começarem com **`/ia`** (ex.: `/ia quais minhas ideias?`) | direto, qualquer mensagem |
-| Amigos, família, desconhecidos | ignorados e **nada é guardado** | ignorados, mas registrados para o admin |
-| Suas conversas com outras pessoas | ignoradas | — |
+| Número | o seu WhatsApp pessoal (instância `nucleo`) | um chip só dele (instância `joao`) |
+| Quem fala com ele | você, na conversa **"Você"**; usuários do sistema com `/ia` | clientes; você/vendedores também respondem pelo chip |
+| O que ele lê | filtro: **só escolhidos** (padrão) · **todos menos** · **todos** | filtro: **todos** (padrão) · todos menos · só escolhidos |
+| O que aprende | seu **jeito de falar**, **como você resolve** problemas e fatos importantes → memória do Leo (você aprova em "Leo aprendeu") | preços, prazos, procedimentos e o jeito de responder do time → base da empresa (você aprova em Atendimento) |
+| Usa o que aprendeu | fala com você no seu jeito; supervisiona o João (`atendimento_resumo`, muda modo, libera cliente) | responde clientes liberados com o que aprendeu |
 
+- Os avisos para você (sistemas, chamados, lembretes) saem pelo número do Leo; respostas a clientes, pelo chip do João.
+- O que o filtro deixa de fora **não é lido nem guardado**. Senhas, dados bancários, saúde e vida íntima nunca viram memória.
 - Toda resposta da IA começa com 🤖 — assim ela nunca responde a si mesma na conversa "Você".
 - A conexão é configurada para **não marcar mensagens como lidas**, não ficar "online" e ignorar grupos.
 
@@ -150,7 +153,7 @@ Cliente ──► ATENDENTE (recepção) ──┬── Suporte    → base de 
   chamado. Chamado só quando o cliente pede uma pessoa, reclama ou aceita retorno — e os admins são avisados.
 - Painel → Atendimento: modo, dados da empresa, fila para aprovar, base de conhecimento, chamados,
   clientes (leads) e quais serviços os clientes podem saber se estão fora.
-- Testes: `python scripts/testar_atendente.py` e `python scripts/testar_observacao.py` (números que não existem no WhatsApp).
+- Testes: `testar_atendente.py`, `testar_observacao.py` (João) e `testar_leo.py` (Leo) — números que não existem no WhatsApp.
 
 ## Painel
 

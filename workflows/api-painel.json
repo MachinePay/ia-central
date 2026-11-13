@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000086",
+      "id": "c0000000-0000-4000-8000-000000000087",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -23,7 +23,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000002"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000087",
+      "id": "c0000000-0000-4000-8000-000000000088",
       "name": "Regras (banco)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -46,7 +46,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000088",
+      "id": "c0000000-0000-4000-8000-000000000089",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -61,7 +61,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000089",
+      "id": "c0000000-0000-4000-8000-000000000090",
       "name": "WhatsApp (Evolution)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -71,12 +71,12 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// status / conectar (QR ou codigo de pareamento) / desconectar\nconst corpo = $input.first().json.r.corpo;\nconst urlWebhook = comHttp($env.WHATSAPP_WEBHOOK_BASE || 'n8n:5678') + '/webhook/whatsapp';\nconst eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];\nconst cfgWebhook = { enabled: true, url: urlWebhook, byEvents: false, base64: true, events: eventos };\nasync function estado() {\n  try { const x = await evo('GET', `/instance/connectionState/${INST}`); return (x.instance || x).state || 'close'; }\n  catch (e) { return /404|not exist/i.test(String(e.message) + JSON.stringify(e.description || '')) ? 'inexistente' : 'erro'; }\n}\nconst saida = {};\nif (corpo.op === 'conectar') {\n  if ((await estado()) === 'inexistente') {\n    await evo('POST', '/instance/create', { instanceName: INST, token: $env.WHATSAPP_WEBHOOK_SEGREDO,\n      integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });\n  }\n  await evo('POST', `/webhook/set/${INST}`, { webhook: cfgWebhook });\n  await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA);\n  if ((await estado()) !== 'open') {\n    const num = String(corpo.numero || '').replace(/\\D/g, '');\n    const q = await evo('GET', `/instance/connect/${INST}` + (num ? `?number=${num}` : ''));\n    saida.qr = q.base64 || null;\n    saida.codigo = q.pairingCode || null;\n  }\n} else if (corpo.op === 'desconectar') {\n  try { await evo('DELETE', `/instance/logout/${INST}`); } catch (e) { /* ja desconectado */ }\n}\nsaida.estado = await estado();\nif (saida.estado !== 'inexistente' && saida.estado !== 'erro') {\n  try { await evo('POST', `/settings/set/${INST}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }\n}\nsaida.config = corpo.config || {};\nif (saida.estado === 'open') {\n  try {\n    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${INST}`);\n    const i = Array.isArray(lista) ? lista[0] : lista;\n    saida.numero = String(i.ownerJid || i.owner || '').split('@')[0];\n    saida.perfil = i.profileName || null;\n  } catch (e) { /* sem detalhes */ }\n}\nsaida.desconhecidos = corpo.desconhecidos || [];\nreturn [{ json: saida }];\n"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// status / conectar (QR ou codigo de pareamento) / desconectar\nconst corpo = $input.first().json.r.corpo;\nconst I = corpo.instancia || INST;\nconst TOKEN = I === INST ? $env.WHATSAPP_WEBHOOK_SEGREDO : `${$env.WHATSAPP_WEBHOOK_SEGREDO}-${I}`;\nconst urlWebhook = comHttp($env.WHATSAPP_WEBHOOK_BASE || 'n8n:5678') + '/webhook/whatsapp';\nconst eventos = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];\nconst cfgWebhook = { enabled: true, url: urlWebhook, byEvents: false, base64: true, events: eventos };\nasync function estado() {\n  try { const x = await evo('GET', `/instance/connectionState/${I}`); return (x.instance || x).state || 'close'; }\n  catch (e) { return /404|not exist/i.test(String(e.message) + JSON.stringify(e.description || '')) ? 'inexistente' : 'erro'; }\n}\nconst saida = {};\nif (corpo.op === 'conectar') {\n  if ((await estado()) === 'inexistente') {\n    await evo('POST', '/instance/create', { instanceName: I, token: TOKEN,\n      integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });\n  }\n  await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook });\n  await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA);\n  if ((await estado()) !== 'open') {\n    const num = String(corpo.numero || '').replace(/\\D/g, '');\n    const q = await evo('GET', `/instance/connect/${I}` + (num ? `?number=${num}` : ''));\n    saida.qr = q.base64 || null;\n    saida.codigo = q.pairingCode || null;\n  }\n} else if (corpo.op === 'desconectar') {\n  try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ja desconectado */ }\n}\nsaida.estado = await estado();\nif (saida.estado !== 'inexistente' && saida.estado !== 'erro') {\n  try { await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }\n}\nsaida.config = corpo.config || {};\nif (saida.estado === 'open') {\n  try {\n    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${I}`);\n    const i = Array.isArray(lista) ? lista[0] : lista;\n    saida.numero = String(i.ownerJid || i.owner || '').split('@')[0];\n    saida.perfil = i.profileName || null;\n  } catch (e) { /* sem detalhes */ }\n}\nsaida.instancia = I;\nsaida.desconhecidos = corpo.desconhecidos || [];\nreturn [{ json: saida }];\n"
       },
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000090",
+      "id": "c0000000-0000-4000-8000-000000000091",
       "name": "Resposta WhatsApp",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000091",
+      "id": "c0000000-0000-4000-8000-000000000092",
       "name": "Rodar monitor",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -139,7 +139,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000092",
+      "id": "c0000000-0000-4000-8000-000000000093",
       "name": "Verificado",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -157,7 +157,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000093",
+      "id": "c0000000-0000-4000-8000-000000000094",
       "name": "Enviar aprovada",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -167,12 +167,12 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst c = $input.first().json.r.corpo;\nif (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];\nif (!(await whatsappConectado())) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];\nconst env = await enviarWhatsapp(c.numero, c.texto, false);\nreturn [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) || '' } }];"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst c = $input.first().json.r.corpo;\nif (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];\nconst inst = (await whatsappConectado(INST_JOAO)) ? INST_JOAO : ((await whatsappConectado(INST)) ? INST : null);\nif (!inst) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];\nconst env = await enviarWhatsapp(c.numero, c.texto, false, inst);\nreturn [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) || '' } }];"
       },
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000094",
+      "id": "c0000000-0000-4000-8000-000000000095",
       "name": "Guardar ids aprovada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -197,7 +197,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000095",
+      "id": "c0000000-0000-4000-8000-000000000096",
       "name": "Rodar aprendiz",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -243,7 +243,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000096",
+      "id": "c0000000-0000-4000-8000-000000000097",
       "name": "Aprendido",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -261,7 +261,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000097",
+      "id": "c0000000-0000-4000-8000-000000000098",
       "name": "Aprovada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -279,7 +279,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000098",
+      "id": "c0000000-0000-4000-8000-000000000099",
       "name": "Simular atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -355,7 +355,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000099",
+      "id": "c0000000-0000-4000-8000-000000000100",
       "name": "Resposta simulada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -373,7 +373,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000100",
+      "id": "c0000000-0000-4000-8000-000000000101",
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -391,7 +391,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000101",
+      "id": "c0000000-0000-4000-8000-000000000102",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -489,7 +489,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000102",
+      "id": "c0000000-0000-4000-8000-000000000103",
       "name": "Resposta da IA",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -507,7 +507,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000103",
+      "id": "c0000000-0000-4000-8000-000000000104",
       "name": "Voz (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -540,7 +540,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000104",
+      "id": "c0000000-0000-4000-8000-000000000105",
       "name": "Audio",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -564,7 +564,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000105",
+      "id": "c0000000-0000-4000-8000-000000000106",
       "name": "Voz falhou",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
