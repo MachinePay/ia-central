@@ -742,23 +742,37 @@ async function pedirQr(num) {
 if (corpo.op === 'conectar') {
   // "Conectar"/"Novo QR": sessao que nao esta aberta (QR vencido, limite de QRs, conexao pela metade)
   // e apagada e criada de novo -> QR novo de verdade, sempre.
+  const criar = async () => {   // logo depois de apagar, a Evolution ainda esta limpando: tenta algumas vezes
+    for (let i = 0; i < 4; i++) {
+      try {
+        await evo('POST', '/instance/create', { instanceName: I, token: TOKEN,
+          integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });
+        await espera(1500);
+        return;
+      } catch (e) { if (i === 3) throw e; await espera(3000); }
+    }
+  };
+  const num = String(corpo.numero || '').replace(/\D/g, '');
   let st = await estado();
   if (st === 'erro') throw new Error('Evolution (WhatsApp) fora do ar ou reiniciando. Tente de novo em 1 minuto.');
-  if (st !== 'open' && st !== 'inexistente') {
+  if (st !== 'open' && st !== 'inexistente') {   // zera a sessao (QR vencido / limite de QRs) sem apagar
     try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ja estava zerado */ }
-    try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ja apagada */ }
     await espera(1500);
     st = await estado();
   }
-  if (st === 'inexistente') {
-    await evo('POST', '/instance/create', { instanceName: I, token: TOKEN,
-      integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });
-    await espera(1500);
-  }
+  if (st === 'inexistente') await criar();
   await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook });
   await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA);
   if ((await estado()) !== 'open') {
-    const q = await pedirQr(String(corpo.numero || '').replace(/\D/g, ''));
+    let q = await pedirQr(num);
+    if (!q.base64 && !q.pairingCode) {   // sessao travada de vez: apaga e cria do zero
+      try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ok */ }
+      try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ok */ }
+      await espera(3000);
+      await criar();
+      await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook });
+      q = await pedirQr(num);
+    }
     saida.qr = q.base64 || null;
     saida.codigo = q.pairingCode || null;
     if (!saida.qr && !saida.codigo) saida.aviso = 'O WhatsApp nao devolveu o QR agora. Clique em "Novo QR code" de novo.';
