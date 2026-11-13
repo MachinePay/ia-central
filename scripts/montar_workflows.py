@@ -829,17 +829,23 @@ const m = d.message || {};
 const texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)
   || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';
 let audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;
-if (m.audioMessage && !audio) {   // webhook sem base64: pede para a Evolution
-  try {
-    const r = await evo('POST', `/chat/getBase64FromMediaMessage/${b.instance || INST}`, { message: { key: d.key }, convertToMp4: false });
-    audio = (r && (r.base64 || r.media)) || null;
-  } catch (e) { /* segue sem audio */ }
+let erroAudio = '';
+if (m.audioMessage && !audio) {
+  // webhook sem o arquivo (comum no audio que VOCE manda): a Evolution baixa direto do WhatsApp.
+  // Manda a mensagem INTEIRA (com a chave de midia): so o id nao basta, a Evolution nao guarda mensagens.
+  for (const corpo of [{ message: { key: d.key, message: m }, convertToMp4: false }, { message: { key: d.key }, convertToMp4: false }]) {
+    try {
+      const r = await evo('POST', `/chat/getBase64FromMediaMessage/${b.instance || INST}`, corpo);
+      audio = (r && (r.base64 || r.media)) || null;
+      if (audio) break;
+    } catch (e) { erroAudio = String(e.message || e).slice(0, 200); }
+  }
 }
 if (!texto && !audio && !m.audioMessage) return [];
 return [{ json: {
   numero: jid.split('@')[0], nome: d.pushName || '', texto,
   tipo: m.audioMessage ? 'audio' : 'texto', audio_b64: audio,
-  de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,
+  de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null, erro_audio: erroAudio,
   instancia: b.instance || $env.EVOLUTION_INSTANCIA || 'nucleo', dono,
 } }];
 """
@@ -848,7 +854,7 @@ JS_PREPARAR = r"""
 const msg = $('Mensagem').first().json;
 const quem = $('Quem e').first().json.r;
 const texto = msg.tipo === 'audio' ? (msg.transcricao || '') : (quem.texto || msg.texto);
-return [{ json: { ...quem, chatInput: texto || '(audio que nao consegui entender)' } }];
+return [{ json: { ...quem, chatInput: texto || '[A pessoa mandou um AUDIO que nao consegui ouvir. Diga com naturalidade que o audio nao chegou direito e peca para mandar de novo ou escrever.]' } }];
 """
 
 JS_RESPONDER_WHATSAPP = r"""
@@ -931,7 +937,7 @@ def canal_whatsapp():
                       "if (m.tipo === 'audio') {\n"
                       "  if (typeof t.text === 'string') transcricao = t.text.trim();\n"
                       "  else if (t.error) falha = typeof t.error === 'string' ? t.error : (t.error.message || JSON.stringify(t.error));\n"
-                      "  else if (!m.audio_b64) falha = 'o WhatsApp nao entregou o arquivo do audio';\n"
+                      "  else if (!m.audio_b64) falha = 'nao consegui baixar o audio do WhatsApp' + (m.erro_audio ? ': ' + m.erro_audio : '');\n"
                       "}\n"
                       "const texto = m.tipo === 'audio' ? (transcricao ? '🎤 ' + transcricao : '') : m.texto;\n"
                       "return [{ json: { ...m, audio_b64: undefined, texto, transcricao, falha_audio: falha } }];",
