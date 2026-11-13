@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000101",
+      "id": "c0000000-0000-4000-8000-000000000112",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -21,7 +21,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000004"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000102",
+      "id": "c0000000-0000-4000-8000-000000000113",
       "name": "Ler mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -31,11 +31,11 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst b = $input.first().json.body || {};\n// so aceita o que veio da nossa instancia (token secreto configurado ao conectar)\nif (!$env.WHATSAPP_WEBHOOK_SEGREDO || b.apikey !== $env.WHATSAPP_WEBHOOK_SEGREDO) return [];\nif (String(b.event || '').toLowerCase().replace(/_/g, '.') !== 'messages.upsert') return [];\nconst d = Array.isArray(b.data) ? b.data[0] : b.data;\nif (!d || !d.key) return [];\nconst deMim = !!d.key.fromMe;\nlet jid = d.key.remoteJid || '';\nif (jid.endsWith('@lid')) jid = d.key.remoteJidAlt || d.key.senderPn || d.key.participantAlt || '';\nif (!jid.endsWith('@s.whatsapp.net')) return [];          // grupos, status, canais: ignora\nconst dono = String(b.sender || '').split('@')[0].split(':')[0];\nconst conversaPropria = deMim && !!dono && jid.split('@')[0] === dono;   // conversa \"Voce\"\nif (deMim && !conversaPropria) return [];                  // dono falando com outras pessoas\nif (deMim) await new Promise(r => setTimeout(r, 2500));    // da tempo de registrar o que a IA enviou\nconst m = d.message || {};\nconst texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)\n  || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';\nconst audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;\nif (!texto && !audio) return [];\nreturn [{ json: {\n  numero: jid.split('@')[0], nome: d.pushName || '', texto,\n  tipo: audio ? 'audio' : 'texto', audio_b64: audio,\n  de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,\n} }];\n"
+        "jsCode": "\nconst b = $input.first().json.body || {};\n// so aceita o que veio da nossa instancia (token secreto configurado ao conectar)\nif (!$env.WHATSAPP_WEBHOOK_SEGREDO || b.apikey !== $env.WHATSAPP_WEBHOOK_SEGREDO) return [];\nif (String(b.event || '').toLowerCase().replace(/_/g, '.') !== 'messages.upsert') return [];\nconst d = Array.isArray(b.data) ? b.data[0] : b.data;\nif (!d || !d.key) return [];\nconst deMim = !!d.key.fromMe;\nlet jid = d.key.remoteJid || '';\nif (jid.endsWith('@lid')) jid = d.key.remoteJidAlt || d.key.senderPn || d.key.participantAlt || '';\nif (!jid.endsWith('@s.whatsapp.net')) return [];          // grupos, status, canais: ignora\nconst dono = String(b.sender || '').split('@')[0].split(':')[0];\nconst conversaPropria = deMim && !!dono && jid.split('@')[0] === dono;   // conversa \"Voce\"\n// mensagens do dono para outras pessoas tambem seguem: o banco decide (cliente observado = aprendizado;\n// qualquer outra conversa pessoal e ignorada sem guardar nada)\nif (deMim) await new Promise(r => setTimeout(r, 2500));    // da tempo de registrar o que a IA enviou\nconst m = d.message || {};\nconst texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)\n  || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';\nconst audio = m.audioMessage ? (m.base64 || d.base64 || null) : null;\nif (!texto && !audio) return [];\nreturn [{ json: {\n  numero: jid.split('@')[0], nome: d.pushName || '', texto,\n  tipo: audio ? 'audio' : 'texto', audio_b64: audio,\n  de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null,\n} }];\n"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000103",
+      "id": "c0000000-0000-4000-8000-000000000114",
       "name": "Quem e",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -58,7 +58,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000104",
+      "id": "c0000000-0000-4000-8000-000000000115",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -73,7 +73,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000105",
+      "id": "c0000000-0000-4000-8000-000000000116",
       "name": "Dados do audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -87,7 +87,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000106",
+      "id": "c0000000-0000-4000-8000-000000000117",
       "name": "Audio em arquivo",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.2,
@@ -107,7 +107,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000107",
+      "id": "c0000000-0000-4000-8000-000000000118",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -150,7 +150,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000108",
+      "id": "c0000000-0000-4000-8000-000000000119",
       "name": "Preparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,7 +164,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000109",
+      "id": "c0000000-0000-4000-8000-000000000120",
       "name": "Quem responde",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -179,7 +179,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000110",
+      "id": "c0000000-0000-4000-8000-000000000121",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -255,7 +255,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000111",
+      "id": "c0000000-0000-4000-8000-000000000122",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -278,7 +278,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000112",
+      "id": "c0000000-0000-4000-8000-000000000123",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -288,11 +288,35 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// automatico: manda para o cliente | aprovacao: guarda na fila e avisa os admins\nconst r = $input.first().json.r;\nconst fila = $('Atendente').first().json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.';\nif (r.enviar) {\n  await enviarWhatsapp(r.numero, fila, false);\n  return [{ json: { enviado: true, fila_id: r.fila_id } }];\n}\nconst conectado = await whatsappConectado();\nfor (const n of r.avisar || []) {\n  try { if (conectado) await enviarWhatsapp(n, `📥 Cliente aguardando: resposta da IA para aprovar no painel (Atendimento).`); } catch (e) {}\n}\nreturn [{ json: { enviado: false, fila_id: r.fila_id, aguardando_aprovacao: true } }];\n"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// automatico: manda para o cliente | aprovacao: guarda na fila e avisa os admins\nconst r = $input.first().json.r;\nconst fila = $('Atendente').first().json.output || 'Desculpe, tive um problema agora. Ja ja a equipe te responde.';\nif (r.enviar) {\n  const env = await enviarWhatsapp(r.numero, fila, false);\n  return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];\n}\nconst conectado = await whatsappConectado();\nfor (const n of r.avisar || []) {\n  try { if (conectado) await enviarWhatsapp(n, `📥 Cliente aguardando: resposta da IA para aprovar no painel (Atendimento).`); } catch (e) {}\n}\nreturn [{ json: { enviado: false, fila_id: r.fila_id, aguardando_aprovacao: true, ids: '' } }];\n"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000113",
+      "id": "c0000000-0000-4000-8000-000000000124",
+      "name": "Guardar ids",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2420,
+        260
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO nucleo.whatsapp_enviadas (id) SELECT unnest(string_to_array(nullif($1, ''), ',')) ON CONFLICT DO NOTHING",
+        "options": {
+          "queryReplacement": "={{ [$json.ids || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000125",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -390,7 +414,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000114",
+      "id": "c0000000-0000-4000-8000-000000000126",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -404,7 +428,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000115",
+      "id": "c0000000-0000-4000-8000-000000000127",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -521,6 +545,17 @@
         [
           {
             "node": "Entregar atendimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entregar atendimento": {
+      "main": [
+        [
+          {
+            "node": "Guardar ids",
             "type": "main",
             "index": 0
           }

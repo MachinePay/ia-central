@@ -7,9 +7,9 @@
 -- Idempotente.
 -- =====================================================================
 
-INSERT INTO nucleo.config VALUES ('atendimento_modo', '"aprovacao"') ON CONFLICT DO NOTHING;
+INSERT INTO nucleo.config VALUES ('atendimento_modo', '"observando"') ON CONFLICT DO NOTHING;
 INSERT INTO nucleo.config VALUES ('atendimento_empresa',
-  '{"nome": "Minha empresa", "descricao": "", "horario": "segunda a sexta, 9h as 18h", "tom": "simpatico, objetivo e profissional"}')
+  '{"nome": "Minha empresa", "descricao": "", "horario": "segunda a sexta, 9h as 18h", "tom": "simpatico, objetivo e profissional", "persona": "Leo 2.0"}')
   ON CONFLICT DO NOTHING;
 
 -- sistemas que os clientes podem saber se estao fora (o resto e interno)
@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS nucleo.clientes (
     criado_em      timestamptz NOT NULL DEFAULT now(),
     ultimo_contato timestamptz NOT NULL DEFAULT now()
 );
+
+-- usadas pela observacao/aprendiz (07); criadas aqui porque o painel abaixo ja as consulta
+ALTER TABLE nucleo.clientes  ADD COLUMN IF NOT EXISTS ia_responde   boolean NOT NULL DEFAULT false;
+ALTER TABLE nucleo.clientes  ADD COLUMN IF NOT EXISTS aprendido_ate timestamptz;
+ALTER TABLE nucleo.conversas ADD COLUMN IF NOT EXISTS cliente_id    int REFERENCES nucleo.clientes(id) ON DELETE CASCADE;
 
 CREATE TABLE IF NOT EXISTS nucleo.chamados (
     id           serial PRIMARY KEY,
@@ -115,6 +120,10 @@ BEGIN
             CASE WHEN modo = 'automatico' THEN p_rascunho END,
             CASE WHEN modo = 'automatico' THEN 'automatica' ELSE 'pendente' END)
     RETURNING id INTO fid;
+    IF modo = 'automatico' THEN
+        INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem, cliente_id)
+        VALUES ('whatsapp', coalesce(num, ''), 'atendente', 'ia', p_rascunho, p_cliente);
+    END IF;
     RETURN jsonb_build_object('fila_id', fid, 'enviar', modo = 'automatico', 'numero', num, 'modo', modo,
         'avisar', CASE WHEN modo = 'automatico' THEN '[]'::jsonb ELSE coalesce((SELECT jsonb_agg(whatsapp) FROM nucleo.usuarios
                    WHERE papel = 'admin' AND ativo AND whatsapp IS NOT NULL), '[]') END);
@@ -132,6 +141,8 @@ BEGIN
      RETURNING * INTO f;
     IF NOT FOUND THEN RETURN NULL; END IF;
     SELECT whatsapp INTO num FROM nucleo.clientes WHERE id = f.cliente_id;
+    INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem, cliente_id)
+    VALUES ('whatsapp', coalesce(num, ''), 'atendente', 'ia', f.resposta_final, f.cliente_id);
     INSERT INTO nucleo.conhecimento (usuario_id, dominio, titulo, conteudo, origem)
     VALUES (NULL, f.area, left(f.pergunta, 90),
             'Pergunta de cliente: ' || f.pergunta || E'\n' || 'Resposta aprovada: ' || f.resposta_final,
@@ -153,12 +164,19 @@ LANGUAGE sql STABLE AS $$
               FROM nucleo.chamados h LEFT JOIN nucleo.clientes c ON c.id = h.cliente_id
              WHERE h.status = 'aberto' ORDER BY h.criado_em DESC LIMIT 30) x), '[]'),
         'clientes', coalesce((SELECT jsonb_agg(x ORDER BY x.ultimo_contato DESC) FROM (
-            SELECT id, nome, whatsapp, empresa, interesse, etapa, ultimo_contato
-              FROM nucleo.clientes WHERE whatsapp NOT LIKE 'teste%' ORDER BY ultimo_contato DESC LIMIT 30) x), '[]'),
+            SELECT c.id, c.nome, c.whatsapp, c.empresa, c.interesse, c.etapa, c.ultimo_contato, c.ia_responde,
+                   (SELECT count(*) FROM nucleo.conversas v WHERE v.cliente_id = c.id) AS mensagens,
+                   (SELECT count(*) FROM nucleo.conversas v WHERE v.cliente_id = c.id AND v.papel = 'humano') AS respostas_humanas
+              FROM nucleo.clientes c WHERE c.whatsapp NOT LIKE 'teste%' ORDER BY c.ultimo_contato DESC LIMIT 50) x), '[]'),
         'base', coalesce((SELECT jsonb_agg(x ORDER BY x.dominio, x.criado_em DESC) FROM (
             SELECT id, dominio, titulo, conteudo, origem, criado_em
-              FROM nucleo.conhecimento WHERE usuario_id IS NULL AND dominio IN ('suporte','comercial','geral')
+              FROM nucleo.conhecimento WHERE usuario_id IS NULL AND aprovado AND dominio IN ('suporte','comercial','geral')
              ORDER BY criado_em DESC LIMIT 200) x), '[]'),
+        'sugestoes', coalesce((SELECT jsonb_agg(x ORDER BY x.criado_em DESC) FROM (
+            SELECT k.id, k.dominio, k.titulo, k.conteudo, k.criado_em, cl.nome AS cliente
+              FROM nucleo.conhecimento k LEFT JOIN nucleo.clientes cl ON cl.id = (k.metadata->>'cliente_id')::int
+             WHERE k.usuario_id IS NULL AND NOT k.aprovado AND k.origem = 'observacao'
+             ORDER BY k.criado_em DESC LIMIT 100) x), '[]'),
         'sistemas', coalesce((SELECT jsonb_agg(jsonb_build_object('id', id, 'nome', nome, 'publico', publico) ORDER BY nome)
               FROM nucleo.sistemas WHERE tipo = 'http'), '[]'))
 $$;

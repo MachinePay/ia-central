@@ -37,12 +37,13 @@ export interface WhatsappStatus {
 
 
 export type Area = 'suporte' | 'comercial' | 'geral'
-export interface Empresa { nome: string; descricao: string; horario: string; tom: string }
+export interface Empresa { nome: string; descricao: string; horario: string; tom: string; persona?: string }
 export interface AtendimentoPainel {
-  config: { modo: 'desligado' | 'aprovacao' | 'automatico'; empresa: Empresa }
+  config: { modo: 'desligado' | 'observando' | 'aprovacao' | 'automatico'; alcance: 'selecionados' | 'todos'; observar: 'clientes' | 'todos'; empresa: Empresa }
   fila: { id: number; pergunta: string; rascunho: string; criado_em: string; nome: string | null; whatsapp: string | null }[]
   chamados: { id: number; area: string; titulo: string; descricao: string | null; prioridade: string; criado_em: string; nome: string | null; whatsapp: string | null }[]
-  clientes: { id: number; nome: string | null; whatsapp: string; empresa: string | null; interesse: string | null; etapa: string; ultimo_contato: string }[]
+  clientes: { id: number; nome: string | null; whatsapp: string; empresa: string | null; interesse: string | null; etapa: string; ultimo_contato: string; ia_responde: boolean; mensagens: number; respostas_humanas: number }[]
+  sugestoes: { id: number; dominio: Area; titulo: string | null; conteudo: string; criado_em: string; cliente: string | null }[]
   base: { id: number; dominio: Area; titulo: string | null; conteudo: string; origem: string; criado_em: string }[]
   sistemas: { id: number; nome: string; publico: boolean }[]
 }
@@ -82,7 +83,14 @@ export const api = {
   chat: (mensagem: string, sessao: string) => chamar<{ resposta: string }>('chat', { mensagem, sessao }),
   verificar: () => chamar<{ ok: boolean }>('verificar'),
   atendimento: () => chamar<AtendimentoPainel>('admin_atendimento'),
-  atendimentoConfig: (d: { modo?: string; empresa?: Empresa }) => chamar('admin_atendimento_config', d),
+  atendimentoConfig: (d: { modo?: string; alcance?: string; observar?: string; empresa?: Empresa }) => chamar('admin_atendimento_config', d),
+  clienteSalvar: (nome: string, whatsapp: string) => chamar('admin_cliente_salvar', { nome, whatsapp }),
+  clienteIa: (id: number, ativa: boolean) => chamar('admin_cliente_ia', { id, ativa }),
+  clienteApagar: (id: number) => chamar('admin_cliente_apagar', { id }),
+  clienteConversa: (id: number) => chamar<{ mensagens: { papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[] }>('admin_cliente_conversa', { id }),
+  sugestaoAprovar: (id: number, area: Area, titulo: string, conteudo: string) => chamar('admin_sugestao_aprovar', { id, area, titulo, conteudo }),
+  sugestaoDescartar: (id: number) => chamar('admin_sugestao_descartar', { id }),
+  aprenderAgora: () => chamar<{ ok: boolean; sugestoes: number }>('admin_aprender_agora'),
   baseSalvar: (area: Area, titulo: string, conteudo: string) => chamar('admin_base_salvar', { area, titulo, conteudo }),
   baseApagar: (id: number) => chamar('admin_base_apagar', { id }),
   chamadoResolver: (id: number) => chamar('admin_chamado_resolver', { id }),

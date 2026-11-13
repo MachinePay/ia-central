@@ -260,8 +260,16 @@ BEGIN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.atendimento_painel());
 
     ELSIF p_acao = 'admin_atendimento_config' THEN
-        IF d->>'modo' IN ('desligado','aprovacao','automatico') THEN
+        IF d->>'modo' IN ('desligado','observando','aprovacao','automatico') THEN
             INSERT INTO nucleo.config VALUES ('atendimento_modo', to_jsonb(d->>'modo'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        IF d->>'alcance' IN ('selecionados','todos') THEN
+            INSERT INTO nucleo.config VALUES ('atendimento_alcance', to_jsonb(d->>'alcance'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        IF d->>'observar' IN ('clientes','todos') THEN
+            INSERT INTO nucleo.config VALUES ('atendimento_observar', to_jsonb(d->>'observar'))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
         IF jsonb_typeof(d->'empresa') = 'object' THEN
@@ -304,6 +312,47 @@ BEGIN
             END IF;
             RETURN jsonb_build_object('saida',5,'status',200,'corpo', r);
         END;
+
+    ELSIF p_acao = 'admin_cliente_salvar' THEN      -- cadastra numero como cliente (passa a ser observado)
+        IF length(regexp_replace(coalesce(d->>'whatsapp',''), '[^0-9]', '', 'g')) < 10 THEN
+            RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Numero invalido'));
+        END IF;
+        DECLARE cli record;
+        BEGIN
+            cli := nucleo.cliente_por_whatsapp(d->>'whatsapp', d->>'nome');
+            UPDATE nucleo.clientes SET nome = coalesce(nullif(d->>'nome',''), nome),
+                   ia_responde = coalesce((d->>'ia_responde')::boolean, ia_responde)
+             WHERE id = cli.id;
+            RETURN jsonb_build_object('saida',0,'status',200,'corpo',jsonb_build_object('id', cli.id));
+        END;
+
+    ELSIF p_acao = 'admin_cliente_ia' THEN          -- liga/desliga a IA para um cliente
+        UPDATE nucleo.clientes SET ia_responde = (d->>'ativa')::boolean WHERE id = (d->>'id')::int;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_cliente_apagar' THEN      -- deixa de observar e apaga as conversas guardadas
+        DELETE FROM nucleo.clientes WHERE id = (d->>'id')::int;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_cliente_conversa' THEN
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo',jsonb_build_object('mensagens', coalesce((
+            SELECT jsonb_agg(jsonb_build_object('papel', v.papel, 'texto', v.mensagem, 'em', v.criado_em) ORDER BY v.criado_em)
+              FROM (SELECT * FROM nucleo.conversas WHERE cliente_id = (d->>'id')::int ORDER BY criado_em DESC LIMIT 60) v), '[]'::jsonb)));
+
+    ELSIF p_acao = 'admin_sugestao_aprovar' THEN    -- sugestao do aprendiz entra na base (pode editar)
+        UPDATE nucleo.conhecimento
+           SET aprovado = true, origem = 'aprendido_observando',
+               dominio = CASE WHEN d->>'area' IN ('suporte','comercial','geral') THEN d->>'area' ELSE dominio END,
+               titulo = coalesce(nullif(d->>'titulo',''), titulo), conteudo = coalesce(nullif(d->>'conteudo',''), conteudo)
+         WHERE id = (d->>'id')::bigint AND usuario_id IS NULL AND NOT aprovado;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_sugestao_descartar' THEN
+        DELETE FROM nucleo.conhecimento WHERE id = (d->>'id')::bigint AND usuario_id IS NULL AND NOT aprovado;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_aprender_agora' THEN      -- roda o aprendiz agora (n8n)
+        RETURN jsonb_build_object('saida',7,'status',200,'corpo','{}'::jsonb);
 
     ELSIF p_acao = 'admin_atendimento_teste' THEN  -- simulador: o admin finge ser um cliente
         DECLARE cli record;

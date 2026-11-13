@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000046",
+      "id": "c0000000-0000-4000-8000-000000000054",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -25,7 +25,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000047",
+      "id": "c0000000-0000-4000-8000-000000000055",
       "name": "Checar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

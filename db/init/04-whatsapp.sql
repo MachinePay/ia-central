@@ -72,33 +72,16 @@ BEGIN
     IF p_de_mim AND texto LIKE '🤖%' THEN
         RETURN jsonb_build_object('saida', 0, 'motivo', 'mensagem da propria IA');
     END IF;
-    -- 2) mensagens que o dono do numero manda para OUTRAS pessoas: nao e com a IA
+    -- 2) o dono respondendo OUTRA pessoa: so interessa se for cliente observado (a IA aprende com isso)
     IF p_de_mim AND NOT p_conversa_propria THEN
-        RETURN jsonb_build_object('saida', 0, 'motivo', 'conversa pessoal');
+        RETURN nucleo.atendimento_entrada(p_numero, p_nome, texto, p_tipo, true, modo);
     END IF;
 
     SELECT * INTO u FROM nucleo.usuario_por_whatsapp(p_numero);
 
+    -- 3) numero que nao e usuario: cliente (observar / responder) ou ignorado (06/07-atendimento)
     IF u.id IS NULL THEN
-        -- chip dedicado + atendente ligada: cliente vai para a ATENDENTE (suporte/comercial/sistemico)
-        IF modo = 'dedicado' AND NOT p_de_mim
-           AND coalesce((SELECT valor #>> '{}' FROM nucleo.config WHERE chave = 'atendimento_modo'), 'aprovacao') <> 'desligado' THEN
-            DECLARE cli record;
-            BEGIN
-                cli := nucleo.cliente_por_whatsapp(p_numero, p_nome);
-                INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem)
-                VALUES ('whatsapp', nucleo.so_digitos(p_numero) || coalesce(' (' || nullif(p_nome,'') || ')', ''),
-                        'atendente', 'usuario', coalesce(nullif(texto,''), '[' || p_tipo || ']'));
-                RETURN jsonb_build_object('saida', 2, 'cliente_id', cli.id, 'nome', coalesce(cli.nome, p_nome, 'cliente'),
-                    'texto', texto, 'sessionId', 'c' || cli.id || ':whatsapp');
-            END;
-        END IF;
-        IF modo = 'dedicado' THEN   -- atendente desligada: so guarda para o admin ver
-            INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem, precisa_revisao)
-            VALUES ('whatsapp', nucleo.so_digitos(p_numero) || coalesce(' (' || nullif(p_nome,'') || ')', ''),
-                    'nenhum', 'usuario', coalesce(nullif(texto,''), '[' || p_tipo || ']'), true);
-        END IF;                     -- no modo pessoal: nao registra nada (amigos/familia)
-        RETURN jsonb_build_object('saida', 0, 'motivo', 'numero nao cadastrado');
+        RETURN nucleo.atendimento_entrada(p_numero, p_nome, texto, p_tipo, false, modo);
     END IF;
 
     -- 3) modo pessoal: outros usuarios precisam do gatilho; a conversa "Voce" do dono e livre

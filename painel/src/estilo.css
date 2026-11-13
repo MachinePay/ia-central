@@ -390,3 +390,7 @@ input, textarea, select { font: inherit; color: inherit; }
   .atendimento { grid-template-columns: minmax(0, 1fr); padding: 0 12px 12px; }
   .topo-meio { display: none; }
 }
+
+.sim-msg.cliente-de-la { align-self: flex-start; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); }
+.sim-msg.voce { align-self: flex-end; background: rgba(61, 255, 168, 0.12); border: 1px solid rgba(61, 255, 168, 0.3); }
+.sim-msg .via { display: block; font-family: var(--f-mono); font-size: 9px; color: var(--texto-3); margin-bottom: 2px; letter-spacing: 0.08em; }

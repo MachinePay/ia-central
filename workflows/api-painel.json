@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000075",
+      "id": "c0000000-0000-4000-8000-000000000083",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -23,7 +23,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000002"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000076",
+      "id": "c0000000-0000-4000-8000-000000000084",
       "name": "Regras (banco)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -46,7 +46,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000077",
+      "id": "c0000000-0000-4000-8000-000000000085",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -56,12 +56,12 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 7,
+        "numberOutputs": 8,
         "output": "={{ $json.r.saida }}"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000078",
+      "id": "c0000000-0000-4000-8000-000000000086",
       "name": "WhatsApp (Evolution)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -76,7 +76,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000079",
+      "id": "c0000000-0000-4000-8000-000000000087",
       "name": "Resposta WhatsApp",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000080",
+      "id": "c0000000-0000-4000-8000-000000000088",
       "name": "Rodar monitor",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -139,7 +139,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000081",
+      "id": "c0000000-0000-4000-8000-000000000089",
       "name": "Verificado",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -157,7 +157,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000082",
+      "id": "c0000000-0000-4000-8000-000000000090",
       "name": "Enviar aprovada",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -167,12 +167,101 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst c = $input.first().json.r.corpo;\nif (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];\nif (!(await whatsappConectado())) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];\nawait enviarWhatsapp(c.numero, c.texto, false);\nreturn [{ json: { ok: true, enviado: true } }];"
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado() {\n  try { const r = await evo('GET', `/instance/connectionState/${INST}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true) {\n  let t = paraWhatsapp(texto);\n  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma\n  return evo('POST', `/message/sendText/${INST}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst c = $input.first().json.r.corpo;\nif (String(c.numero || '').startsWith('teste')) return [{ json: { ok: true, enviado: false, motivo: 'cliente de teste' } }];\nif (!(await whatsappConectado())) return [{ json: { ok: true, enviado: false, motivo: 'WhatsApp desconectado' } }];\nconst env = await enviarWhatsapp(c.numero, c.texto, false);\nreturn [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) || '' } }];"
       },
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000083",
+      "id": "c0000000-0000-4000-8000-000000000091",
+      "name": "Guardar ids aprovada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        810,
+        800
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO nucleo.whatsapp_enviadas (id) SELECT unnest(string_to_array(nullif($1, ''), ','))\nON CONFLICT DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.ids || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000092",
+      "name": "Rodar aprendiz",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        700,
+        1200
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "aprendiz000001",
+          "cachedResultName": "Aprendiz (observa e aprende)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "origem": "painel"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "origem",
+              "displayName": "origem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000093",
+      "name": "Aprendido",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        1200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: !$json.error, sugestoes: $json.sugestoes || 0 }) }}",
+        "options": {
+          "responseCode": 200,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000094",
       "name": "Aprovada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -182,7 +271,7 @@
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json.error ? { ok: true, enviado: false, motivo: String($json.error.message || $json.error) } : $json) }}",
+        "responseBody": "={{ JSON.stringify($('Enviar aprovada').first().json.error ? { ok: true, enviado: false, motivo: String($('Enviar aprovada').first().json.error.message || $('Enviar aprovada').first().json.error) } : { ok: true, enviado: !!$('Enviar aprovada').first().json.enviado, motivo: $('Enviar aprovada').first().json.motivo } ) }}",
         "options": {
           "responseCode": 200,
           "enableStreaming": false
@@ -190,7 +279,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000084",
+      "id": "c0000000-0000-4000-8000-000000000095",
       "name": "Simular atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -266,7 +355,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000085",
+      "id": "c0000000-0000-4000-8000-000000000096",
       "name": "Resposta simulada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -284,7 +373,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000086",
+      "id": "c0000000-0000-4000-8000-000000000097",
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -302,7 +391,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000087",
+      "id": "c0000000-0000-4000-8000-000000000098",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -400,7 +489,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000088",
+      "id": "c0000000-0000-4000-8000-000000000099",
       "name": "Resposta da IA",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -418,7 +507,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000089",
+      "id": "c0000000-0000-4000-8000-000000000100",
       "name": "Voz (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -451,7 +540,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000090",
+      "id": "c0000000-0000-4000-8000-000000000101",
       "name": "Audio",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -475,7 +564,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000091",
+      "id": "c0000000-0000-4000-8000-000000000102",
       "name": "Voz falhou",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -588,6 +677,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Rodar aprendiz",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -595,7 +691,29 @@
       "main": [
         [
           {
+            "node": "Guardar ids aprovada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar ids aprovada": {
+      "main": [
+        [
+          {
             "node": "Aprovada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rodar aprendiz": {
+      "main": [
+        [
+          {
+            "node": "Aprendido",
             "type": "main",
             "index": 0
           }

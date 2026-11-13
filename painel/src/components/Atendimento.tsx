@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { BookOpen, Check, CircleUser, Eye, Headset, Inbox, MessagesSquare, RefreshCw, Send, Settings2, Trash2, X, LifeBuoy } from 'lucide-react'
+import { BookOpen, Check, CircleUser, Eye, Headset, Inbox, MessagesSquare, RefreshCw, Send, Settings2, Trash2, X, LifeBuoy, Sparkles, UserPlus, ChevronDown } from 'lucide-react'
 import { api, ErroApi, type Area, type AtendimentoPainel, type Empresa } from '../api'
 
 const fmt = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -89,6 +89,75 @@ function Simulador({ aoMudar }: { aoMudar: () => void }) {
   )
 }
 
+// ------------------------------------------------------------------ sugestao aprendida
+function ItemSugestao({ s: sg, aoMudar }: { s: AtendimentoPainel['sugestoes'][number]; aoMudar: () => void }) {
+  const [titulo, setTitulo] = useState(sg.titulo || '')
+  const [conteudo, setConteudo] = useState(sg.conteudo)
+  const [area, setArea] = useState<Area>(sg.dominio)
+  return (
+    <div className="fila-item">
+      <div className="etiqueta">Aprendido de uma conversa{sg.cliente ? ` com ${sg.cliente}` : ''} · {fmt(sg.criado_em)}</div>
+      <div className="linha-2" style={{ marginTop: 6 }}>
+        <div className="campo" style={{ margin: 0 }}><select aria-label="Área" value={area} onChange={e => setArea(e.target.value as Area)}>
+          <option value="comercial">Comercial</option><option value="suporte">Suporte</option><option value="geral">Geral</option></select></div>
+        <div className="campo" style={{ margin: 0 }}><input aria-label="Título" value={titulo} onChange={e => setTitulo(e.target.value)} /></div>
+      </div>
+      <div className="campo" style={{ margin: '8px 0' }}><textarea aria-label="Conteúdo" rows={3} value={conteudo} onChange={e => setConteudo(e.target.value)} /></div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="botao" style={{ flex: 1 }} onClick={async () => { await api.sugestaoAprovar(sg.id, area, titulo, conteudo); aoMudar() }}><Check size={14} /> Aprovar</button>
+        <button className="botao secundario" style={{ width: 'auto' }} aria-label="Descartar" onClick={async () => { await api.sugestaoDescartar(sg.id); aoMudar() }}><X size={14} /></button>
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ cliente (com conversa)
+const ROTULO_PAPEL = { usuario: 'CLIENTE', humano: 'VOCÊ', ia: 'IA' } as const
+function ItemCliente({ c, alcance, aoMudar }: { c: AtendimentoPainel['clientes'][number]; alcance: string; aoMudar: () => void }) {
+  const [aberto, setAberto] = useState(false)
+  const [msgs, setMsgs] = useState<{ papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[] | null>(null)
+  async function abrir() {
+    setAberto(a => !a)
+    if (!msgs) setMsgs((await api.clienteConversa(c.id)).mensagens)
+  }
+  return (
+    <div className="fila-item">
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="item-titulo"><span className="origem">{c.etapa.toUpperCase()}</span>{c.nome || 'sem nome'}{c.empresa ? ` · ${c.empresa}` : ''}</div>
+          <div className="etiqueta">+{c.whatsapp} · {c.mensagens} msgs · {c.respostas_humanas} respostas suas</div>
+          {c.interesse && <div className="item-texto">Quer: {c.interesse}</div>}
+        </div>
+        <span className="etiqueta" title="IA responde este cliente">IA</span>
+        <button role="switch" aria-checked={c.ia_responde} aria-label={`IA responde ${c.nome || c.whatsapp}`}
+          className={`interruptor ${c.ia_responde || alcance === 'todos' ? 'ligado' : ''}`} disabled={alcance === 'todos'}
+          title={alcance === 'todos' ? 'A IA responde todos (mude o alcance para escolher)' : ''}
+          onClick={async () => { await api.clienteIa(c.id, !c.ia_responde); aoMudar() }} />
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button className="botao-icone" style={{ width: 'auto', height: 24, padding: '0 8px', fontSize: 11, display: 'flex', gap: 4 }} onClick={abrir}>
+          <ChevronDown size={12} style={{ transform: aberto ? 'rotate(180deg)' : undefined }} /> conversa
+        </button>
+        <button className="botao-icone" style={{ width: 'auto', height: 24, padding: '0 8px', fontSize: 11, display: 'flex', gap: 4 }}
+          onClick={async () => { if (confirm('Parar de observar este cliente e apagar as conversas guardadas?')) { await api.clienteApagar(c.id); aoMudar() } }}>
+          <Trash2 size={12} /> remover
+        </button>
+      </div>
+      {aberto && (
+        <div className="sim-mensagens" style={{ marginTop: 6 }}>
+          {!msgs && <div className="vazio">Carregando…</div>}
+          {msgs && msgs.length === 0 && <div className="vazio">Nenhuma mensagem guardada ainda.</div>}
+          {msgs?.map((m, i) => (
+            <div key={i} className={`sim-msg ${m.papel === 'usuario' ? 'cliente-de-la' : m.papel === 'humano' ? 'voce' : 'ia'}`}>
+              <span className="via">{ROTULO_PAPEL[m.papel]} · {fmt(m.em)}</span>{m.texto}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ------------------------------------------------------------------ tela
 export function Atendimento({ aoSair }: { aoSair: () => void }) {
   const [d, setD] = useState<AtendimentoPainel | null>(null)
@@ -97,6 +166,8 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
   const [salvo, setSalvo] = useState('')
   const [nova, setNova] = useState<{ area: Area; titulo: string; conteudo: string }>({ area: 'comercial', titulo: '', conteudo: '' })
   const [filtro, setFiltro] = useState<Area | 'todas'>('todas')
+  const [novoCli, setNovoCli] = useState({ nome: '', whatsapp: '' })
+  const [aprendendo, setAprendendo] = useState('')
 
   const carregar = useCallback(async () => {
     try { const r = await api.atendimento(); setD(r); setEmpresa(e => e ?? r.config.empresa); setErro('') }
@@ -113,22 +184,56 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
       <div className="atend-coluna">
         <Hud titulo="Atendente" icone={<Headset size={14} />}>
           <div className="modos">
-            {(['desligado', 'aprovacao', 'automatico'] as const).map(m => (
+            {(['desligado', 'observando', 'aprovacao', 'automatico'] as const).map(m => (
               <button key={m} className={modo === m ? 'ativo' : ''} onClick={async () => { await api.atendimentoConfig({ modo: m }); void carregar() }}>
-                {m === 'desligado' ? 'Desligada' : m === 'aprovacao' ? 'Com aprovação' : 'Automática'}
+                {m === 'desligado' ? 'Desligada' : m === 'observando' ? 'Só observando' : m === 'aprovacao' ? 'Com aprovação' : 'Automática'}
               </button>
             ))}
           </div>
-          <div className="etiqueta" style={{ margin: '8px 0 4px' }}>
-            {modo === 'aprovacao' ? 'A IA sugere; você aprova/edita aqui antes de ir para o cliente. Cada aprovação ensina a IA.'
-              : modo === 'automatico' ? 'A IA responde os clientes sozinha.' : 'Clientes não recebem resposta.'}
-            {' '}Só atende no WhatsApp em <b>modo dedicado</b> (chip da IA).
+          <div className="etiqueta" style={{ margin: '8px 0 10px' }}>
+            {modo === 'observando' ? `${empresa.persona || 'A IA'} só lê as conversas e aprende com as suas respostas. Ninguém recebe resposta da IA.`
+              : modo === 'aprovacao' ? 'A IA sugere; você aprova/edita aqui antes de ir para o cliente. Cada aprovação ensina a IA.'
+              : modo === 'automatico' ? 'A IA responde sozinha.' : 'Não lê nem responde clientes.'}
+          </div>
+          {(modo === 'aprovacao' || modo === 'automatico') && (
+            <div className="chave">
+              <div className="chave-texto"><b>Responde para</b><span>{d.config.alcance === 'todos' ? 'Todos os clientes' : 'Só os clientes marcados (interruptor IA na lista)'}</span></div>
+              <div className="modos" style={{ flexWrap: 'nowrap' }}>
+                {(['selecionados', 'todos'] as const).map(a => (
+                  <button key={a} className={d.config.alcance === a ? 'ativo' : ''} onClick={async () => { await api.atendimentoConfig({ alcance: a }); void carregar() }}>{a === 'todos' ? 'Todos' : 'Marcados'}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="chave">
+            <div className="chave-texto"><b>Lê conversas de</b>
+              <span>{d.config.observar === 'todos' ? '⚠ Todos os números que falarem com você (inclui família e amigos)' : 'Só números cadastrados como cliente (abaixo). Família e amigos ficam de fora.'}</span></div>
+            <div className="modos" style={{ flexWrap: 'nowrap' }}>
+              {(['clientes', 'todos'] as const).map(o => (
+                <button key={o} className={d.config.observar === o ? 'ativo' : ''} onClick={async () => {
+                  if (o === 'todos' && !confirm('A IA vai ler e guardar as conversas de TODOS os números que falarem com você, inclusive pessoais. Continuar?')) return
+                  await api.atendimentoConfig({ observar: o }); void carregar()
+                }}>{o === 'todos' ? 'Todos' : 'Clientes'}</button>
+              ))}
+            </div>
           </div>
         </Hud>
 
         <Hud titulo={`Para aprovar`} icone={<Inbox size={14} />} extra={<span className="contagem">{d.fila.length}</span>}>
           {d.fila.length === 0 && <div className="vazio">Nada esperando aprovação.</div>}
           {d.fila.map(f => <ItemFila key={f.id} f={f} aoMudar={carregar} />)}
+        </Hud>
+
+        <Hud titulo="Aprendido para revisar" icone={<Sparkles size={14} />}
+          extra={<button className="botao-icone" style={{ width: 'auto', height: 22, padding: '0 8px', fontSize: 10, display: 'flex', gap: 5 }}
+            disabled={aprendendo === '…'} onClick={async () => {
+              setAprendendo('…')
+              try { const r = await api.aprenderAgora(); setAprendendo(r.sugestoes ? `${r.sugestoes} novas` : 'nada novo') } catch { setAprendendo('falhou') }
+              void carregar(); setTimeout(() => setAprendendo(''), 4000)
+            }}><RefreshCw size={12} className={aprendendo === '…' ? 'girando' : ''} /> {aprendendo || 'aprender agora'}</button>}>
+          <div className="etiqueta" style={{ marginBottom: 6 }}>O que a IA tirou das suas respostas aos clientes (a cada 30 min). Só vale depois de aprovado.</div>
+          {d.sugestoes.length === 0 && <div className="vazio">Nada novo. Responda clientes pelo WhatsApp e volte aqui.</div>}
+          {d.sugestoes.map(sg => <ItemSugestao key={sg.id} s={sg} aoMudar={carregar} />)}
         </Hud>
 
         <Simulador aoMudar={carregar} />
@@ -165,7 +270,10 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
 
         <Hud titulo="Empresa" icone={<Settings2 size={14} />}>
           {salvo && <div className="aviso ok">{salvo}</div>}
-          <div className="campo"><label htmlFor="e-nome">Nome</label><input id="e-nome" value={empresa.nome} onChange={e => setEmpresa({ ...empresa, nome: e.target.value })} /></div>
+          <div className="linha-2">
+            <div className="campo"><label htmlFor="e-nome">Empresa</label><input id="e-nome" value={empresa.nome} onChange={e => setEmpresa({ ...empresa, nome: e.target.value })} /></div>
+            <div className="campo"><label htmlFor="e-pers">Nome de quem atende</label><input id="e-pers" placeholder="Leo 2.0" value={empresa.persona || ''} onChange={e => setEmpresa({ ...empresa, persona: e.target.value })} /></div>
+          </div>
           <div className="campo"><label htmlFor="e-desc">O que a empresa faz</label><textarea id="e-desc" rows={2} value={empresa.descricao} onChange={e => setEmpresa({ ...empresa, descricao: e.target.value })} /></div>
           <div className="linha-2">
             <div className="campo"><label htmlFor="e-hor">Horário humano</label><input id="e-hor" value={empresa.horario} onChange={e => setEmpresa({ ...empresa, horario: e.target.value })} /></div>
@@ -191,16 +299,15 @@ export function Atendimento({ aoSair }: { aoSair: () => void }) {
         </Hud>
 
         <Hud titulo="Clientes" icone={<CircleUser size={14} />} extra={<span className="contagem">{d.clientes.length}</span>}>
-          {d.clientes.length === 0 && <div className="vazio">Ninguém ainda.</div>}
-          {d.clientes.map(c => (
-            <div className="item" key={c.id}>
-              <div>
-                <div className="item-titulo"><span className="origem">{c.etapa.toUpperCase()}</span>{c.nome || 'sem nome'}{c.empresa ? ` · ${c.empresa}` : ''}</div>
-                {c.interesse && <div className="item-texto">Quer: {c.interesse}</div>}
-                <div className="etiqueta">+{c.whatsapp} · {fmt(c.ultimo_contato)}</div>
-              </div>
-            </div>
-          ))}
+          <form onSubmit={async e => { e.preventDefault(); await api.clienteSalvar(novoCli.nome, novoCli.whatsapp); setNovoCli({ nome: '', whatsapp: '' }); void carregar() }}
+            style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <div className="campo" style={{ flex: 1, margin: 0 }}><input aria-label="Nome do cliente" placeholder="Nome" value={novoCli.nome} onChange={e => setNovoCli({ ...novoCli, nome: e.target.value })} /></div>
+            <div className="campo" style={{ flex: 1.2, margin: 0 }}><input aria-label="WhatsApp do cliente" placeholder="55 11 9…" inputMode="tel" value={novoCli.whatsapp} onChange={e => setNovoCli({ ...novoCli, whatsapp: e.target.value })} /></div>
+            <button className="botao" style={{ width: 'auto' }} disabled={novoCli.whatsapp.replace(/[^0-9]/g, '').length < 10} aria-label="Cadastrar cliente"><UserPlus size={14} /></button>
+          </form>
+          <div className="etiqueta" style={{ marginBottom: 4 }}>Clientes cadastrados são lidos pela IA. O interruptor IA libera a resposta automática para aquele cliente.</div>
+          {d.clientes.length === 0 && <div className="vazio">Nenhum cliente ainda.</div>}
+          {d.clientes.map(c => <ItemCliente key={c.id} c={c} alcance={d.config.alcance} aoMudar={carregar} />)}
         </Hud>
 
         <Hud titulo="Visível para clientes" icone={<Eye size={14} />}>

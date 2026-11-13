@@ -134,15 +134,23 @@ Cliente ──► ATENDENTE (recepção) ──┬── Suporte    → base de 
 
 - Só atende de verdade com o WhatsApp no **modo dedicado** (chip só da IA). No modo pessoal os
   desconhecidos continuam ignorados. Para testar sem chip: painel → **Atendimento → Simular cliente**.
-- **Modos:** *desligada* · *com aprovação* (padrão: a IA sugere, você aprova/edita e só então vai para
-  o cliente) · *automática*.
+- **Modos:** *desligada* · **só observando** (padrão: lê as conversas e aprende, nunca responde) ·
+  *com aprovação* (a IA sugere, você aprova/edita e só então vai para o cliente) · *automática*.
+- **Para quem responde:** só os clientes **marcados** (interruptor "IA" em cada cliente) ou **todos**.
+- **Lê conversas de:** só números **cadastrados como cliente** (padrão; família e amigos ficam de fora) ou todos.
+- **Aprendiz** (a cada 30 min, ou "aprender agora"): lê as suas respostas aos clientes e extrai preços, prazos,
+  políticas, procedimentos e o seu jeito de responder — sem nome/telefone/pedido do cliente. Vira **sugestão**:
+  só entra na base depois que você aprova no painel.
+- **Persona:** responde com o nome configurado (padrão **Leo 2.0**) e escreve como gente no WhatsApp, sem se
+  anunciar como IA. Se o cliente perguntar diretamente se é robô, não mente: diz que é o assistente digital da
+  equipe e oferece passar para uma pessoa (transparência com o consumidor e regras do WhatsApp).
 - **Aprendizado:** cada resposta aprovada vira conhecimento da empresa ("aprendido" na base) e passa a ser
   usada nas próximas perguntas parecidas.
 - **Regras fixas:** só afirma o que está na base (serviços, preços, prazos); se não souber, oferece abrir
   chamado. Chamado só quando o cliente pede uma pessoa, reclama ou aceita retorno — e os admins são avisados.
 - Painel → Atendimento: modo, dados da empresa, fila para aprovar, base de conhecimento, chamados,
   clientes (leads) e quais serviços os clientes podem saber se estão fora.
-- Teste completo: `python scripts/testar_atendente.py` (usa números que não existem no WhatsApp).
+- Testes: `python scripts/testar_atendente.py` e `python scripts/testar_observacao.py` (números que não existem no WhatsApp).
 
 ## Painel
 
