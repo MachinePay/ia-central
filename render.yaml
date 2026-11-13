@@ -30,13 +30,15 @@ services:
         - deploy/n8n/**
         - db/init/**
         - workflows/**
-    plan: 0.5c-512mb          # pago: o plano free hiberna e o monitor/WhatsApp param
+    plan: 1c-2g               # n8n + IA nao cabe em 512 MB (testado: cai por falta de memoria)
     region: virginia
     healthCheckPath: /healthz
     envVars:
       - fromGroup: ia-central-segredos
       - key: PORT
         value: "5678"
+      - key: NODE_OPTIONS          # 2 GB no plano: deixa o Node usar ate 1,5 GB
+        value: --max-old-space-size=1536
       - key: BANCO_URL
         fromDatabase: { name: ia-central-db, property: connectionString }
       - key: N8N_ENCRYPTION_KEY
