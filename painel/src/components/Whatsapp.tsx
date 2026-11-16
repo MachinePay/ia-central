@@ -54,6 +54,7 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
       </div>
       {erro && <div className="aviso erro">{erro}</div>}
       {!erro && st?.aviso && !st.qr && <div className="aviso erro">{st.aviso}</div>}
+      {!erro && st?.zumbi && <div className="aviso erro">Parecia conectado, mas a conexão tinha caído (o aparelho foi removido no celular ou a sessão travou). Clique em “Conectar com QR code” e leia de novo.</div>}
       {!conectado && <div className="etiqueta" style={{ marginBottom: 8 }}>{dica}</div>}
       {!conectado && st?.qr && (
         <div className="qr-caixa"><img src={st.qr} alt={`QR code para conectar ${titulo}`} />

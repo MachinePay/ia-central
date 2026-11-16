@@ -733,6 +733,29 @@ async function estado() {
 }
 const saida = {};
 const espera = ms => new Promise(r => setTimeout(r, ms));
+// "open" na Evolution nem sempre e verdade: se o celular removeu o aparelho, a sessao fica zumbi.
+// Testa de verdade: pergunta ao WhatsApp se o proprio numero existe (so funciona com a conexao viva).
+async function respondendo() {
+  try {
+    const lista = await evo('GET', `/instance/fetchInstances?instanceName=${I}`);
+    const inst = Array.isArray(lista) ? lista[0] : lista;
+    const dono = String((inst && (inst.ownerJid || inst.owner)) || '').split('@')[0];
+    if (!dono) return false;
+    const r = await Promise.race([
+      evo('POST', `/chat/whatsappNumbers/${I}`, { numbers: [dono] }),
+      new Promise((_, nao) => setTimeout(() => nao(new Error('sem resposta')), 12000)),
+    ]);
+    return Array.isArray(r) && r.length > 0;
+  } catch (e) { return false; }
+}
+async function apagarSessao() {   // desconecta e, se nao der, apaga a sessao inteira
+  try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
+  await espera(1500);
+  if ((await estado()) === 'open' || (await estado()) === 'connecting') {
+    try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ja apagada */ }
+    await espera(2000);
+  }
+}
 async function pedirQr(num) {
   for (let i = 0; i < 3; i++) {   // logo apos criar, a Evolution as vezes ainda nao tem o QR pronto
     const q = await evo('GET', `/instance/connect/${I}` + (num ? `?number=${num}` : ''));
@@ -757,6 +780,11 @@ if (corpo.op === 'conectar') {
   const num = String(corpo.numero || '').replace(/\D/g, '');
   let st = await estado();
   if (st === 'erro') throw new Error('Evolution (WhatsApp) fora do ar ou reiniciando. Tente de novo em 1 minuto.');
+  if (st === 'open' && !(await respondendo())) {   // dizia conectado, mas a conexao tinha caido
+    await apagarSessao();
+    st = await estado();
+    saida.aviso_zumbi = true;
+  }
   if (st !== 'open' && st !== 'inexistente') {   // zera a sessao (QR vencido / limite de QRs) sem apagar
     try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ja estava zerado */ }
     await espera(1500);
@@ -785,9 +813,11 @@ if (corpo.op === 'conectar') {
     try { const q = await evo('GET', `/instance/connect/${I}`); saida.qr = q.base64 || null; } catch (e) { /* tenta de novo */ }
   }
 } else if (corpo.op === 'desconectar') {
-  try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ja desconectado */ }
+  await apagarSessao();
 }
 saida.estado = await estado();
+// status: "open" so vale se a conexao responde (senao mostra como caida, com explicacao)
+if (saida.estado === 'open' && !(await respondendo())) { saida.estado = 'close'; saida.zumbi = true; }
 if (saida.estado !== 'inexistente' && saida.estado !== 'erro') {
   try { await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }
 }

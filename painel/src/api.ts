@@ -30,6 +30,7 @@ export interface WhatsappStatus {
   qr?: string | null
   codigo?: string | null
   aviso?: string
+  zumbi?: boolean
   numero?: string
   perfil?: string | null
   desconhecidos: { contato: string; mensagem: string; criado_em: string }[]
