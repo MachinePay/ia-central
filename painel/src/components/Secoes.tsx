@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { BookOpen, Check, CircleUser, Eye, Inbox, LifeBuoy, Settings2, UserPlus } from 'lucide-react'
 import { api, ErroApi, type Area, type AgenteAtend, type AtendimentoPainel, type Empresa } from '../api'
 import { Hud, fmt } from './ui'
+import { confirmar } from '../alerta'
 import { ItemCliente, ItemFila } from './Atendimento'
 
 const ROTULO_AREA: Record<string, string> = { suporte: 'SUPORTE', comercial: 'COMERCIAL', sistemico: 'SISTÊMICO', humano: 'HUMANO', geral: 'GERAL' }
@@ -29,7 +30,7 @@ export function ConfigModo({ d, agente, carregar }: Sec) {
       <div className="modos">
         {(['desligado', 'observando', 'aprovacao', 'automatico'] as const).map(m => (
           <button key={m} className={modo === m ? 'ativo' : ''} onClick={async () => {
-            if (m === 'automatico' && !confirm(`${d.config.persona} vai responder clientes SOZINHO. Continuar?`)) return
+            if (m === 'automatico' && !(await confirmar({ titulo: `${d.config.persona} automático?`, texto: `${d.config.persona} vai responder os clientes <b>sozinho</b>, sem você aprovar antes.`, botao: 'Ligar automático', perigo: true }))) return
             await api.atendimentoConfig(agente, { modo: m }); carregar()
           }}>
             {m === 'desligado' ? 'Desligada' : m === 'observando' ? 'Só observando' : m === 'aprovacao' ? 'Com aprovação' : 'Automática'}

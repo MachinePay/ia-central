@@ -6,6 +6,7 @@ import {
 import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
+import { avisar, confirmar } from '../alerta'
 import { Chamados, Clientes, ConfigModo, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, useAtendimento } from './Secoes'
 import { Conexao, FiltroObservacao } from './Whatsapp'
 import { Conversa } from './Conversa'
@@ -371,8 +372,9 @@ function Acoes({ a, i, recarregar }: { a: AgenteId; i: ItemAprendido; recarregar
   return <>
     <CopiarPara a={a} id={i.id} />
     <button aria-label={`Esquecer ${i.titulo || ''}`} title="Esquecer" onClick={async () => {
-      if (!confirm('Fazer a IA esquecer isso?')) return
+      if (!(await confirmar({ titulo: 'Esquecer isso?', texto: `A IA vai deixar de usar <b>${i.titulo || 'essa informação'}</b>. Não dá para desfazer.`, botao: 'Esquecer', perigo: true }))) return
       if (a === 'leo' || a === 'gabriel') await api.esquecer(i.id); else await api.baseApagar(i.id)
+      avisar('Esquecido ✓')
       recarregar()
     }}><Trash2 size={13} /></button>
   </>
@@ -501,7 +503,7 @@ function Configurar({ a, atend, gab, setGab, recarregar }: {
             <div className="modos">
               {(['desligado', 'observando', 'aprovacao', 'automatico'] as const).map(m => (
                 <button key={m} className={gab.modo === m ? 'ativo' : ''} onClick={async () => {
-                  if (m === 'automatico' && !confirm('O Gabriel vai responder SOZINHO, como você, os contatos liberados. Continuar?')) return
+                  if (m === 'automatico' && !(await confirmar({ titulo: 'Gabriel automático?', texto: 'O Gabriel vai responder <b>sozinho</b>, como você, os contatos liberados.', botao: 'Ligar automático', perigo: true }))) return
                   setGab(await api.gabrielConfig(m)); recarregar()
                 }}>{MODO[m].rotulo}</button>
               ))}

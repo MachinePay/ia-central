@@ -8,6 +8,7 @@ import '@fontsource/jetbrains-mono/400.css'
 import './estilo.css'
 import './admin.css'
 import './escritorio.css'
+import './alerta.css'
 import App from './App'
 
 createRoot(document.getElementById('root')!).render(

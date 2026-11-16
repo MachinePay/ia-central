@@ -741,11 +741,11 @@ async function respondendo() {
     const inst = Array.isArray(lista) ? lista[0] : lista;
     const dono = String((inst && (inst.ownerJid || inst.owner)) || '').split('@')[0];
     if (!dono) return false;
-    const r = await Promise.race([
-      evo('POST', `/chat/whatsappNumbers/${I}`, { numbers: [dono] }),
+    await Promise.race([
+      evo('POST', `/chat/sendPresence/${I}`, { number: dono, presence: 'paused', delay: 0 }),
       new Promise((_, nao) => setTimeout(() => nao(new Error('sem resposta')), 12000)),
     ]);
-    return Array.isArray(r) && r.length > 0;
+    return true;
   } catch (e) { return false; }
 }
 async function apagarSessao() {   // desconecta e, se nao der, apaga a sessao inteira
@@ -813,7 +813,11 @@ if (corpo.op === 'conectar') {
     try { const q = await evo('GET', `/instance/connect/${I}`); saida.qr = q.base64 || null; } catch (e) { /* tenta de novo */ }
   }
 } else if (corpo.op === 'desconectar') {
-  await apagarSessao();
+  try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
+  await espera(1000);
+  try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ja apagada */ }
+  await espera(1500);
+  saida.desconectado = (await estado()) !== 'open';
 }
 saida.estado = await estado();
 // status: "open" so vale se a conexao responde (senao mostra como caida, com explicacao)

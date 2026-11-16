@@ -1,0 +1,30 @@
+/* SweetAlert2 com o visual do Nucleo (vidro escuro, borda neon, fontes do painel) */
+.nucleo-alerta-fundo.swal2-backdrop-show, .nucleo-alerta-fundo { background: rgba(2, 4, 10, 0.72) !important; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.swal2-popup.nucleo-alerta {
+  width: min(440px, calc(100vw - 32px)); padding: 26px 24px 22px; border-radius: 18px; color: var(--texto);
+  background: linear-gradient(170deg, rgba(14, 26, 52, 0.97), rgba(6, 10, 22, 0.97));
+  border: 1px solid var(--linha-forte); box-shadow: 0 0 40px rgba(54, 241, 255, 0.18), 0 30px 80px rgba(0, 0, 0, 0.6);
+  font-family: var(--f-corpo);
+}
+.swal2-popup.nucleo-alerta.perigo { border-color: rgba(255, 61, 110, 0.55); box-shadow: 0 0 40px rgba(255, 61, 110, 0.2), 0 30px 80px rgba(0, 0, 0, 0.6); }
+.nucleo-alerta-titulo { font-family: var(--f-titulo) !important; font-size: 17px !important; letter-spacing: 0.08em; color: var(--texto) !important; padding: 6px 0 0 !important; }
+.nucleo-alerta-texto { font-size: 14px !important; line-height: 1.5 !important; color: var(--texto-2) !important; margin: 10px 4px 0 !important; }
+.nucleo-alerta-texto b { color: var(--texto); }
+.nucleo-alerta-acoes { gap: 10px; margin-top: 22px !important; width: 100%; flex-wrap: nowrap !important; }
+.nucleo-alerta-acoes .botao { width: auto; flex: 1; margin: 0 !important; }
+.swal2-popup .botao.perigo { color: #fff; background: linear-gradient(90deg, #ff3d6e, #ff6b8e); box-shadow: 0 0 18px rgba(255, 61, 110, 0.4); }
+.swal2-popup .nucleo-alerta-icone { margin: 4px auto 6px !important; transform: scale(0.8); }
+.swal2-icon.swal2-question { border-color: var(--ciano) !important; color: var(--ciano) !important; }
+.swal2-icon.swal2-warning { border-color: var(--amarelo) !important; color: var(--amarelo) !important; }
+.nucleo-entra { animation: nucleo-entra 0.22s ease-out; }
+.nucleo-sai { animation: nucleo-sai 0.15s ease-in forwards; }
+@keyframes nucleo-entra { from { opacity: 0; transform: translateY(10px) scale(0.97); } }
+@keyframes nucleo-sai { to { opacity: 0; transform: scale(0.97); } }
+
+/* toast no canto */
+.swal2-popup.nucleo-toast {
+  background: rgba(10, 18, 38, 0.96) !important; color: var(--texto) !important; border: 1px solid var(--linha-forte);
+  border-radius: 12px !important; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important; font-family: var(--f-corpo);
+}
+.swal2-popup.nucleo-toast .nucleo-alerta-titulo { font-family: var(--f-corpo) !important; font-size: 14px !important; letter-spacing: 0; }
+.swal2-popup.nucleo-toast .swal2-timer-progress-bar { background: var(--ciano); }

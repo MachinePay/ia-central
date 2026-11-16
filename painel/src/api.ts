@@ -31,6 +31,7 @@ export interface WhatsappStatus {
   codigo?: string | null
   aviso?: string
   zumbi?: boolean
+  desconectado?: boolean
   numero?: string
   perfil?: string | null
   desconhecidos: { contato: string; mensagem: string; criado_em: string }[]

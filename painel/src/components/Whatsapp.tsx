@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MessageCircle, QrCode, Smartphone, Unplug, RefreshCw, Eye, Plus, Trash2, Brain, Check, X } from 'lucide-react'
 import { api, type Agente, type Instancia, type ModoObservar, type Observacao, type WhatsappStatus } from '../api'
+import { avisar, confirmar } from '../alerta'
 
 const ROTULO: Record<WhatsappStatus['estado'], string> = {
   open: 'Conectado', close: 'Desconectado', connecting: 'Aguardando leitura do QR',
@@ -22,6 +23,7 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
       const s = await api.whatsapp(op, { instancia, numero: num })
       setSt(s)
       if (s.qr) setQrEm(new Date().toLocaleTimeString('pt-BR'))
+      return s
     }
     catch (e) { setErro(e instanceof Error ? e.message : 'Falhou') }
     finally { setCarregando(false) }
@@ -54,6 +56,8 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
       </div>
       {erro && <div className="aviso erro">{erro}</div>}
       {!erro && st?.aviso && !st.qr && <div className="aviso erro">{st.aviso}</div>}
+      {!erro && st?.desconectado === true && st.estado !== 'open' && <div className="aviso ok">Desconectado ✓ O aparelho saiu do WhatsApp. Para conectar outro número, clique em “Conectar com QR code”.</div>}
+      {!erro && st?.desconectado === false && <div className="aviso erro">Não consegui desconectar por aqui. No celular desse número: WhatsApp → Aparelhos conectados → toque em “Nucleo IA” → Desconectar.</div>}
       {!erro && st?.zumbi && <div className="aviso erro">Parecia conectado, mas a conexão tinha caído (o aparelho foi removido no celular ou a sessão travou). Clique em “Conectar com QR code” e leia de novo.</div>}
       {!conectado && <div className="etiqueta" style={{ marginBottom: 8 }}>{dica}</div>}
       {!conectado && st?.qr && (
@@ -80,8 +84,13 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
         </>
       )}
       {conectado && (
-        <button className="botao secundario" disabled={carregando} onClick={() => { if (confirm(`Desconectar ${titulo}?`)) void chamar('desconectar') }}>
-          <Unplug size={14} /> Desconectar
+        <button className="botao secundario" disabled={carregando} onClick={async () => {
+          if (!(await confirmar({ titulo: `Desconectar ${titulo}?`, texto: 'Esta IA para de ler e responder por esse número até você conectar de novo. O que ela aprendeu continua.', botao: 'Desconectar', perigo: true }))) return
+          const s = await chamar('desconectar')
+          if (s && s.estado !== 'open') avisar('WhatsApp desconectado ✓')
+          else if (s) avisar('Não consegui desconectar por aqui', 'error', 'No celular: WhatsApp → Aparelhos conectados → Nucleo IA → Desconectar.')
+        }}>
+          <Unplug size={14} /> {carregando ? 'Desconectando…' : 'Desconectar'}
         </button>
       )}
     </div>
@@ -128,7 +137,7 @@ export function FiltroObservacao({ agente }: { agente: Agente }) {
       <div className="modos">
         {(agente === 'gabriel' ? ['exceto', 'todos'] as const : ['somente', 'exceto', 'todos'] as const).map(m => (
           <button key={m} className={cfg.modo === m ? 'ativo' : ''} onClick={async () => {
-            if (m === 'todos' && agente === 'leo' && !confirm('O Leo vai ler e guardar TODAS as suas conversas, inclusive pessoais. Continuar?')) return
+            if (m === 'todos' && agente === 'leo' && !(await confirmar({ titulo: 'Ler todas as conversas?', texto: 'O Leo vai ler e aprender com <b>todas</b> as conversas do número dele, inclusive pessoais.', botao: 'Ler todas' }))) return
             setD(await api.observacaoConfig(agente, m))
           }}>{m === 'somente' ? 'Só escolhidos' : m === 'exceto' ? 'Todos menos' : 'Todos'}</button>
         ))}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Check, MessagesSquare, RefreshCw, Send, Trash2, X, ChevronDown } from 'lucide-react'
 import { api, type Area, type AgenteAtend, type AtendimentoPainel } from '../api'
 import { Hud, fmt } from './ui'
+import { confirmar } from '../alerta'
 
 
 // ------------------------------------------------------------------ fila de aprovacao
@@ -129,7 +130,7 @@ export function ItemCliente({ c, alcance, aoMudar, agente }: { c: AtendimentoPai
           <ChevronDown size={12} style={{ transform: aberto ? 'rotate(180deg)' : undefined }} /> conversa
         </button>
         <button className="botao-icone" style={{ width: 'auto', height: 24, padding: '0 8px', fontSize: 11, display: 'flex', gap: 4 }}
-          onClick={async () => { if (confirm('Parar de observar este cliente e apagar as conversas guardadas?')) { await api.clienteApagar(c.id); aoMudar() } }}>
+          onClick={async () => { if (await confirmar({ titulo: 'Remover este cliente?', texto: 'A IA para de observar e as conversas guardadas dele são apagadas.', botao: 'Remover', perigo: true })) { await api.clienteApagar(c.id); aoMudar() } }}>
           <Trash2 size={12} /> remover
         </button>
       </div>
