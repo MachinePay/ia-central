@@ -1032,9 +1032,12 @@ def canal_whatsapp():
             "jsCode": "// junta o texto final: no audio, a transcricao vira o texto (e o que as IAs leem e aprendem)\n"
                       "const m = $('Ler mensagem').first().json;\n"
                       "let t = {};\n"
-                      "for (const n of ['Transcrever (OpenAI)', 'Transcrever (reserva)']) {\n"
-                      "  try { const j = $(n).first().json; if (typeof j.text === 'string' && j.text.trim()) { t = j; break; } if (j.error && !t.error) t = j; } catch (e) { /* nao rodou */ }\n"
+                      "const erros = [];\n"
+                      "for (const n of ['Transcrever (Groq)', 'Transcrever (OpenAI)', 'Transcrever (reserva)']) {\n"
+                      "  try { const j = $(n).first().json; if (typeof j.text === 'string' && j.text.trim()) { t = j; break; }\n"
+                      "        if (j.error) erros.push(n.slice(13, -1) + ': ' + (typeof j.error === 'string' ? j.error : (j.error.message || JSON.stringify(j.error)))); } catch (e) { /* nao rodou */ }\n"
                       "}\n"
+                      "if (typeof t.text !== 'string' && erros.length) t = { error: erros.join(' | ') };\n"
                       "let transcricao = '', falha = '';\n"
                       "if (m.tipo === 'audio') {\n"
                       "  if (typeof t.text === 'string') transcricao = t.text.trim();\n"
@@ -1085,6 +1088,31 @@ def canal_whatsapp():
             "binaryPropertyName": "data",
             "options": {"encoding": "base64", "fileName": "={{ 'fala.' + $json.ext }}", "mimeType": "={{ $json.mime }}"},
         }),
+        # 1a opcao: Groq (whisper-large-v3-turbo, GRATIS). Sem GROQ_API_KEY ou se falhar -> OpenAI -> whisper-1
+        node("Transcrever (Groq)", "n8n-nodes-base.httpRequest", 4.2, [790, 140], {
+            "method": "POST",
+            "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+            "sendHeaders": True,
+            "headerParameters": {"parameters": [
+                {"name": "Authorization", "value": "={{ 'Bearer ' + ($env.GROQ_API_KEY || 'sem-chave') }}"},
+            ]},
+            "sendBody": True,
+            "contentType": "multipart-form-data",
+            "bodyParameters": {"parameters": [
+                {"parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data"},
+                {"name": "model", "value": "whisper-large-v3-turbo"},
+                {"name": "language", "value": "pt"},
+                {"name": "response_format", "value": "json"},
+            ]},
+            "options": {"timeout": 300000},
+        }, onError="continueErrorOutput"),
+        # a saida de erro de um HTTP nao leva o arquivo: pega o audio de novo antes de tentar o proximo
+        node("Audio de novo", "n8n-nodes-base.code", 2, [790, 300], {
+            "mode": "runOnceForAllItems", "jsCode": "return $('Audio em arquivo').all();",
+        }),
+        node("Audio de novo (reserva)", "n8n-nodes-base.code", 2, [880, 380], {
+            "mode": "runOnceForAllItems", "jsCode": "return $('Audio em arquivo').all();",
+        }),
         node("Transcrever (OpenAI)", "n8n-nodes-base.httpRequest", 4.2, [880, 300], {
             "method": "POST",
             "url": "https://api.openai.com/v1/audio/transcriptions",
@@ -1119,7 +1147,7 @@ def canal_whatsapp():
             "query": "SELECT nucleo.audio_desmarcar(nullif($1, '')::bigint) AS ok,\n"
                      "  nucleo.uso_registrar('transcricao', nucleo.papel_instancia($2), $3, 0, 0, $4::numeric) AS uso",
             "options": {"queryReplacement": "={{ [String(($('Transcrevendo').first().json || {}).marca || ''), $('Ler mensagem').first().json.instancia, "
-                                            "$('Transcrever (reserva)').isExecuted ? 'whisper-1' : 'gpt-4o-mini-transcribe', "
+                                            "$('Transcrever (reserva)').isExecuted ? 'whisper-1' : ($('Transcrever (OpenAI)').isExecuted ? 'gpt-4o-mini-transcribe' : 'groq-whisper-large-v3-turbo'), "
                                             "String($('Ler mensagem').first().json.segundos || Math.round((($('Ler mensagem').first().json.audio_b64 || '').length * 0.75) / 2000))] }}"},
         }, credentials=PG, alwaysOutputData=True, onError="continueRegularOutput"),
         node("Preparar", "n8n-nodes-base.code", 2, [1540, 140], {
@@ -1214,7 +1242,7 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
         }, credentials=PG),
     ]
     con = ligar(("Webhook", "Ler mensagem"), ("Ler mensagem", "Vai ler?"), ("Vai ler?", "Ouvir?"),
-                ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (OpenAI)"),
+                ("Dados do audio", "Audio em arquivo"), ("Audio em arquivo", "Transcrever (Groq)"),
                 ("Mensagem", "Quem e"), ("Quem e", "Rota"),
                 ("Transcrevendo", "Dados do audio"), ("Transcrever (reserva)", "Transcrito"), ("Transcrito", "Mensagem"),
                 ("Preparar", "Guardar no lote"),
@@ -1236,10 +1264,16 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
         [{"node": "Mensagem", "type": "main", "index": 0}],
         [{"node": "Transcrevendo", "type": "main", "index": 0}],
     ]}
+    con["Transcrever (Groq)"] = {"main": [
+        [{"node": "Transcrito", "type": "main", "index": 0}],
+        [{"node": "Audio de novo", "type": "main", "index": 0}],
+    ]}
+    con["Audio de novo"] = {"main": [[{"node": "Transcrever (OpenAI)", "type": "main", "index": 0}]]}
     con["Transcrever (OpenAI)"] = {"main": [
         [{"node": "Transcrito", "type": "main", "index": 0}],
-        [{"node": "Transcrever (reserva)", "type": "main", "index": 0}],
+        [{"node": "Audio de novo (reserva)", "type": "main", "index": 0}],
     ]}
+    con["Audio de novo (reserva)"] = {"main": [[{"node": "Transcrever (reserva)", "type": "main", "index": 0}]]}
     return workflow("canalWhatsapp01", "Canal WhatsApp", nodes, con)
 
 

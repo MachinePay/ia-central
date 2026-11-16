@@ -23,6 +23,7 @@ Tempo: uns 30 minutos (a maior parte é esperar o build).
    | `ADMIN_SENHA` | a senha que você vai usar para entrar no painel (usuário: `admin`) |
    | `ADMIN_NOME` | seu nome |
    | `OPENAI_API_KEY` | sua chave da OpenAI (gere uma **nova** em platform.openai.com) |
+   | `GROQ_API_KEY` | opcional: transcrição de áudio **grátis** (console.groq.com → API Keys); sem ela usa a OpenAI |
    | `ANTHROPIC_API_KEY` | opcional (reserva Claude) — pode deixar vazio |
    | `TELEGRAM_BOT_TOKEN` | opcional — vazio |
    | `RENDER_API_KEY` | opcional: Render → Account Settings → API Keys (para monitorar seus serviços) |

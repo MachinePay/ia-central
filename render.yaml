@@ -55,6 +55,8 @@ services:
       # IA
       - key: OPENAI_API_KEY
         sync: false
+      - key: GROQ_API_KEY          # opcional: transcricao de audio GRATIS (console.groq.com); sem ela usa a OpenAI
+        sync: false
       - key: OPENAI_ADMIN_KEY      # opcional: chave ADMIN da OpenAI, so para ler o gasto real (pagina Gastos)
         sync: false
       - key: ANTHROPIC_API_KEY
