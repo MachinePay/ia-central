@@ -32,6 +32,9 @@ export interface WhatsappStatus {
   aviso?: string
   zumbi?: boolean
   desconectado?: boolean
+  puxadas?: number
+  encontradas?: number
+  mais?: boolean
   numero?: string
   perfil?: string | null
   desconhecidos: { contato: string; mensagem: string; criado_em: string }[]
@@ -163,7 +166,7 @@ export const api = {
   participar: (compartilha: boolean) => chamar('participar', { compartilha }),
   esquecer: (id: number) => chamar('esquecer', { id }),
   perfil: (dados: { telegram_chat_id?: string; whatsapp?: string }) => chamar('perfil', dados),
-  whatsapp: (op: 'status' | 'conectar' | 'desconectar' | 'qr', extra: { numero?: string; instancia?: Instancia } = {}) =>
+  whatsapp: (op: 'status' | 'conectar' | 'desconectar' | 'qr' | 'puxar', extra: { numero?: string; instancia?: Instancia } = {}) =>
     chamar<WhatsappStatus>('admin_whatsapp', { op, ...extra }),
   observacao: () => chamar<Observacao>('admin_observacao'),
   observacaoConfig: (agente: Agente, modo: ModoObservar) => chamar<Observacao>('admin_observacao_config', { agente, modo }),

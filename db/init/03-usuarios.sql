@@ -230,6 +230,9 @@ BEGIN
             'op', coalesce(d->>'op','status'),
             'numero', d->>'numero',
             'instancia', CASE WHEN d->>'instancia' IN ('joao', 'suporte', 'gabriel') THEN d->>'instancia' ELSE 'nucleo' END,
+            'desde', (SELECT extract(epoch FROM coalesce(max(criado_em), now() - interval '3 days'))::bigint FROM nucleo.conversas
+                       WHERE instancia = CASE WHEN d->>'instancia' IN ('joao', 'suporte', 'gabriel') THEN d->>'instancia' ELSE 'nucleo' END
+                         AND papel <> 'ia'),
             'desconhecidos', nucleo.whatsapp_desconhecidos()));
 
     ELSIF p_acao LIKE 'admin_%' AND NOT adm THEN

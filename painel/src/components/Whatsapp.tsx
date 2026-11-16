@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { MessageCircle, QrCode, Smartphone, Unplug, RefreshCw, Eye, Plus, Trash2, Brain, Check, X } from 'lucide-react'
+import { Download, MessageCircle, QrCode, Smartphone, Unplug, RefreshCw, Eye, Plus, Trash2, Brain, Check, X } from 'lucide-react'
 import { api, type Agente, type Instancia, type ModoObservar, type Observacao, type WhatsappStatus } from '../api'
 import { avisar, confirmar } from '../alerta'
 
@@ -17,7 +17,7 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
   const [numero, setNumero] = useState('')
   const [qrEm, setQrEm] = useState('')   // hora do QR na tela (para ver que ele esta mudando)
 
-  const chamar = useCallback(async (op: 'status' | 'conectar' | 'desconectar', num?: string) => {
+  const chamar = useCallback(async (op: 'status' | 'conectar' | 'desconectar' | 'puxar', num?: string) => {
     setCarregando(true); setErro('')
     try {
       const s = await api.whatsapp(op, { instancia, numero: num })
@@ -82,6 +82,18 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
               onClick={() => chamar('conectar', numero)} title="Gera um código para digitar no celular (se o painel está no próprio celular)"><Smartphone size={14} /></button>
           </div>
         </>
+      )}
+      {conectado && (
+        <button className="botao" style={{ marginBottom: 8 }} disabled={carregando} onClick={async () => {
+          const s = await chamar('puxar')
+          if (!s) return
+          if ((s.puxadas || 0) > 0) {
+            avisar(`${s.puxadas} mensagens puxadas ✓`, 'success', `${s.mais ? 'Ainda tem mais: clique de novo. ' : ''}A IA lê agora e aprende em seguida.`)
+            setTimeout(() => { void api.aprenderAgora().catch(() => {}) }, 45000)   // da tempo de ler (e transcrever audios) antes de aprender
+          } else avisar('Nenhuma mensagem nova para puxar', 'info', s.encontradas ? 'Tudo isso a IA já tinha lido.' : 'A Evolution não guardou mensagens novas desde a última que a IA leu.')
+        }}>
+          <Download size={14} /> {carregando ? 'Puxando…' : 'Puxar mensagens novas'}
+        </button>
       )}
       {conectado && (
         <button className="botao secundario" disabled={carregando} onClick={async () => {

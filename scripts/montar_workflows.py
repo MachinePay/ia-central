@@ -826,6 +826,40 @@ if (corpo.op === 'conectar') {
   if ((await estado()) === 'connecting') {
     try { const q = await evo('GET', `/instance/connect/${I}`); saida.qr = q.base64 || null; } catch (e) { /* tenta de novo */ }
   }
+} else if (corpo.op === 'puxar') {
+  // mensagens que a Evolution guardou desde a ultima que a IA leu (max 7 dias). Vao pelo canal normal,
+  // marcadas como historico: a IA so le e aprende, nunca responde mensagem antiga. Repetidas sao ignoradas.
+  const desde = Math.max(+corpo.desde || 0, Math.floor(Date.now() / 1000) - 7 * 86400) - 120;
+  const lista = await evo('GET', `/instance/fetchInstances?instanceName=${I}`);
+  const inst = Array.isArray(lista) ? lista[0] : lista;
+  const dono = String((inst && (inst.ownerJid || inst.owner)) || '').split('@')[0];
+  const achadas = [];
+  let pagina = 1, paginas = 1;
+  while (pagina <= paginas && pagina <= 30 && temTempo(6000)) {
+    const r = await evo('POST', `/chat/findMessages/${I}`, {
+      where: { messageTimestamp: { gte: new Date(desde * 1000).toISOString(), lte: new Date().toISOString() } }, page: pagina, offset: 100 });
+    const m = (r && r.messages) || {};
+    paginas = m.pages || 1;
+    for (const x of m.records || []) achadas.push(x);
+    pagina++;
+  }
+  achadas.sort((a, b) => (+a.messageTimestamp || 0) - (+b.messageTimestamp || 0));
+  let enviadas = 0;
+  for (const x of achadas) {
+    if (!temTempo(1500)) break;
+    const jid = (x.key && x.key.remoteJid) || '';
+    if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) continue;   // grupos/status: ignora
+    try {
+      await this.helpers.httpRequest({ method: 'POST', url: urlWebhook, json: true, timeout: 8000,
+        body: { event: 'messages.upsert', instance: I, apikey: TOKEN, sender: `${dono}@s.whatsapp.net`, historico: true,
+                data: { key: x.key, pushName: x.pushName || '', message: x.message || {}, messageTimestamp: x.messageTimestamp } } });
+      enviadas++;
+    } catch (e) { /* segue */ }
+  }
+  saida.puxadas = enviadas;
+  saida.encontradas = achadas.length;
+  saida.desde = desde;
+  saida.mais = pagina <= paginas || enviadas < achadas.filter(x => ((x.key && x.key.remoteJid) || '').match(/@(s\.whatsapp\.net|lid)$/)).length;
 } else if (corpo.op === 'desconectar') {
   const tentar = async () => {
     try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
@@ -886,7 +920,7 @@ const dono = String(b.sender || '').split('@')[0].split(':')[0];
 const conversaPropria = deMim && !!dono && jid.split('@')[0] === dono;   // conversa "Voce"
 // mensagens do dono para outras pessoas tambem seguem: o banco decide (cliente observado = aprendizado;
 // qualquer outra conversa pessoal e ignorada sem guardar nada)
-if (deMim) await new Promise(r => setTimeout(r, 2500));    // da tempo de registrar o que a IA enviou
+if (deMim && !b.historico) await new Promise(r => setTimeout(r, 2500));    // da tempo de registrar o que a IA enviou
 const m = d.message || {};
 const texto = m.conversation || (m.extendedTextMessage && m.extendedTextMessage.text)
   || (m.imageMessage && m.imageMessage.caption) || (m.videoMessage && m.videoMessage.caption) || '';
@@ -909,6 +943,7 @@ return [{ json: {
   tipo: m.audioMessage ? 'audio' : 'texto', audio_b64: audio,
   de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null, erro_audio: erroAudio,
   segundos: m.audioMessage ? (+m.audioMessage.seconds || 0) : 0,
+  historico: !!b.historico,
   instancia: b.instance || $env.EVOLUTION_INSTANCIA || 'nucleo', dono,
 } }];
 """
@@ -984,12 +1019,13 @@ def canal_whatsapp():
         # audio: so transcreve se alguma IA vai ler essa conversa (nao manda audio pessoal para a OpenAI a toa)
         node("Vai ler?", "n8n-nodes-base.postgres", 2.6, [330, 200], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.whatsapp_vai_ler($1, $2, $3::boolean, $4::boolean) AS ler",
-            "options": {"queryReplacement": "={{ [$json.instancia, $json.numero, $json.de_mim, $json.conversa_propria] }}"},
+            "query": "SELECT nucleo.whatsapp_vai_ler($1, $2, $3::boolean, $4::boolean) AS ler, nucleo.msg_nova($5) AS nova",
+            "options": {"queryReplacement": "={{ [$json.instancia, $json.numero, $json.de_mim, $json.conversa_propria, $json.msg_id || ''] }}"},
         }, credentials=PG, alwaysOutputData=True),
         node("Ouvir?", "n8n-nodes-base.switch", 3.2, [440, 200], {
-            "mode": "expression", "numberOutputs": 2,
-            "output": "={{ $('Ler mensagem').first().json.tipo === 'audio' && $json.ler && $('Ler mensagem').first().json.audio_b64 ? 1 : 0 }}",
+            "mode": "expression", "numberOutputs": 3,
+            # 2 = ja processada antes (repetida): para aqui
+            "output": "={{ $json.nova === false ? 2 : ($('Ler mensagem').first().json.tipo === 'audio' && $json.ler && $('Ler mensagem').first().json.audio_b64 ? 1 : 0) }}",
         }),
         node("Mensagem", "n8n-nodes-base.code", 2, [1100, 0], {
             "mode": "runOnceForAllItems",
@@ -1019,7 +1055,8 @@ def canal_whatsapp():
         node("Rota", "n8n-nodes-base.switch", 3.2, [1440, 0], {
             "mode": "expression", "numberOutputs": 2,
             # 0 = so leu / nao e com ninguem (para aqui) | 1 = alguma IA responde
-            "output": "={{ $json.r.saida === 0 ? 0 : 1 }}",
+            # mensagem puxada do historico: so foi lida (aprende), nunca responde
+            "output": "={{ $json.r.saida === 0 || $('Ler mensagem').first().json.historico ? 0 : 1 }}",
         }),
         # enquanto transcreve, o lote espera (se a pessoa mandar texto junto, responde tudo de uma vez)
         node("Transcrevendo", "n8n-nodes-base.postgres", 2.6, [500, 300], {
