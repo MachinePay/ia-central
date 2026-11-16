@@ -733,6 +733,9 @@ async function estado() {
 }
 const saida = {};
 const espera = ms => new Promise(r => setTimeout(r, ms));
+const prazo = Date.now() + 24000;                       // cada clique responde em ate ~24s (senao a internet corta)
+const temTempo = ms => Date.now() + ms < prazo;
+const AINDA = 'Ainda preparando a conexao do WhatsApp. Clique em "Conectar com QR code" de novo em alguns segundos.';
 // "open" na Evolution nem sempre e verdade: se o celular removeu o aparelho, a sessao fica zumbi.
 // Testa de verdade: pergunta ao WhatsApp se o proprio numero existe (so funciona com a conexao viva).
 async function respondendo() {
@@ -743,7 +746,7 @@ async function respondendo() {
     if (!dono) return false;
     await Promise.race([
       evo('POST', `/chat/sendPresence/${I}`, { number: dono, presence: 'paused', delay: 0 }),
-      new Promise((_, nao) => setTimeout(() => nao(new Error('sem resposta')), 12000)),
+      new Promise((_, nao) => setTimeout(() => nao(new Error('sem resposta')), 7000)),
     ]);
     return true;
   } catch (e) { return false; }
@@ -755,18 +758,20 @@ async function apagarSessao() {   // desconecta e, se nao der, apaga a sessao in
     try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ja apagada */ }
     await espera(2000);
   }
-  if ((await estado()) === 'open') {   // zumbi teimoso: reinicia para a Evolution perceber, e apaga
+  if ((await estado()) === 'open' && temTempo(12000)) {   // zumbi teimoso: reinicia para a Evolution perceber, e apaga
     for (const m of ['POST', 'PUT']) { try { await evo(m, `/instance/restart/${I}`); break; } catch (e) { /* tenta o outro */ } }
-    await espera(6000);
+    await espera(5000);
     try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ok */ }
     try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ok */ }
     await espera(2000);
   }
 }
 async function pedirQr(num) {
-  for (let i = 0; i < 3; i++) {   // logo apos criar, a Evolution as vezes ainda nao tem o QR pronto
-    const q = await evo('GET', `/instance/connect/${I}` + (num ? `?number=${num}` : ''));
-    if (q && (q.base64 || q.pairingCode)) return q;
+  for (let i = 0; i < 3 && temTempo(2500); i++) {   // logo apos criar, a Evolution as vezes ainda nao tem o QR pronto
+    try {
+      const q = await evo('GET', `/instance/connect/${I}` + (num ? `?number=${num}` : ''));
+      if (q && (q.base64 || q.pairingCode)) return q;
+    } catch (e) { /* ainda criando */ }
     await espera(2000);
   }
   return {};
@@ -780,9 +785,13 @@ if (corpo.op === 'conectar') {
         await evo('POST', '/instance/create', { instanceName: I, token: TOKEN,
           integration: 'WHATSAPP-BAILEYS', qrcode: true, ...CONFIG_INSTANCIA, webhook: cfgWebhook });
         await espera(1500);
-        return;
-      } catch (e) { if (i === 3) throw e; await espera(3000); }
+        return true;
+      } catch (e) {
+        if (!temTempo(5000)) return false;   // a Evolution ainda esta limpando a sessao antiga: o proximo clique cria
+        await espera(3000);
+      }
     }
+    return false;
   };
   const num = String(corpo.numero || '').replace(/\D/g, '');
   let st = await estado();
@@ -797,12 +806,13 @@ if (corpo.op === 'conectar') {
     await espera(1500);
     st = await estado();
   }
-  if (st === 'inexistente') await criar();
+  if (st === 'inexistente' && !(await criar())) { saida.aviso = AINDA; }
+  else {
   await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook });
   await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA);
   if ((await estado()) !== 'open') {
     let q = await pedirQr(num);
-    if (!q.base64 && !q.pairingCode) {   // sessao travada de vez: apaga e cria do zero
+    if (!q.base64 && !q.pairingCode && temTempo(12000)) {   // sessao travada de vez: apaga e cria do zero
       try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ok */ }
       try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ok */ }
       await espera(3000);
@@ -812,7 +822,8 @@ if (corpo.op === 'conectar') {
     }
     saida.qr = q.base64 || null;
     saida.codigo = q.pairingCode || null;
-    if (!saida.qr && !saida.codigo) saida.aviso = 'O WhatsApp nao devolveu o QR agora. Clique em "Novo QR code" de novo.';
+    if (!saida.qr && !saida.codigo) saida.aviso = AINDA;
+  }
   }
 } else if (corpo.op === 'qr') {
   // enquanto espera a leitura: so pega o QR atual (o WhatsApp troca o QR sozinho a cada ~20s), sem zerar nada
@@ -840,7 +851,7 @@ if (corpo.op === 'conectar') {
 }
 saida.estado = await estado();
 // status: "open" so vale se a conexao responde (senao mostra como caida, com explicacao)
-if (saida.estado === 'open' && !(await respondendo())) { saida.estado = 'close'; saida.zumbi = true; }
+if (saida.estado === 'open' && temTempo(8000) && !(await respondendo())) { saida.estado = 'close'; saida.zumbi = true; }
 if (saida.estado !== 'inexistente' && saida.estado !== 'erro') {
   try { await evo('POST', `/settings/set/${I}`, CONFIG_INSTANCIA); } catch (e) { /* tenta na proxima */ }
 }
