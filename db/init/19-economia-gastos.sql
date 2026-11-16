@@ -202,6 +202,10 @@ LANGUAGE sql STABLE AS $$
         'por_item', coalesce((SELECT jsonb_agg(jsonb_build_object('item', item, 'valor', v) ORDER BY v DESC)
                    FROM (SELECT item, sum(valor) AS v FROM nucleo.gastos_openai
                           WHERE dia > (now() AT TIME ZONE 'UTC')::date - 30 GROUP BY 1) x), '[]'),
+        -- o que da para medir aqui, por IA e funcao (aprendiz e audios; as respostas nao sao medidas por IA)
+        'por_uso', coalesce((SELECT jsonb_agg(jsonb_build_object('agente', agente, 'tipo', tipo, 'valor', v, 'vezes', n, 'segundos', seg) ORDER BY v DESC)
+                   FROM (SELECT coalesce(nullif(agente, ''), 'outros') AS agente, tipo, sum(custo) AS v, count(*) AS n, sum(segundos) AS seg
+                           FROM nucleo.uso_ia WHERE em > now() - interval '30 days' GROUP BY 1, 2) x), '[]'),
         'erro_openai', (SELECT valor->>'erro' FROM nucleo.config WHERE chave = 'gastos_status'),
         'lido_em', (SELECT valor->>'em' FROM nucleo.config WHERE chave = 'gastos_status'),
         'mes', coalesce((SELECT sum(valor) FROM nucleo.gastos_openai WHERE date_trunc('month', dia) = date_trunc('month', now() AT TIME ZONE 'UTC')), 0),

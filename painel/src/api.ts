@@ -100,7 +100,9 @@ export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[];
 export interface Gastos {
   fonte: 'openai' | 'estimativa'; atualizado_em: string | null; limite: number; hoje: number; aprendiz_pausado: boolean
   dias: { dia: string; real: number | null; estimado: number; aprendiz: number; audio: number }[]
-  por_item: { item: string; valor: number }[]; mes: number; mes_estimado: number; erro_openai?: string | null; lido_em?: string | null
+  por_item: { item: string; valor: number }[]
+  por_uso?: { agente: string; tipo: string; valor: number; vezes: number; segundos: number }[]
+  mes: number; mes_estimado: number; erro_openai?: string | null; lido_em?: string | null
 }
 
 export interface Rodada { id: number; em: string; origem: 'automatico' | 'painel'; conversas: number; mensagens: number; itens: number; erros: number; custo: number; duracao_ms: number }

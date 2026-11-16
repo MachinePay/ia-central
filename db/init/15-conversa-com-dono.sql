@@ -200,3 +200,15 @@ LANGUAGE sql STABLE AS $$
                     'contexto', contexto, 'visto', visto, 'em', criado_em) ORDER BY criado_em DESC)
             FROM (SELECT * FROM nucleo.eventos WHERE agente = p_agente ORDER BY criado_em DESC LIMIT 50) e), '[]'))
 $$;
+
+-- audio: transcreve se alguma IA vai ler. A conversa "Voce" no numero de QUALQUER IA e lida e respondida
+-- (antes o Gabriel/Joao/Suporte pulavam a transcricao dela e respondiam "o audio nao chegou")
+CREATE OR REPLACE FUNCTION nucleo.whatsapp_vai_ler(p_instancia text, p_numero text, p_de_mim boolean, p_propria boolean)
+RETURNS boolean LANGUAGE plpgsql STABLE AS $$
+DECLARE papel text := nucleo.papel_instancia(p_instancia);
+BEGIN
+    IF coalesce(p_propria, false) THEN RETURN true; END IF;
+    IF papel IN ('joao', 'suporte', 'gabriel') THEN RETURN nucleo.pode_observar(papel, p_numero); END IF;
+    RETURN EXISTS (SELECT 1 FROM nucleo.usuario_por_whatsapp(p_numero) x WHERE x.id IS NOT NULL)
+        OR nucleo.pode_observar('leo', p_numero);
+END $$;
