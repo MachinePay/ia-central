@@ -110,7 +110,7 @@ export interface Rodadas { rodadas: Rodada[]; total_7d: { rodadas: number; conve
 
 export type ModoIA = 'desligado' | 'observando' | 'aprovacao' | 'automatico'
 export interface Responder {
-  agente: AgenteId; modo: ModoIA; alcance: 'selecionados' | 'todos'; pode_todos: boolean
+  agente: AgenteId; modo: ModoIA; alcance: 'selecionados' | 'todos'; pode_todos: boolean; nome?: string | null
   contatos: { numero: string; nome: string | null }[]
   fila: AtendimentoPainel['fila']
 }
@@ -155,7 +155,7 @@ export const api = {
   gastos: () => chamar<Gastos>('admin_gastos'),
   rodadas: (agente: AgenteId) => chamar<Rodadas>('admin_rodadas', { agente }),
   responder: (agente: AgenteId) => chamar<Responder>('admin_responder', { agente }),
-  responderConfig: (agente: AgenteId, d: { modo?: ModoIA; alcance?: string }) => chamar<Responder>('admin_responder_config', { agente, ...d }),
+  responderConfig: (agente: AgenteId, d: { modo?: ModoIA; alcance?: string; nome?: string }) => chamar<Responder>('admin_responder_config', { agente, ...d }),
   responderDefinir: (agente: AgenteId, numero: string, nome: string, sim: boolean) =>
     chamar<Responder>('admin_responder_definir', { agente, numero, nome, sim: String(sim) }),
   gastosLimite: (limite: number) => chamar<Gastos>('admin_gastos_limite', { limite: String(limite) }),

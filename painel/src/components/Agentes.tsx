@@ -535,6 +535,23 @@ function ResponderEsta({ a, c, resp, setResp }: { a: AgenteId; c: ConversaLida; 
   )
 }
 
+// Leo e Gabriel respondem como o dono do numero: com que nome?
+function NomeResposta({ a, resp, setResp }: { a: AgenteId; resp: Responder; setResp: (r: Responder) => void }) {
+  const [nome, setNome] = useState(resp.nome || '')
+  return (
+    <>
+      <div className="etiqueta" style={{ margin: '12px 0 6px' }}>RESPONDE COMO (O DONO DESTE NÚMERO)</div>
+      <form style={{ display: 'flex', gap: 6 }} onSubmit={async e => {
+        e.preventDefault(); setResp(await api.responderConfig(a, { nome })); avisar(`${AGENTES[a].nome} responde como “${nome}” ✓`)
+      }}>
+        <div className="campo" style={{ flex: 1, margin: 0 }}><input aria-label="Nome do dono do número" placeholder="Ex.: Leo" value={nome} onChange={e => setNome(e.target.value)} /></div>
+        <button className="botao secundario" style={{ width: 'auto' }} disabled={!nome.trim() || nome === resp.nome}>Salvar</button>
+      </form>
+      <div className="etiqueta" style={{ marginTop: 4 }}>É o nome da pessoa dona deste WhatsApp. A IA nunca chama o contato por esse nome.</div>
+    </>
+  )
+}
+
 function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder | null; setResp: (r: Responder) => void }) {
   const [novo, setNovo] = useState({ nome: '', numero: '' })
   if (!resp) return <Hud titulo="3 · Responder pessoas por você"><div className="vazio">Carregando…</div></Hud>
@@ -555,6 +572,7 @@ function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder |
         ))}
       </div>
       <div className="etiqueta" style={{ marginTop: 6 }}>{MODO[resp.modo]?.texto}</div>
+      {!resp.pode_todos && <NomeResposta a={a} resp={resp} setResp={setResp} />}
       {resp.pode_todos && (
         <>
           <div className="etiqueta" style={{ margin: '12px 0 6px' }}>QUEM ELA RESPONDE</div>

@@ -1830,7 +1830,11 @@ def suporte24():
 # GABRIEL: clone do dono, no numero dele. Le tudo para aprender o jeito do dono; responde so contatos liberados.
 # ---------------------------------------------------------------------------
 CTX_G = "$('Contexto').first().json"
-PROMPT_GABRIEL = """Voce e o {{ """ + CTX_G + """.dono_nome }} respondendo no seu proprio WhatsApp para {{ $('Quando chamado').first().json.nome }}.
+PROMPT_GABRIEL = """QUEM E QUEM (nunca troque):
+- VOCE e o {{ """ + CTX_G + """.dono_nome }}, o dono deste WhatsApp, respondendo no seu proprio numero.
+- A PESSOA que esta falando com voce se chama {{ $('Quando chamado').first().json.nome || 'contato' }}. Chame-a pelo nome DELA
+  (ou sem nome), NUNCA pelo seu. Se ela te chamar de {{ """ + CTX_G + """.dono_nome }}, e porque esse e o SEU nome.
+- Nao se apresente ("aqui e o ..."): voce e o dono do numero, ela ja sabe com quem fala.
 Quem le nao pode notar diferenca no jeito de escrever.
 
 Jeito de falar e de resolver do {{ """ + CTX_G + """.dono_nome }} (aprendido das conversas reais dele; imite a risca):
@@ -1863,7 +1867,8 @@ def gabriel():
         node("Contexto", "n8n-nodes-base.postgres", 2.6, [200, -160], {
             "operation": "executeQuery",
             # so a inteligencia de quem responde: Gabriel (a dele) ou Leo respondendo como voce (a do Leo)
-            "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome,\n"
+            "query": "SELECT u.id AS dono_id,\n"
+                     "  CASE WHEN $1 = 'leo' THEN nucleo.cfg('leo_nome', 'Leo') ELSE nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) END AS dono_nome,\n"
                      "  CASE WHEN $1 = 'leo' THEN nucleo.estilo_dono(u.id) ELSE nucleo.estilo_gabriel() END AS estilo,\n"
                      "  CASE WHEN $1 = 'leo' THEN nucleo.memoria_resumo(u.id) ELSE nucleo.memoria_gabriel(60) END AS memoria\n"
                      "FROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",

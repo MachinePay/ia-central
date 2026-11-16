@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS nucleo.responde_para (
     PRIMARY KEY (agente, numero)
 );
 
-INSERT INTO nucleo.config VALUES ('leo_modo', '"observando"') ON CONFLICT DO NOTHING;   -- com contatos (com voce ele sempre fala)
+INSERT INTO nucleo.config VALUES ('leo_modo', '"observando"') ON CONFLICT DO NOTHING;
+INSERT INTO nucleo.config VALUES ('leo_nome', '"Leo"') ON CONFLICT DO NOTHING;   -- nome que o numero do Leo usa ao responder   -- com contatos (com voce ele sempre fala)
 
 -- migracao (uma vez): junta as listas antigas (Gabriel: liberados; Joao/Suporte: interruptor IA do cliente)
 DO $$
@@ -147,6 +148,7 @@ LANGUAGE sql STABLE AS $$
         'modo', nucleo.cfg(p_agente || '_modo', 'observando'),
         'alcance', CASE WHEN p_agente IN ('joao', 'suporte') THEN nucleo.cfg(p_agente || '_alcance', 'selecionados') ELSE 'selecionados' END,
         'pode_todos', p_agente IN ('joao', 'suporte'),
+        'nome', CASE p_agente WHEN 'leo' THEN nucleo.cfg('leo_nome', 'Leo') WHEN 'gabriel' THEN nucleo.cfg('gabriel_nome', 'Gabriel') END,
         'contatos', coalesce((SELECT jsonb_agg(jsonb_build_object('numero', numero, 'nome', nome) ORDER BY nome NULLS LAST, numero)
                                 FROM nucleo.responde_para WHERE agente = p_agente), '[]'),
         'fila', coalesce((SELECT jsonb_agg(x ORDER BY x.criado_em) FROM (

@@ -324,6 +324,9 @@ BEGIN
                 IF d->>'modo' IN ('desligado','observando','aprovacao','automatico') THEN
                     INSERT INTO nucleo.config VALUES (ag || '_modo', to_jsonb(d->>'modo')) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
                 END IF;
+                IF coalesce(d->>'nome', '') <> '' AND ag IN ('leo','gabriel') THEN   -- nome que ela usa ao responder como voce
+                    INSERT INTO nucleo.config VALUES (ag || '_nome', to_jsonb(left(trim(d->>'nome'), 40))) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+                END IF;
                 IF d->>'alcance' IN ('selecionados','todos') AND ag IN ('joao','suporte') THEN
                     INSERT INTO nucleo.config VALUES (ag || '_alcance', to_jsonb(d->>'alcance')) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
                 END IF;
