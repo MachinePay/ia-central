@@ -132,6 +132,38 @@ async function lerErro(r: Response): Promise<ErroApi> {
   return new ErroApi(r.status, msg)
 }
 
+// ------------------------------------------------------------------ e-mail e agenda de cada IA
+export type ProvedorCorreio = 'google' | 'microsoft'
+export interface ContaCorreio {
+  id: number; tipo: ProvedorCorreio | 'imap'; email: string; nome: string | null
+  ler_email: boolean; ler_agenda: boolean; ativo: boolean; estado: 'ok' | 'testando' | 'erro'; erro: string | null
+  ultima_leitura: string | null; tem_agenda: boolean; lidos: number
+  config: { imap_host?: string; imap_porta?: number; smtp_host?: string | null; smtp_porta?: number; caldav_url?: string | null }
+}
+export interface ItemCorreio {
+  id: number; tipo: 'email' | 'evento'; de: string | null; assunto: string | null; resumo: string | null
+  quando: string | null; fim: string | null; lido_em: string; aprendido: boolean; conta: string; local: string | null
+}
+export interface DadosProposta {
+  para?: string; assunto?: string; corpo?: string
+  titulo?: string; inicio?: string; fim?: string; local?: string; descricao?: string; convidados?: string[]
+}
+export interface PropostaCorreio {
+  id: number; tipo: 'email' | 'evento'; motivo: string | null; dados: DadosProposta; status: 'pendente' | 'executando' | 'falhou'
+  resultado: string | null; criado_em: string; conta_id: number; conta: string; conta_tipo: ContaCorreio['tipo']
+  item_de: string | null; item_assunto: string | null; item_texto: string | null; item_quando: string | null
+}
+export interface Correio {
+  agente: AgenteId
+  apps: Record<ProvedorCorreio, { client_id: string; atualizado_em: string } | null>
+  contas: ContaCorreio[]; itens: ItemCorreio[]; propostas: PropostaCorreio[]
+}
+export interface ResultadoCorreio { ok: boolean; erro?: string | null; resultado?: string; painel?: Correio }
+export interface DadosImap {
+  email: string; nome?: string; senha: string; usuario?: string
+  imap_host: string; imap_porta?: string; smtp_host?: string; smtp_porta?: string; caldav_url?: string
+}
+
 async function chamar<T>(acao: string, dados: Record<string, unknown> = {}): Promise<T> {
   const r = await fetch(`${BASE}/webhook/painel`, {
     method: 'POST',
@@ -155,6 +187,20 @@ export const api = {
   gastos: () => chamar<Gastos>('admin_gastos'),
   rodadas: (agente: AgenteId) => chamar<Rodadas>('admin_rodadas', { agente }),
   responder: (agente: AgenteId) => chamar<Responder>('admin_responder', { agente }),
+  correio: (agente: AgenteId) => chamar<Correio>('admin_correio', { agente }),
+  correioApp: (agente: AgenteId, provedor: ProvedorCorreio, client_id: string, segredo: string) =>
+    chamar<Correio>('admin_correio_app_salvar', { agente, provedor, client_id, segredo }),
+  correioAppApagar: (agente: AgenteId, provedor: ProvedorCorreio) => chamar<Correio>('admin_correio_app_apagar', { agente, provedor }),
+  correioConectar: (agente: AgenteId, provedor: ProvedorCorreio, redirect: string, volta: string) =>
+    chamar<{ url: string }>('admin_correio_conectar', { agente, provedor, redirect, volta }),
+  correioImap: (agente: AgenteId, d: DadosImap) => chamar<ResultadoCorreio>('admin_correio_imap_salvar', { agente, ...d }),
+  correioConta: (id: number, d: { ler_email?: boolean; ler_agenda?: boolean; ativo?: boolean }) => chamar<Correio>('admin_correio_conta', { id, ...d }),
+  correioDesconectar: (id: number) => chamar<Correio>('admin_correio_desconectar', { id }),
+  correioTestar: (id: number) => chamar<ResultadoCorreio>('admin_correio_testar', { id }),
+  correioLer: (agente: AgenteId) => chamar<{ ok: boolean; lidos?: number; itens?: number; contas?: number; erro?: string }>('admin_correio_ler', { agente }),
+  correioAprovar: (id: number, modo: 'enviar' | 'rascunho' | 'criar', dados: DadosProposta, conta_id?: number) =>
+    chamar<ResultadoCorreio>('admin_correio_aprovar', { id, modo, dados, conta_id }),
+  correioRejeitar: (id: number) => chamar<Correio>('admin_correio_rejeitar', { id }),
   responderConfig: (agente: AgenteId, d: { modo?: ModoIA; alcance?: string; nome?: string }) => chamar<Responder>('admin_responder_config', { agente, ...d }),
   responderDefinir: (agente: AgenteId, numero: string, nome: string, sim: boolean) =>
     chamar<Responder>('admin_responder_definir', { agente, numero, nome, sim: String(sim) }),

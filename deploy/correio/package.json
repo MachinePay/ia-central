@@ -1,0 +1,12 @@
+{
+  "name": "ia-central-correio",
+  "private": true,
+  "description": "IMAP/SMTP/CalDAV para as IAs (o n8n chama em http://correio:5690)",
+  "main": "servidor.js",
+  "scripts": { "start": "node servidor.js" },
+  "dependencies": {
+    "imapflow": "^1.0.0",
+    "mailparser": "^3.7.0",
+    "nodemailer": "^6.9.0"
+  }
+}

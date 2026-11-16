@@ -7,13 +7,13 @@ set -e
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
 
-TODOS="erros:errosGerais001 gastos:gastosOpenAI01 aprendiz:aprendiz000001 ferramenta-checar-agora:ferrChecarAgora1 ferramenta-abrir-chamado:ferrChamado0001 atendente-suporte:atendSuporte01 atendente-comercial:atendComercial1 atendente-sistemico:atendSistemico1 atendente:atendente00001 suporte24hrs:suporte24h0001 gabriel:gabriel000001 roteador:roteadorAg0001 monitor-sistemas:monitorSistemas01 ferramenta-enviar-mensagem:ferrEnviarMsg01 especialista-sistemas:espSistemas01 cerebro:iaCerebro00001 ia-pessoal:iaPessoal00001 api-painel:apiPainel00001 api-painel-audio:apiPainelAudio1 canal-whatsapp:canalWhatsapp01 lembretes:lembretes00001"
+TODOS="erros:errosGerais001 gastos:gastosOpenAI01 aprendiz:aprendiz000001 correio:correio0000001 correio-acoes:correioAcoes01 correio-oauth:correioOauth01 ferramenta-checar-agora:ferrChecarAgora1 ferramenta-abrir-chamado:ferrChamado0001 atendente-suporte:atendSuporte01 atendente-comercial:atendComercial1 atendente-sistemico:atendSistemico1 atendente:atendente00001 suporte24hrs:suporte24h0001 gabriel:gabriel000001 roteador:roteadorAg0001 monitor-sistemas:monitorSistemas01 ferramenta-enviar-mensagem:ferrEnviarMsg01 especialista-sistemas:espSistemas01 cerebro:iaCerebro00001 ia-pessoal:iaPessoal00001 api-painel:apiPainel00001 api-painel-audio:apiPainelAudio1 canal-whatsapp:canalWhatsapp01 lembretes:lembretes00001"
 
 sh scripts/gerar-credenciais.sh
 python scripts/montar_workflows.py
 
 if [ $# -eq 0 ]; then
-  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql db/init/09-agentes.sql db/init/10-lote.sql db/init/11-saude.sql db/init/12-gabriel-chip.sql db/init/13-memorias-separadas.sql db/init/14-aprende-sozinho.sql db/init/15-conversa-com-dono.sql db/init/16-monitor-suspensos.sql db/init/17-perfis-contato.sql db/init/18-audio-espera.sql db/init/19-economia-gastos.sql db/init/20-puxar-mensagens.sql db/init/21-rodadas-aprendiz.sql db/init/22-responder-por-voce.sql db/init/23-regras.sql; do
+  for f in db/init/00-bancos.sql db/init/02-ia-pessoal.sql db/init/03-usuarios.sql db/init/04-whatsapp.sql db/init/05-plataformas.sql db/init/06-atendimento.sql db/init/07-observacao.sql db/init/08-dois-numeros.sql db/init/09-agentes.sql db/init/10-lote.sql db/init/11-saude.sql db/init/12-gabriel-chip.sql db/init/13-memorias-separadas.sql db/init/14-aprende-sozinho.sql db/init/15-conversa-com-dono.sql db/init/16-monitor-suspensos.sql db/init/17-perfis-contato.sql db/init/18-audio-espera.sql db/init/19-economia-gastos.sql db/init/20-puxar-mensagens.sql db/init/21-rodadas-aprendiz.sql db/init/22-responder-por-voce.sql db/init/23-regras.sql db/init/24-email-agenda.sql; do
     docker compose exec -T postgres sh -c 'psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' < "$f" 2>&1 | grep -v NOTICE || true
   done
   sh scripts/criar-admin.sh

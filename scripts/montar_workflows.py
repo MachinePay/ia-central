@@ -600,15 +600,30 @@ def api_painel():
         }, webhookId="9b1f6c2e-1a00-4000-8000-000000000002"),
         node("Regras (banco)", "n8n-nodes-base.postgres", 2.6, [220, 0], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.api($1, $2, $3::jsonb) AS r",
+            # a chave (N8N_ENCRYPTION_KEY) vale so nesta consulta: o banco usa para (de)criptografar senhas/tokens de e-mail
+            "query": "SELECT nucleo.api($1, $2, $3::jsonb) AS r FROM (SELECT set_config('nucleo.chave', $4, true)) k",
             "options": {"queryReplacement":
-                        "={{ [" + TOKEN + ", $json.body.acao || '', JSON.stringify($json.body.dados || {})] }}"},
+                        "={{ [" + TOKEN + ", $json.body.acao || '', JSON.stringify($json.body.dados || {}), $env.N8N_ENCRYPTION_KEY || ''] }}"},
         }, credentials=PG),
         node("Rota", "n8n-nodes-base.switch", 3.2, [440, 0], {
             "mode": "expression",
-            "numberOutputs": 8,
+            "numberOutputs": 10,
             "output": "={{ $json.r.saida }}",
         }),
+        node("Correio (acoes)", "n8n-nodes-base.executeWorkflow", 1.4, [700, 1400], {
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "correioAcoes01", "cachedResultName": "Correio (testar conta e executar aprovadas)"},
+            "workflowInputs": mapear({"acao": "={{ $json.r.corpo.acao }}", "id": "={{ String($json.r.corpo.id || '') }}"}),
+            "mode": "once", "options": {"waitForSubWorkflow": True},
+        }, onError="continueRegularOutput", alwaysOutputData=True),
+        responder("Correio feito", [920, 1400], "={{ JSON.stringify($json.r || { ok: false, erro: 'Falhou: ' + (($json.error && $json.error.message) || $json.error || 'sem resposta') }) }}", "200"),
+        node("Ler e-mails", "n8n-nodes-base.executeWorkflow", 1.4, [700, 1600], {
+            "source": "database",
+            "workflowId": {"__rl": True, "mode": "id", "value": "correio0000001", "cachedResultName": "Correio (le e-mail e agenda)"},
+            "workflowInputs": mapear({"origem": "painel", "agente": "={{ $json.r.corpo.agente || '' }}"}),
+            "mode": "once", "options": {"waitForSubWorkflow": True},
+        }, onError="continueRegularOutput", alwaysOutputData=True),
+        responder("E-mails lidos", [920, 1600], "={{ JSON.stringify($json.error ? { ok: false, erro: String($json.error.message || $json.error) } : { ok: true, lidos: +$json.lidos || 0, itens: +$json.itens || 0, contas: +$json.contas || 0 }) }}", "200"),
         node("WhatsApp (Evolution)", "n8n-nodes-base.code", 2, [700, 420], {
             "mode": "runOnceForAllItems",
             "jsCode": JS_ENVIOS + JS_WHATSAPP_ADMIN,
@@ -706,7 +721,11 @@ return [{ json: { ok: true, enviado: true, ids: (env && env.key && env.key.id) |
         [{"node": "Enviar aprovada", "type": "main", "index": 0}],
         [{"node": "Simular atendente", "type": "main", "index": 0}],
         [{"node": "Rodar aprendiz", "type": "main", "index": 0}],
+        [{"node": "Correio (acoes)", "type": "main", "index": 0}],
+        [{"node": "Ler e-mails", "type": "main", "index": 0}],
     ]}
+    con["Correio (acoes)"] = {"main": [[{"node": "Correio feito", "type": "main", "index": 0}]]}
+    con["Ler e-mails"] = {"main": [[{"node": "E-mails lidos", "type": "main", "index": 0}]]}
     con["Enviar aprovada"] = {"main": [[{"node": "Guardar ids aprovada", "type": "main", "index": 0}]]}
     con["Guardar ids aprovada"] = {"main": [[{"node": "Aprovada", "type": "main", "index": 0}]]}
     con["Rodar aprendiz"] = {"main": [[{"node": "Aprendido", "type": "main", "index": 0}]]}
@@ -2292,6 +2311,467 @@ def gastos():
     return wf
 
 
+# ---------------------------------------------------------------------------
+# E-MAIL E AGENDA de cada IA (Google, Microsoft, dominio proprio via servico "correio")
+#   correio        : de hora em hora (ou "Ler agora") le SO o que e novo, aprende e PROPOE (nunca executa sozinho)
+#   correio-acoes  : testar conta | executar proposta APROVADA no painel (na conta certa)
+#   correio-oauth  : volta do login do Google/Microsoft (GET /webhook/oauth/google | /webhook/oauth/microsoft)
+# Senhas e tokens ficam criptografados no banco com a N8N_ENCRYPTION_KEY (passada em cada consulta).
+# ---------------------------------------------------------------------------
+CHAVE = "$env.N8N_ENCRYPTION_KEY || ''"
+
+JS_CORREIO = r"""
+const CORREIO = String($env.CORREIO_URL || 'http://127.0.0.1:5690').replace(/\/$/, '');
+const TZ = 'America/Sao_Paulo';
+const ESCOPOS_MS = 'openid email offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite';
+const req = o => this.helpers.httpRequest(Object.assign({ json: true, timeout: 60000 }, o));
+const form = o => Object.entries(o).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v == null ? '' : v)).join('&');
+const api = (tok, method, url, body, headers) => req({ method, url, body, headers: Object.assign({ Authorization: 'Bearer ' + tok }, headers || {}) });
+function erroDe(e) {
+  const corpo = e && (e.description || (e.cause && e.cause.response && e.cause.response.data) || (e.response && e.response.body));
+  const t = String((e && e.message) || e) + (corpo ? ' ' + (typeof corpo === 'string' ? corpo : JSON.stringify(corpo)) : '');
+  if (/invalid_grant|AADSTS70008|AADSTS700082|expired or revoked|Token has been expired/i.test(t)) return 'A autorizacao expirou ou foi removida: conecte a conta de novo.';
+  if (/invalid_client|AADSTS7000215|unauthorized_client/i.test(t)) return 'Chaves do app (Client ID/secret) recusadas: confira no passo 4.';
+  if (/insufficient|ACCESS_TOKEN_SCOPE_INSUFFICIENT|ErrorAccessDenied|403/i.test(t)) return 'Sem permissao: conecte de novo e aceite todas as permissoes.';
+  return t.slice(0, 400);
+}
+async function correio(rota, corpo) {
+  const r = await req({ method: 'POST', url: CORREIO + rota, body: corpo, timeout: 120000 });
+  if (r && r.ok === false) throw new Error(r.erro || 'falhou');
+  return r;
+}
+// token de acesso novo a cada uso (o refresh token fica guardado criptografado)
+async function acesso(c) {
+  if (!c.app || !c.app.client_id) throw new Error('As chaves do app ' + (c.tipo === 'google' ? 'Google' : 'Microsoft') + ' desta IA nao estao salvas (passo 4).');
+  const s = c.segredo || {};
+  if (!s.refresh_token) throw new Error('Conta sem autorizacao: conecte de novo.');
+  const corpo = { client_id: c.app.client_id, client_secret: c.app.client_secret, refresh_token: s.refresh_token, grant_type: 'refresh_token' };
+  if (c.tipo === 'microsoft') corpo.scope = ESCOPOS_MS;
+  const r = await req({ method: 'POST', body: form(corpo), headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    url: c.tipo === 'google' ? 'https://oauth2.googleapis.com/token' : 'https://login.microsoftonline.com/common/oauth2/v2.0/token' });
+  return { tok: r.access_token, novo: r.refresh_token && r.refresh_token !== s.refresh_token ? { refresh_token: r.refresh_token } : null };
+}
+const b64url = s => Buffer.from(String(s || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+const semHtml = h => String(h || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ');
+// corta a parte citada da resposta (economiza tokens)
+const limpar = t => String(t || '').replace(/\r/g, '').split(/\n(?:Em .{5,200}escreveu:|On .{5,200}wrote:|-----Original Message-----|De: .{3,200}\nEnviad)/)[0]
+  .split('\n').filter(l => !l.startsWith('>')).join('\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 4000);
+const automatico = de => /no-?reply|nao-?responda|mailer-daemon|notifica|newsletter/i.test(String(de || ''));
+function corpoGmail(p) {
+  if (!p) return '';
+  if (p.mimeType === 'text/plain' && p.body && p.body.data) return b64url(p.body.data);
+  for (const x of p.parts || []) { const t = corpoGmail(x); if (t) return t; }
+  if (p.mimeType === 'text/html' && p.body && p.body.data) return semHtml(b64url(p.body.data));
+  return '';
+}
+const comFuso = d => (d && /T\d\d:\d\d/.test(d) && !/(Z|[+-]\d\d:?\d\d)$/.test(d) ? d + '-03:00' : d);
+const deAte = () => ({ de: new Date(Date.now() - 864e5).toISOString(), ate: new Date(Date.now() + 30 * 864e5).toISOString() });
+
+async function lerGoogle(c, tok, cur, saida) {
+  if (c.ler_email) {
+    const desde = +cur.email_desde || Math.floor(Date.now() / 1000) - 86400;   // primeira vez: so o ultimo dia
+    const q = `in:inbox -category:promotions -category:social -category:updates -category:forums after:${desde}`;
+    const lista = await api(tok, 'GET', 'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=15&q=' + encodeURIComponent(q));
+    let max = desde;
+    for (const m of lista.messages || []) {
+      const f = await api(tok, 'GET', `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`);
+      const hd = n => ((((f.payload || {}).headers) || []).find(x => x.name.toLowerCase() === n) || {}).value || '';
+      max = Math.max(max, Math.floor(+f.internalDate / 1000));
+      saida.itens.push({ tipo: 'email', ext_id: f.id, de: hd('from'), assunto: hd('subject'), texto: limpar(corpoGmail(f.payload) || f.snippet),
+        quando: new Date(+f.internalDate).toISOString(), dados: { thread_id: f.threadId, message_id: hd('message-id'),
+          referencias: (hd('references') + ' ' + hd('message-id')).trim(), responder_para: hd('reply-to'),
+          automatico: !!(hd('list-unsubscribe') || (hd('auto-submitted') && hd('auto-submitted') !== 'no') || automatico(hd('from'))) } });
+    }
+    saida.cursor.email_desde = max;
+  }
+  if (c.ler_agenda) {
+    const { de, ate } = deAte();
+    const r = await api(tok, 'GET', 'https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=50'
+      + '&timeMin=' + encodeURIComponent(de) + '&timeMax=' + encodeURIComponent(ate));
+    for (const e of r.items || []) {
+      if (e.status === 'cancelled') continue;
+      saida.itens.push({ tipo: 'evento', ext_id: e.id, de: (e.organizer || {}).email || '', assunto: e.summary || '(sem titulo)',
+        texto: semHtml(e.description || '').slice(0, 800), quando: e.start.dateTime || e.start.date, fim: (e.end || {}).dateTime || (e.end || {}).date,
+        dados: { local: e.location || '', convidados: (e.attendees || []).map(a => a.email).slice(0, 20) } });
+    }
+  }
+}
+
+async function lerMicrosoft(c, tok, cur, saida) {
+  const G = 'https://graph.microsoft.com/v1.0';
+  if (c.ler_email) {
+    const desde = cur.email_desde || new Date(Date.now() - 864e5).toISOString().replace(/\.\d+Z$/, 'Z');
+    const r = await api(tok, 'GET', `${G}/me/mailFolders/inbox/messages?$top=15&$orderby=receivedDateTime%20desc`
+      + `&$filter=${encodeURIComponent('receivedDateTime gt ' + desde)}`
+      + '&$select=id,subject,from,replyTo,receivedDateTime,body,conversationId,internetMessageId,inferenceClassification',
+      undefined, { Prefer: 'outlook.body-content-type="text"' });
+    let max = desde;
+    for (const m of r.value || []) {
+      if (m.receivedDateTime > max) max = m.receivedDateTime;
+      const de = m.from && m.from.emailAddress ? `${m.from.emailAddress.name || ''} <${m.from.emailAddress.address}>` : '';
+      saida.itens.push({ tipo: 'email', ext_id: m.id, de, assunto: m.subject || '', texto: limpar((m.body || {}).content),
+        quando: m.receivedDateTime, dados: { thread_id: m.conversationId, message_id: m.internetMessageId,
+          automatico: m.inferenceClassification === 'other' || automatico(de) } });
+    }
+    saida.cursor.email_desde = max;
+  }
+  if (c.ler_agenda) {
+    const { de, ate } = deAte();
+    const r = await api(tok, 'GET', `${G}/me/calendarView?startDateTime=${encodeURIComponent(de)}&endDateTime=${encodeURIComponent(ate)}`
+      + '&$top=50&$select=id,subject,start,end,location,attendees,bodyPreview,organizer,isCancelled', undefined, { Prefer: 'outlook.timezone="UTC"' });
+    for (const e of r.value || []) {
+      if (e.isCancelled) continue;
+      const z = d => (d && d.dateTime ? d.dateTime.replace(/\.\d+$/, '') + 'Z' : '');
+      saida.itens.push({ tipo: 'evento', ext_id: e.id, de: ((e.organizer || {}).emailAddress || {}).address || '', assunto: e.subject || '(sem titulo)',
+        texto: String(e.bodyPreview || '').slice(0, 800), quando: z(e.start), fim: z(e.end),
+        dados: { local: (e.location || {}).displayName || '', convidados: (e.attendees || []).map(a => (a.emailAddress || {}).address).filter(Boolean).slice(0, 20) } });
+    }
+  }
+}
+
+async function lerImap(c, cur, saida) {
+  const s = c.segredo || {};
+  if (c.ler_email) {
+    const r = await correio('/imap/ler', { imap: s.imap, cursor: cur.imap || {}, max: 15 });
+    for (const m of r.itens || []) saida.itens.push({ tipo: 'email', ext_id: m.ext_id, de: m.de, assunto: m.assunto, texto: limpar(m.texto), quando: m.quando,
+      dados: { message_id: m.message_id, referencias: (m.referencias + ' ' + m.message_id).trim(), automatico: !!m.automatico || automatico(m.de) } });
+    saida.cursor.imap = r.cursor;
+  }
+  if (c.ler_agenda && s.caldav && s.caldav.url) {
+    const { de, ate } = deAte();
+    const r = await correio('/caldav/ler', { caldav: s.caldav, de, ate });
+    for (const e of r.itens || []) saida.itens.push({ tipo: 'evento', ext_id: e.ext_id, de: '', assunto: e.titulo, texto: e.descricao,
+      quando: comFuso(e.inicio), fim: comFuso(e.fim), dados: { local: e.local } });
+  }
+}
+
+// ---------------- executar (so depois que voce aprova)
+const b64 = s => Buffer.from(String(s || ''), 'utf8').toString('base64');
+const soEndereco = p => (/[^\x00-\x7f]/.test(p) ? String(p).split(',').map(x => (x.match(/<([^>]+)>/) || [0, x.trim()])[1]).join(', ') : p);
+function mime(m) {
+  const l = [`From: ${soEndereco(m.de)}`, `To: ${soEndereco(m.para)}`, `Subject: =?UTF-8?B?${b64(m.assunto)}?=`, 'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'];
+  if (m.in_reply_to) l.push('In-Reply-To: ' + m.in_reply_to);
+  if (m.referencias) l.push('References: ' + m.referencias);
+  return Buffer.from(l.join('\r\n') + '\r\n\r\n' + b64(m.texto).replace(/.{76}/g, '$&\r\n'), 'utf8').toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+const ateSegundos = d => (String(d).length === 16 ? d + ':00' : String(d));
+
+async function executar(c, p) {
+  const d = p.dados || {};
+  const msg = { de: c.nome ? `${c.nome} <${c.email}>` : c.email, para: d.para, assunto: d.assunto, texto: d.corpo,
+                in_reply_to: d.message_id || '', referencias: d.referencias || d.message_id || '' };
+  if (c.tipo === 'imap') {
+    const s = c.segredo || {};
+    if (p.tipo === 'evento') {
+      if (!s.caldav || !s.caldav.url) throw new Error('Esta conta nao tem agenda (CalDAV)');
+      await correio('/caldav/criar', { caldav: s.caldav, evento: d }); return { texto: 'Evento criado na agenda de ' + c.email };
+    }
+    if (p.modo === 'enviar') {
+      if (!s.smtp || !s.smtp.host) throw new Error('Esta conta nao tem servidor de envio (SMTP)');
+      await correio('/smtp/enviar', { smtp: s.smtp, imap: s.imap, mensagem: msg }); return { texto: 'E-mail enviado de ' + c.email };
+    }
+    await correio('/imap/rascunho', { imap: s.imap, mensagem: msg }); return { texto: 'Rascunho salvo em ' + c.email };
+  }
+  const { tok, novo } = await acesso(c);
+  const fim = t => ({ texto: t, novo });
+  if (c.tipo === 'google') {
+    const G = 'https://gmail.googleapis.com/gmail/v1/users/me';
+    if (p.tipo === 'evento') {
+      const conv = (d.convidados || []).map(email => ({ email }));
+      await api(tok, 'POST', 'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=' + (conv.length ? 'all' : 'none'), {
+        summary: d.titulo, location: d.local || undefined, description: d.descricao || undefined, attendees: conv.length ? conv : undefined,
+        start: { dateTime: ateSegundos(d.inicio), timeZone: TZ }, end: { dateTime: ateSegundos(d.fim || d.inicio), timeZone: TZ } });
+      return fim('Evento criado no Google Agenda de ' + c.email + (conv.length ? ' (convites enviados)' : ''));
+    }
+    const raw = mime(msg);
+    if (p.modo === 'enviar') { await api(tok, 'POST', `${G}/messages/send`, { raw, threadId: d.thread_id || undefined }); return fim('E-mail enviado de ' + c.email); }
+    await api(tok, 'POST', `${G}/drafts`, { message: { raw, threadId: d.thread_id || undefined } }); return fim('Rascunho salvo no Gmail de ' + c.email);
+  }
+  const G = 'https://graph.microsoft.com/v1.0/me';
+  if (p.tipo === 'evento') {
+    const tz = 'E. South America Standard Time';
+    await api(tok, 'POST', `${G}/events`, { subject: d.titulo, body: { contentType: 'text', content: d.descricao || '' },
+      start: { dateTime: ateSegundos(d.inicio), timeZone: tz }, end: { dateTime: ateSegundos(d.fim || d.inicio), timeZone: tz },
+      location: d.local ? { displayName: d.local } : undefined,
+      attendees: (d.convidados || []).map(address => ({ emailAddress: { address }, type: 'required' })) });
+    return fim('Evento criado no calendario do Outlook de ' + c.email);
+  }
+  const para = String(d.para || '').split(',').map(x => (x.match(/<([^>]+)>/) || [0, x.trim()])[1]).filter(Boolean)
+    .map(address => ({ emailAddress: { address } }));
+  let rascunho;
+  if (d.responder_a) {
+    rascunho = await api(tok, 'POST', `${G}/messages/${d.responder_a}/createReply`, { comment: d.corpo });
+    await api(tok, 'PATCH', `${G}/messages/${rascunho.id}`, { toRecipients: para, subject: d.assunto });
+  } else {
+    rascunho = await api(tok, 'POST', `${G}/messages`, { subject: d.assunto, body: { contentType: 'text', content: d.corpo }, toRecipients: para });
+  }
+  if (p.modo === 'enviar') { await api(tok, 'POST', `${G}/messages/${rascunho.id}/send`); return fim('E-mail enviado de ' + c.email); }
+  return fim('Rascunho salvo no Outlook de ' + c.email);
+}
+
+async function testarConta(c) {
+  if (c.tipo === 'imap') { const s = c.segredo || {}; await correio('/imap/testar', { imap: s.imap, smtp: s.smtp, caldav: s.caldav }); return { texto: 'Conexao ok' }; }
+  const { tok, novo } = await acesso(c);
+  await api(tok, 'GET', c.tipo === 'google' ? 'https://gmail.googleapis.com/gmail/v1/users/me/profile' : 'https://graph.microsoft.com/v1.0/me');
+  return { texto: 'Conexao ok', novo };
+}
+"""
+
+JS_CORREIO_LER = r"""
+const contas = $input.all().map(i => i.json.conta).filter(c => c && c.id);
+const saida = [];
+const fila = contas.slice();
+async function lerConta(c) {
+  const s = { itens: [], cursor: {}, erros: [], novo: null };
+  try {
+    if (c.tipo === 'imap') await lerImap(c, c.cursor || {}, s);
+    else {
+      const a = await acesso(c); s.novo = a.novo;
+      if (c.tipo === 'google') await lerGoogle(c, a.tok, c.cursor || {}, s); else await lerMicrosoft(c, a.tok, c.cursor || {}, s);
+    }
+  } catch (e) { s.erros.push(erroDe(e)); }
+  saida.push({ json: { conta_id: String(c.id), agente: c.agente, itens: JSON.stringify(s.itens), cursor: JSON.stringify(s.cursor),
+    segredo: s.novo ? JSON.stringify(s.novo) : '', erro: s.erros.join(' | '), lidos: s.itens.length } });
+}
+const trabalhador = async () => { while (fila.length) await lerConta(fila.shift()); };
+await Promise.all(Array.from({ length: 4 }, () => trabalhador()));
+return saida.length ? saida : [{ json: { conta_id: '', itens: '[]', cursor: '{}', segredo: '', erro: '', lidos: 0 } }];
+"""
+
+JS_CORREIO_APRENDER = r"""
+const NOME_IA = { leo: 'Leo 2.0 (a IA pessoal do dono)', joao: 'Joao (o vendedor da empresa)', suporte: 'Suporte24hrs (o suporte da empresa)', gabriel: 'Gabriel (o clone do dono)' };
+const contas = $input.all().map(i => i.json.r).filter(r => r && r.conta_id && (r.novos || []).length);
+const lidos = {};
+for (const i of $('Ler contas').all()) if (i.json.agente) lidos[i.json.agente] = (lidos[i.json.agente] || 0) + (+i.json.lidos || 0);
+const schema = { type: 'object', additionalProperties: false, required: ['itens', 'propostas'], properties: {
+  itens: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['tipo', 'titulo', 'conteudo'], properties: {
+    tipo: { type: 'string', enum: ['jeito_de_falar', 'como_resolve', 'fato'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } } },
+  propostas: { type: 'array', items: { type: 'object', additionalProperties: false,
+    required: ['tipo', 'item_id', 'motivo', 'corpo', 'titulo', 'inicio', 'fim', 'local', 'descricao', 'convidados'], properties: {
+      tipo: { type: 'string', enum: ['email', 'evento'] }, item_id: { type: 'integer' }, motivo: { type: 'string' }, corpo: { type: 'string' },
+      titulo: { type: 'string' }, inicio: { type: 'string' }, fim: { type: 'string' }, local: { type: 'string' }, descricao: { type: 'string' },
+      convidados: { type: 'string' } } } } } };
+const quando = d => d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+const hoje = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const saida = [];
+async function aprender(r) {
+  const transcricao = r.novos.map(n => n.tipo === 'email'
+    ? `[#${n.id}] E-MAIL de: ${n.de} | assunto: ${n.assunto} | em: ${quando(n.quando)}\n${n.texto}`
+    : `[#${n.id}] EVENTO NA AGENDA: ${n.assunto} | ${quando(n.quando)} ate ${quando(n.fim)}${n.local ? ' | local: ' + n.local : ''}${(n.convidados || []).length ? ' | convidados: ' + n.convidados.join(', ') : ''}${n.texto ? '\n' + n.texto : ''}`
+  ).join('\n---\n');
+  const sistema = `Voce e o aprendiz da IA ${NOME_IA[r.agente] || r.agente}. Abaixo, e-mails e eventos de agenda NOVOS da conta ${r.email}, que e de ${r.dono}.
+Agora: ${hoje} (horario de Brasilia).
+1) APRENDA (itens), so para esta IA, o que for util para ela agir como ${r.dono}:
+- tipo "fato": quem e quem (pessoas, empresas e o papel de cada uma), compromissos e rotina (reunioes recorrentes), projetos, clientes, fornecedores, prazos, precos e decisoes.
+- tipo "como_resolve": como ${r.dono} costuma tratar pedidos, cobrancas, reunioes e problemas (se der para perceber).
+- tipo "jeito_de_falar": so se houver texto ESCRITO por ${r.dono} (ex.: resposta dele citada).
+- NUNCA guarde senhas, codigos de verificacao, links de acesso, dados bancarios/cartao, documentos, saude ou vida intima.
+- Ignore propaganda, newsletters e notificacoes automaticas. Ate 8 itens, autoexplicativos (1 a 3 frases). Nao repita o que a IA ja sabe. Nada novo: itens vazio.
+2) PROPONHA (propostas) so quando fizer sentido. ${r.dono} revisa e aprova ANTES de qualquer coisa acontecer:
+- tipo "email": resposta a um e-mail de uma PESSOA REAL que espera resposta (pergunta, pedido, convite). Nunca para e-mails automaticos, propaganda ou no-reply.
+  "corpo": a resposta pronta, curta, no jeito de ${r.dono}, no idioma do e-mail, assinada como ${r.dono}. Nao invente fatos, precos nem compromissos:
+  se depender de uma decisao, diga que vai verificar e retorna.
+- tipo "evento": quando um e-mail marca ou confirma reuniao, ligacao, visita ou prazo com data e hora claras e isso NAO esta na agenda abaixo.
+  "inicio" e "fim" no formato AAAA-MM-DDTHH:MM (horario de Brasilia); "convidados": e-mails separados por virgula (ou vazio).
+  ${r.tem_agenda ? '' : 'ESTA IA NAO TEM AGENDA CONECTADA: NAO proponha eventos.'}
+- "item_id" = o numero [#...] do e-mail de origem. "motivo": 1 frase dizendo por que. Ate 3 propostas. Campos que nao se aplicam: "".
+O que a IA ja sabe:
+${r.contexto || '(vazia)'}
+Agenda dos proximos dias:
+${r.agenda || '(vazia)'}`;
+  const ids = r.novos.map(n => n.id);
+  try {
+    const resp = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 120000,
+      headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
+      body: { model: '__MODELO__', reasoning_effort: 'low',
+        response_format: { type: 'json_schema', json_schema: { name: 'email', strict: true, schema } },
+        messages: [{ role: 'system', content: sistema }, { role: 'user', content: transcricao }] } });
+    const res = JSON.parse(resp.choices[0].message.content);
+    const u = resp.usage || {};
+    saida.push({ json: { conta_id: String(r.conta_id), agente: r.agente, ids: JSON.stringify(ids), itens: JSON.stringify(res.itens || []),
+      propostas: JSON.stringify(res.propostas || []), entrada: u.prompt_tokens || 0, saida_tokens: u.completion_tokens || 0, modelo: '__MODELO__',
+      lidos: ids.length, erro: '' } });
+  } catch (e) {
+    // falhou: nao marca como aprendido -> tenta de novo na proxima leitura
+    saida.push({ json: { conta_id: String(r.conta_id), agente: r.agente, ids: '[]', itens: '[]', propostas: '[]', entrada: 0, saida_tokens: 0,
+      modelo: '__MODELO__', lidos: ids.length, erro: String(e.message || e).slice(0, 300) } });
+  }
+}
+const fila = contas.slice();
+const trabalhador = async () => { while (fila.length) await aprender.call(this, fila.shift()); };
+await Promise.all(Array.from({ length: 4 }, () => trabalhador()));
+return saida.length ? saida : [{ json: { conta_id: '', agente: '', ids: '[]', itens: '[]', propostas: '[]', entrada: 0, saida_tokens: 0, modelo: '', lidos: 0, erro: '' } }];
+"""
+
+
+def correio_leitura():
+    agente = "(() => { try { return $('Quando chamado').first().json.agente || '' } catch (e) { return '' } })()"
+    nodes = [
+        node("De hora em hora", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 60}]}}),
+        node("Testar agora", "n8n-nodes-base.manualTrigger", 1, [0, 180], {}),
+        gatilho_subworkflow(["origem", "agente"], pos=(0, 360)),
+        node("Contas", "n8n-nodes-base.postgres", 2.6, [240, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT c AS conta FROM nucleo.correio_para_ler($1, $2) c\n"
+                     "WHERE nucleo.aprendiz_pode_rodar()   -- passou do teto de gasto do dia: pausa",
+            "options": {"queryReplacement": "={{ [" + CHAVE + ", " + agente + "] }}"},
+        }, credentials=PG, alwaysOutputData=True),
+        node("Ler contas", "n8n-nodes-base.code", 2, [460, 180], {
+            "mode": "runOnceForAllItems", "jsCode": JS_CORREIO + JS_CORREIO_LER,
+        }),
+        node("Guardar", "n8n-nodes-base.postgres", 2.6, [680, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.correio_guardar($1, nullif($2, '')::int, $3::jsonb, $4::jsonb, nullif($5, '')::jsonb, $6) AS r",
+            "options": {"queryReplacement": "={{ [" + CHAVE + ", $json.conta_id || '', $json.itens || '[]', $json.cursor || '{}', "
+                                             "$json.segredo || '', $json.erro || ''] }}"},
+        }, credentials=PG),
+        node("Aprender", "n8n-nodes-base.code", 2, [900, 180], {
+            "mode": "runOnceForAllItems", "jsCode": JS_CORREIO_APRENDER.replace("__MODELO__", MODELOS["openai"]["atendente"]),
+        }),
+        node("Salvar aprendizado", "n8n-nodes-base.postgres", 2.6, [1120, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT CASE WHEN $1 = '' THEN 0 ELSE nucleo.correio_aprendido(nullif($1, '')::int, $2::jsonb, $3::jsonb, $4::jsonb,\n"
+                     "         nullif($5, '')::int, nullif($6, '')::int, $7) END AS salvos,\n"
+                     "  CASE WHEN $8 <> '' THEN nucleo.registrar_evento($9, 'aviso', 'Nao consegui aprender com o e-mail: ' || nucleo.motivo_erro($8), $8, '{}') END AS evento",
+            "options": {"queryReplacement": "={{ [$json.conta_id || '', $json.ids || '[]', $json.itens || '[]', $json.propostas || '[]', "
+                                             "String($json.entrada || 0), String($json.saida_tokens || 0), $json.modelo || '', $json.erro || '', $json.agente || 'aprendiz'] }}"},
+        }, credentials=PG),
+        node("Resultado", "n8n-nodes-base.code", 2, [1340, 180], {
+            "mode": "runOnceForAllItems",
+            "jsCode": r"""
+// rodada do aprendiz (aba Aprendizado): por IA, contas lidas, e-mails/eventos lidos, itens aprendidos e custo
+const ap = $('Aprender').all().map(i => i.json);
+const sal = $input.all().map(i => i.json);
+const lidas = $('Ler contas').all().map(i => i.json).filter(x => x.agente);
+const por = {};
+let total = 0, lidos = 0;
+for (const l of lidas) {
+  const s = por[l.agente] || (por[l.agente] = { agente: l.agente, conversas: 0, mensagens: 0, itens: 0, erros: 0, entrada: 0, saida: 0, modelo: '' });
+  s.conversas++; s.mensagens += +l.lidos || 0; lidos += +l.lidos || 0; if (l.erro) s.erros++;
+}
+ap.forEach((a, i) => {
+  if (!a.agente || !por[a.agente]) return;
+  const s = por[a.agente], salvos = +((sal[i] || {}).salvos) || 0;
+  s.itens += salvos; total += salvos; s.entrada += +a.entrada || 0; s.saida += +a.saida_tokens || 0; if (a.modelo) s.modelo = a.modelo; if (a.erro) s.erros++;
+});
+let origem = 'automatico';
+try { if ($('Quando chamado').isExecuted) origem = 'painel'; } catch (e) { /* rodou pela agenda */ }
+const agentes = Object.values(por).filter(s => s.mensagens || s.itens || s.erros);
+return [{ json: { lidos, itens: total, contas: lidas.length, rodada: JSON.stringify({ origem, duracao_ms: 0, agentes }) } }];
+""",
+        }),
+        node("Registrar rodada", "n8n-nodes-base.postgres", 2.6, [1560, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.rodada_registrar($1::jsonb) AS rodadas, $2::int AS lidos, $3::int AS itens, $4::int AS contas",
+            "options": {"queryReplacement": "={{ [$json.rodada || '{}', String($json.lidos || 0), String($json.itens || 0), String($json.contas || 0)] }}"},
+        }, credentials=PG),
+    ]
+    con = ligar(("De hora em hora", "Contas"), ("Testar agora", "Contas"), ("Quando chamado", "Contas"),
+                ("Contas", "Ler contas"), ("Ler contas", "Guardar"), ("Guardar", "Aprender"),
+                ("Aprender", "Salvar aprendizado"), ("Salvar aprendizado", "Resultado"), ("Resultado", "Registrar rodada"))
+    wf = workflow("correio0000001", "Correio (le e-mail e agenda)", nodes, con)
+    wf["settings"]["saveDataSuccessExecution"] = "none"   # passa senha/token decifrado: nao guardar execucoes boas
+    return wf
+
+
+def correio_acoes():
+    nodes = [
+        gatilho_subworkflow(["acao", "id"]),
+        node("Dados", "n8n-nodes-base.postgres", 2.6, [240, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.correio_execucao($1, $2, nullif($3, '')::int) AS d",
+            "options": {"queryReplacement": "={{ [" + CHAVE + ", $json.acao || '', String($json.id || '')] }}"},
+        }, credentials=PG),
+        node("Executar", "n8n-nodes-base.code", 2, [460, 0], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_CORREIO + r"""
+const d = $input.first().json.d || {};
+const gat = $('Quando chamado').first().json;
+let ok = false, resultado = '', novo = null;
+try {
+  if (d.erro) throw new Error(d.erro);
+  const r = d.acao === 'testar' ? await testarConta(d.conta) : await executar(d.conta, d.proposta);
+  ok = true; resultado = r.texto; novo = r.novo || null;
+} catch (e) { resultado = erroDe(e); }
+return [{ json: { acao: gat.acao, id: String(gat.id || ''), ok: String(ok), resultado, segredo: novo ? JSON.stringify(novo) : '' } }];
+""",
+        }),
+        node("Resultado", "n8n-nodes-base.postgres", 2.6, [680, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.correio_resultado($1, $2, nullif($3, '')::int, $4::boolean, $5, nullif($6, '')::jsonb) AS r",
+            "options": {"queryReplacement": "={{ [" + CHAVE + ", $json.acao, $json.id, $json.ok, $json.resultado || '', $json.segredo || ''] }}"},
+        }, credentials=PG),
+    ]
+    con = ligar(("Quando chamado", "Dados"), ("Dados", "Executar"), ("Executar", "Resultado"))
+    wf = workflow("correioAcoes01", "Correio (testar conta e executar aprovadas)", nodes, con)
+    wf["settings"]["saveDataSuccessExecution"] = "none"
+    return wf
+
+
+def correio_oauth():
+    def gancho(nome, prov, y, n):
+        return node(nome, "n8n-nodes-base.webhook", 2.1, [0, y], {
+            "httpMethod": "GET", "path": f"oauth/{prov}", "responseMode": "responseNode", "options": {},
+        }, webhookId=f"9b1f6c2e-1a00-4000-8000-0000000000{n}")
+    nodes = [
+        gancho("Google", "google", 0, "41"),
+        gancho("Microsoft", "microsoft", 200, "42"),
+        node("Estado", "n8n-nodes-base.postgres", 2.6, [240, 100], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.correio_oauth_pegar($1, $2) AS o, $3 AS code, $4 AS erro_provedor",
+            "options": {"queryReplacement": "={{ [" + CHAVE + ", $json.query.state || '', $json.query.code || '', "
+                                             "$json.query.error_description || $json.query.error || ''] }}"},
+        }, credentials=PG),
+        node("Trocar codigo", "n8n-nodes-base.code", 2, [460, 100], {
+            "mode": "runOnceForAllItems",
+            "jsCode": JS_CORREIO + r"""
+const { o, code, erro_provedor } = $input.first().json;
+const volta = (o && o.volta) || '';
+try {
+  if (!o || o.erro) throw new Error((o && o.erro) || 'Pedido de conexao invalido');
+  if (erro_provedor) throw new Error('O login foi cancelado ou recusado: ' + String(erro_provedor).slice(0, 200));
+  const google = o.provedor === 'google';
+  const corpo = { code, client_id: o.client_id, client_secret: o.client_secret, redirect_uri: o.redirect, grant_type: 'authorization_code' };
+  if (!google) corpo.scope = o.escopos;
+  const t = await req({ method: 'POST', body: form(corpo), headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    url: google ? 'https://oauth2.googleapis.com/token' : 'https://login.microsoftonline.com/common/oauth2/v2.0/token' });
+  if (!t.refresh_token) throw new Error('O provedor nao devolveu autorizacao permanente. Remova o acesso do app na sua conta e conecte de novo.');
+  let email = '', nome = '';
+  if (google) {
+    const u = await api(t.access_token, 'GET', 'https://openidconnect.googleapis.com/v1/userinfo'); email = u.email; nome = u.name || '';
+  } else {
+    const u = await api(t.access_token, 'GET', 'https://graph.microsoft.com/v1.0/me'); email = u.mail || u.userPrincipalName; nome = u.displayName || '';
+  }
+  if (!email) throw new Error('Nao consegui descobrir o endereco de e-mail da conta');
+  return [{ json: { ok: 'sim', agente: o.agente, provedor: o.provedor, email, nome, tokens: JSON.stringify({ refresh_token: t.refresh_token }), volta, erro: '' } }];
+} catch (e) {
+  return [{ json: { ok: '', agente: '', provedor: '', email: '', nome: '', tokens: '{}', volta, erro: erroDe(e) } }];
+}
+""",
+        }),
+        node("Salvar conta", "n8n-nodes-base.postgres", 2.6, [680, 100], {
+            "operation": "executeQuery",
+            "query": "SELECT CASE WHEN $2 = 'sim' THEN nucleo.correio_oauth_salvar($1, $3, $4, $5, $6, $7::jsonb) END AS conta_id",
+            "options": {"queryReplacement": "={{ [" + CHAVE + ", $json.ok, $json.agente, $json.provedor, $json.email, $json.nome, $json.tokens] }}"},
+        }, credentials=PG),
+        node("Voltar ao painel", "n8n-nodes-base.respondToWebhook", 1.5, [900, 100], {
+            "respondWith": "redirect",
+            "redirectURL": "={{ (() => { const t = $('Trocar codigo').first().json; const v = t.volta || $env.PAINEL_URL || 'https://iacentralleo.vercel.app/'; "
+                           "const s = v.includes('?') ? '&' : '?'; "
+                           "return t.ok ? v + s + 'correio=ok&conta=' + encodeURIComponent(t.email) : v + s + 'correio_erro=' + encodeURIComponent(t.erro); })() }}",
+            "options": {},
+        }),
+    ]
+    con = ligar(("Google", "Estado"), ("Microsoft", "Estado"), ("Estado", "Trocar codigo"), ("Trocar codigo", "Salvar conta"),
+                ("Salvar conta", "Voltar ao painel"))
+    wf = workflow("correioOauth01", "Correio (login Google/Microsoft)", nodes, con)
+    wf["settings"]["saveDataSuccessExecution"] = "none"
+    return wf
+
+
 WORKFLOWS = [
     ("gastos.json", gastos),
     ("erros.json", erros),
@@ -2314,6 +2794,9 @@ WORKFLOWS = [
     ("api-painel-audio.json", api_audio),
     ("canal-whatsapp.json", canal_whatsapp),
     ("lembretes.json", lembretes),
+    ("correio.json", correio_leitura),
+    ("correio-acoes.json", correio_acoes),
+    ("correio-oauth.json", correio_oauth),
 ]
 
 if __name__ == "__main__":

@@ -155,6 +155,26 @@ Cliente ──► ATENDENTE (recepção) ──┬── Suporte    → base de 
   clientes (leads) e quais serviços os clientes podem saber se estão fora.
 - Testes: `testar_atendente.py`, `testar_observacao.py` (João) e `testar_leo.py` (Leo) — números que não existem no WhatsApp.
 
+## E-mail e agenda (cada IA)
+
+No painel, em cada IA: **Configurar → 4 · E-mail e agenda**. Cada IA pode ter várias contas:
+
+- **Gmail / Google** (Gmail + Google Agenda) e **Outlook / Microsoft** (Outlook + calendário): login OAuth.
+  As chaves do app (Client ID + secret do Google Cloud / Azure) ficam **no perfil de cada IA**, não no Render.
+  URI de redirecionamento para cadastrar no app: `https://<painel>/webhook/oauth/google` (ou `/microsoft`);
+  local: `http://localhost:5678/webhook/oauth/google`. O painel mostra o endereço certo para copiar.
+  Escopos Google: `openid email gmail.readonly gmail.compose calendar.events`.
+  Microsoft (delegadas): `openid email offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite`.
+- **Domínio próprio** (ex.: @girakids.com, que fica na Uni5): IMAP/SMTP e, se o provedor tiver, CalDAV.
+  O n8n não fala IMAP sozinho: o serviço `deploy/correio` faz isso (no Render roda dentro do contêiner do n8n;
+  local é o serviço `correio` do compose).
+
+A IA lê de hora em hora **só o que chegou de novo** (não marca como lido, não mexe na caixa), aprende só para ela
+(dentro do teto de gasto do aprendiz) e **propõe** respostas/rascunhos e eventos. Tudo aparece em **Aprovar** e só
+é executado, na conta certa, depois que você aprova. Senhas e tokens ficam criptografados no banco com a
+`N8N_ENCRYPTION_KEY` (não troque essa chave, ou as contas precisam ser conectadas de novo).
+Teste: `python scripts/testar_correio.py` (usa um servidor de e-mail de teste em contêiner).
+
 ## Painel
 
 - **Voz:** toque no botão rosa para falar e toque de novo para enviar — ou segure enquanto fala

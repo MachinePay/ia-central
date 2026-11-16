@@ -260,6 +260,11 @@ BEGIN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
     END IF;
 
+    -- ---------------------------------------------------------------- E-MAIL E AGENDA de cada IA (24-email-agenda.sql)
+    IF p_acao LIKE 'admin_correio%' THEN
+        RETURN nucleo.api_correio(u.id, p_acao, d);
+    END IF;
+
     -- ---------------------------------------------------------------- ATENDIMENTO (admin)
     IF p_acao = 'admin_atendimento' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_painel((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END)));

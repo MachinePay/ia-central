@@ -253,3 +253,7 @@
   background: color-mix(in srgb, var(--ciano) 8%, transparent); border: 1px solid var(--linha); }
 .responder-esta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 14px 8px; padding: 10px 12px;
   border-radius: 12px; border: 1px solid var(--linha-forte); background: color-mix(in srgb, var(--ciano) 6%, transparent); }
+
+/* e-mail e agenda lidos (aba O que leu) */
+.leitor-correio { margin-top: 16px; }
+.leitor-correio .hud-corpo { max-height: 520px; overflow: auto; }

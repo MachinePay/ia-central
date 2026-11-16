@@ -18,4 +18,7 @@ n8n import:workflow --separate --input=/opt/ia/workflows
 node /opt/ia/preparar.js --ativar
 echo "[ia-central] workflows importados e ativados; subindo o n8n em $WEBHOOK_URL"
 
+# e-mail das IAs (IMAP/SMTP/CalDAV): so na rede interna do conteiner; se cair, sobe de novo
+(while true; do node /opt/ia/correio/servidor.js; sleep 5; done) &
+
 exec /docker-entrypoint.sh "$@"

@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
   Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Rodadas, type Responder, type ModoIA, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type Correio, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Rodadas, type Responder, type ModoIA, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { avisar, confirmar } from '../alerta'
@@ -11,6 +11,7 @@ import { Chamados, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, u
 import { Conexao, FiltroObservacao } from './Whatsapp'
 import { Conversa } from './Conversa'
 import { Orbe, type EstadoOrbe } from './Orbe'
+import { EmailAgenda, FilaCorreio, LidosCorreio, voltaDoLogin } from './Correio'
 
 export type StatusWa = Partial<Record<Instancia, WhatsappStatus['estado']>>
 export type Aba = 'conversar' | 'visao' | 'leu' | 'aprendizado' | 'aprovar' | 'simular' | 'configurar' | 'erros'
@@ -111,21 +112,25 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
   const [resp, setResp] = useState<Responder | null>(null)
   const [estadoOrbe, setEstadoOrbe] = useState<EstadoOrbe>('parado')
   const carregarResp = useCallback(async () => { try { setResp(await api.responder(a)) } catch { /* tenta de novo */ } }, [a])
+  const [cor, setCor] = useState<Correio | null>(null)
+  const carregarCor = useCallback(async () => { try { setCor(await api.correio(a)) } catch { /* tenta de novo */ } }, [a])
 
   const carregarFeed = useCallback(async () => {
     try { setFeed(await api.feed(a)) } catch (e) { if (e instanceof ErroApi && e.status === 401) aoSair() }
   }, [a, aoSair])
   const carregarGab = useCallback(async () => { if (a === 'gabriel') try { setGab(await api.gabriel()) } catch { /* tenta de novo */ } }, [a])
-  const tudo = useCallback(() => { void carregarFeed(); void carregarGab(); void carregarResp(); void atend.carregar(); recarregarSaude() }, [carregarFeed, carregarGab, carregarResp, atend, recarregarSaude])
+  const tudo = useCallback(() => { void carregarFeed(); void carregarGab(); void carregarResp(); void carregarCor(); void atend.carregar(); recarregarSaude() }, [carregarFeed, carregarGab, carregarResp, carregarCor, atend, recarregarSaude])
 
-  useEffect(() => { setFeed(null); setGab(null); setResp(null) }, [a])
+  useEffect(() => { setFeed(null); setGab(null); setResp(null); setCor(null) }, [a])
   useEffect(() => {
-    void carregarFeed(); void carregarGab(); void carregarResp()
-    const t = setInterval(() => { void carregarFeed(); void carregarGab(); void carregarResp() }, 20000); return () => clearInterval(t)
-  }, [carregarFeed, carregarGab, carregarResp])
+    void carregarFeed(); void carregarGab(); void carregarResp(); void carregarCor()
+    const t = setInterval(() => { void carregarFeed(); void carregarGab(); void carregarResp(); void carregarCor() }, 20000); return () => clearInterval(t)
+  }, [carregarFeed, carregarGab, carregarResp, carregarCor])
+  // voltou do login do Google/Microsoft: mostra o resultado e abre o Configurar
+  useEffect(() => { if (voltaDoLogin()) setAba('configurar') }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const revisar = 0   // aprende sozinho: nada para revisar
-  const pendentes = resp?.fila.length ?? 0
+  const pendentes = (resp?.fila.length ?? 0) + (cor?.propostas.filter(p => p.status !== 'executando').length ?? 0)
   const errosNovos = feed?.eventos.filter(e => !e.visto && e.nivel === 'erro').length ?? 0
   const modo = resp?.modo ?? (a === 'leo' ? 'ativo' : s?.modo ?? '')
 
@@ -172,11 +177,16 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
         )}
         {aba === 'visao' && <Visao a={a} s={s} estado={estado} wa={wa[info.instancia]} feed={feed} modo={modo} revisar={revisar} pendentes={pendentes}
           irPara={setAba} extra={atend.d && <Chamados d={atend.d} carregar={atend.carregar} />} gab={gab} />}
-        {aba === 'leu' && <OQueLeu a={a} feed={feed} resp={resp} setResp={setResp} />}
+        {aba === 'leu' && <><OQueLeu a={a} feed={feed} resp={resp} setResp={setResp} /><LidosCorreio cor={cor} /></>}
         {aba === 'aprendizado' && <Aprendizado a={a} feed={feed} recarregar={tudo}
           manual={atend.d && (a === 'joao' || a === 'suporte') ? <EnsinarManual d={atend.d} agente={a} carregar={tudo} /> : null} />}
-        {aba === 'aprovar' && resp && <FilaAprovacao fila={resp.fila} carregar={tudo} aprender={a === 'joao' || a === 'suporte'}
-          areaPadrao={a === 'suporte' ? 'suporte' : 'comercial'} />}
+        {aba === 'aprovar' && (
+          <div className="coluna-pilha">
+            {resp && <FilaAprovacao fila={resp.fila} carregar={tudo} aprender={a === 'joao' || a === 'suporte'}
+              areaPadrao={a === 'suporte' ? 'suporte' : 'comercial'} />}
+            <FilaCorreio cor={cor} setCor={setCor} />
+          </div>
+        )}
         {aba === 'simular' && a !== 'leo' && (
           <div className="duas-colunas">
             <Simulador aoMudar={tudo} agente={a as AgenteAtend | 'gabriel'} dica={a === 'gabriel'
@@ -192,7 +202,7 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
             </Hud>
           </div>
         )}
-        {aba === 'configurar' && <Configurar a={a} atend={atend} resp={resp} setResp={setResp} recarregar={tudo} />}
+        {aba === 'configurar' && <Configurar a={a} atend={atend} resp={resp} setResp={setResp} recarregar={tudo} cor={cor} setCor={setCor} />}
         {aba === 'erros' && <Erros a={a} feed={feed} recarregar={tudo} />}
       </div>
     </div>
@@ -611,8 +621,9 @@ function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder |
 }
 
 // ------------------------------------------------------------------ configurar (mesma ordem nas 4 IAs)
-function Configurar({ a, atend, resp, setResp, recarregar }: {
+function Configurar({ a, atend, resp, setResp, recarregar, cor, setCor }: {
   a: AgenteId; atend: ReturnType<typeof useAtendimento>; resp: Responder | null; setResp: (r: Responder) => void; recarregar: () => void
+  cor: Correio | null; setCor: (c: Correio) => void
 }) {
   const info = AGENTES[a]
   const empresa = (a === 'joao' || a === 'suporte') && atend.d
@@ -632,6 +643,7 @@ function Configurar({ a, atend, resp, setResp, recarregar }: {
       </div>
       <div className="coluna-pilha">
         <ResponderPessoas a={a} resp={resp} setResp={setResp} />
+        <EmailAgenda a={a} cor={cor} setCor={setCor} recarregar={recarregar} />
         {empresa && <EmpresaForm key={a} d={atend.d!} agente={a as AgenteAtend} />}
         {empresa && <VisivelClientes d={atend.d!} carregar={recarregar} />}
       </div>

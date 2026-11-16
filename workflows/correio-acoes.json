@@ -1,0 +1,133 @@
+{
+  "id": "correioAcoes01",
+  "name": "Correio (testar conta e executar aprovadas)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000196",
+      "name": "Quando chamado",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "acao",
+              "type": "string"
+            },
+            {
+              "name": "id",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000197",
+      "name": "Dados",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.correio_execucao($1, $2, nullif($3, '')::int) AS d",
+        "options": {
+          "queryReplacement": "={{ [$env.N8N_ENCRYPTION_KEY || '', $json.acao || '', String($json.id || '')] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000198",
+      "name": "Executar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst CORREIO = String($env.CORREIO_URL || 'http://127.0.0.1:5690').replace(/\\/$/, '');\nconst TZ = 'America/Sao_Paulo';\nconst ESCOPOS_MS = 'openid email offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite';\nconst req = o => this.helpers.httpRequest(Object.assign({ json: true, timeout: 60000 }, o));\nconst form = o => Object.entries(o).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v == null ? '' : v)).join('&');\nconst api = (tok, method, url, body, headers) => req({ method, url, body, headers: Object.assign({ Authorization: 'Bearer ' + tok }, headers || {}) });\nfunction erroDe(e) {\n  const corpo = e && (e.description || (e.cause && e.cause.response && e.cause.response.data) || (e.response && e.response.body));\n  const t = String((e && e.message) || e) + (corpo ? ' ' + (typeof corpo === 'string' ? corpo : JSON.stringify(corpo)) : '');\n  if (/invalid_grant|AADSTS70008|AADSTS700082|expired or revoked|Token has been expired/i.test(t)) return 'A autorizacao expirou ou foi removida: conecte a conta de novo.';\n  if (/invalid_client|AADSTS7000215|unauthorized_client/i.test(t)) return 'Chaves do app (Client ID/secret) recusadas: confira no passo 4.';\n  if (/insufficient|ACCESS_TOKEN_SCOPE_INSUFFICIENT|ErrorAccessDenied|403/i.test(t)) return 'Sem permissao: conecte de novo e aceite todas as permissoes.';\n  return t.slice(0, 400);\n}\nasync function correio(rota, corpo) {\n  const r = await req({ method: 'POST', url: CORREIO + rota, body: corpo, timeout: 120000 });\n  if (r && r.ok === false) throw new Error(r.erro || 'falhou');\n  return r;\n}\n// token de acesso novo a cada uso (o refresh token fica guardado criptografado)\nasync function acesso(c) {\n  if (!c.app || !c.app.client_id) throw new Error('As chaves do app ' + (c.tipo === 'google' ? 'Google' : 'Microsoft') + ' desta IA nao estao salvas (passo 4).');\n  const s = c.segredo || {};\n  if (!s.refresh_token) throw new Error('Conta sem autorizacao: conecte de novo.');\n  const corpo = { client_id: c.app.client_id, client_secret: c.app.client_secret, refresh_token: s.refresh_token, grant_type: 'refresh_token' };\n  if (c.tipo === 'microsoft') corpo.scope = ESCOPOS_MS;\n  const r = await req({ method: 'POST', body: form(corpo), headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n    url: c.tipo === 'google' ? 'https://oauth2.googleapis.com/token' : 'https://login.microsoftonline.com/common/oauth2/v2.0/token' });\n  return { tok: r.access_token, novo: r.refresh_token && r.refresh_token !== s.refresh_token ? { refresh_token: r.refresh_token } : null };\n}\nconst b64url = s => Buffer.from(String(s || '').replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');\nconst semHtml = h => String(h || '').replace(/<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \\t]+/g, ' ');\n// corta a parte citada da resposta (economiza tokens)\nconst limpar = t => String(t || '').replace(/\\r/g, '').split(/\\n(?:Em .{5,200}escreveu:|On .{5,200}wrote:|-----Original Message-----|De: .{3,200}\\nEnviad)/)[0]\n  .split('\\n').filter(l => !l.startsWith('>')).join('\\n').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 4000);\nconst automatico = de => /no-?reply|nao-?responda|mailer-daemon|notifica|newsletter/i.test(String(de || ''));\nfunction corpoGmail(p) {\n  if (!p) return '';\n  if (p.mimeType === 'text/plain' && p.body && p.body.data) return b64url(p.body.data);\n  for (const x of p.parts || []) { const t = corpoGmail(x); if (t) return t; }\n  if (p.mimeType === 'text/html' && p.body && p.body.data) return semHtml(b64url(p.body.data));\n  return '';\n}\nconst comFuso = d => (d && /T\\d\\d:\\d\\d/.test(d) && !/(Z|[+-]\\d\\d:?\\d\\d)$/.test(d) ? d + '-03:00' : d);\nconst deAte = () => ({ de: new Date(Date.now() - 864e5).toISOString(), ate: new Date(Date.now() + 30 * 864e5).toISOString() });\n\nasync function lerGoogle(c, tok, cur, saida) {\n  if (c.ler_email) {\n    const desde = +cur.email_desde || Math.floor(Date.now() / 1000) - 86400;   // primeira vez: so o ultimo dia\n    const q = `in:inbox -category:promotions -category:social -category:updates -category:forums after:${desde}`;\n    const lista = await api(tok, 'GET', 'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=15&q=' + encodeURIComponent(q));\n    let max = desde;\n    for (const m of lista.messages || []) {\n      const f = await api(tok, 'GET', `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`);\n      const hd = n => ((((f.payload || {}).headers) || []).find(x => x.name.toLowerCase() === n) || {}).value || '';\n      max = Math.max(max, Math.floor(+f.internalDate / 1000));\n      saida.itens.push({ tipo: 'email', ext_id: f.id, de: hd('from'), assunto: hd('subject'), texto: limpar(corpoGmail(f.payload) || f.snippet),\n        quando: new Date(+f.internalDate).toISOString(), dados: { thread_id: f.threadId, message_id: hd('message-id'),\n          referencias: (hd('references') + ' ' + hd('message-id')).trim(), responder_para: hd('reply-to'),\n          automatico: !!(hd('list-unsubscribe') || (hd('auto-submitted') && hd('auto-submitted') !== 'no') || automatico(hd('from'))) } });\n    }\n    saida.cursor.email_desde = max;\n  }\n  if (c.ler_agenda) {\n    const { de, ate } = deAte();\n    const r = await api(tok, 'GET', 'https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=50'\n      + '&timeMin=' + encodeURIComponent(de) + '&timeMax=' + encodeURIComponent(ate));\n    for (const e of r.items || []) {\n      if (e.status === 'cancelled') continue;\n      saida.itens.push({ tipo: 'evento', ext_id: e.id, de: (e.organizer || {}).email || '', assunto: e.summary || '(sem titulo)',\n        texto: semHtml(e.description || '').slice(0, 800), quando: e.start.dateTime || e.start.date, fim: (e.end || {}).dateTime || (e.end || {}).date,\n        dados: { local: e.location || '', convidados: (e.attendees || []).map(a => a.email).slice(0, 20) } });\n    }\n  }\n}\n\nasync function lerMicrosoft(c, tok, cur, saida) {\n  const G = 'https://graph.microsoft.com/v1.0';\n  if (c.ler_email) {\n    const desde = cur.email_desde || new Date(Date.now() - 864e5).toISOString().replace(/\\.\\d+Z$/, 'Z');\n    const r = await api(tok, 'GET', `${G}/me/mailFolders/inbox/messages?$top=15&$orderby=receivedDateTime%20desc`\n      + `&$filter=${encodeURIComponent('receivedDateTime gt ' + desde)}`\n      + '&$select=id,subject,from,replyTo,receivedDateTime,body,conversationId,internetMessageId,inferenceClassification',\n      undefined, { Prefer: 'outlook.body-content-type=\"text\"' });\n    let max = desde;\n    for (const m of r.value || []) {\n      if (m.receivedDateTime > max) max = m.receivedDateTime;\n      const de = m.from && m.from.emailAddress ? `${m.from.emailAddress.name || ''} <${m.from.emailAddress.address}>` : '';\n      saida.itens.push({ tipo: 'email', ext_id: m.id, de, assunto: m.subject || '', texto: limpar((m.body || {}).content),\n        quando: m.receivedDateTime, dados: { thread_id: m.conversationId, message_id: m.internetMessageId,\n          automatico: m.inferenceClassification === 'other' || automatico(de) } });\n    }\n    saida.cursor.email_desde = max;\n  }\n  if (c.ler_agenda) {\n    const { de, ate } = deAte();\n    const r = await api(tok, 'GET', `${G}/me/calendarView?startDateTime=${encodeURIComponent(de)}&endDateTime=${encodeURIComponent(ate)}`\n      + '&$top=50&$select=id,subject,start,end,location,attendees,bodyPreview,organizer,isCancelled', undefined, { Prefer: 'outlook.timezone=\"UTC\"' });\n    for (const e of r.value || []) {\n      if (e.isCancelled) continue;\n      const z = d => (d && d.dateTime ? d.dateTime.replace(/\\.\\d+$/, '') + 'Z' : '');\n      saida.itens.push({ tipo: 'evento', ext_id: e.id, de: ((e.organizer || {}).emailAddress || {}).address || '', assunto: e.subject || '(sem titulo)',\n        texto: String(e.bodyPreview || '').slice(0, 800), quando: z(e.start), fim: z(e.end),\n        dados: { local: (e.location || {}).displayName || '', convidados: (e.attendees || []).map(a => (a.emailAddress || {}).address).filter(Boolean).slice(0, 20) } });\n    }\n  }\n}\n\nasync function lerImap(c, cur, saida) {\n  const s = c.segredo || {};\n  if (c.ler_email) {\n    const r = await correio('/imap/ler', { imap: s.imap, cursor: cur.imap || {}, max: 15 });\n    for (const m of r.itens || []) saida.itens.push({ tipo: 'email', ext_id: m.ext_id, de: m.de, assunto: m.assunto, texto: limpar(m.texto), quando: m.quando,\n      dados: { message_id: m.message_id, referencias: (m.referencias + ' ' + m.message_id).trim(), automatico: !!m.automatico || automatico(m.de) } });\n    saida.cursor.imap = r.cursor;\n  }\n  if (c.ler_agenda && s.caldav && s.caldav.url) {\n    const { de, ate } = deAte();\n    const r = await correio('/caldav/ler', { caldav: s.caldav, de, ate });\n    for (const e of r.itens || []) saida.itens.push({ tipo: 'evento', ext_id: e.ext_id, de: '', assunto: e.titulo, texto: e.descricao,\n      quando: comFuso(e.inicio), fim: comFuso(e.fim), dados: { local: e.local } });\n  }\n}\n\n// ---------------- executar (so depois que voce aprova)\nconst b64 = s => Buffer.from(String(s || ''), 'utf8').toString('base64');\nconst soEndereco = p => (/[^\\x00-\\x7f]/.test(p) ? String(p).split(',').map(x => (x.match(/<([^>]+)>/) || [0, x.trim()])[1]).join(', ') : p);\nfunction mime(m) {\n  const l = [`From: ${soEndereco(m.de)}`, `To: ${soEndereco(m.para)}`, `Subject: =?UTF-8?B?${b64(m.assunto)}?=`, 'MIME-Version: 1.0',\n    'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'];\n  if (m.in_reply_to) l.push('In-Reply-To: ' + m.in_reply_to);\n  if (m.referencias) l.push('References: ' + m.referencias);\n  return Buffer.from(l.join('\\r\\n') + '\\r\\n\\r\\n' + b64(m.texto).replace(/.{76}/g, '$&\\r\\n'), 'utf8').toString('base64')\n    .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n}\nconst ateSegundos = d => (String(d).length === 16 ? d + ':00' : String(d));\n\nasync function executar(c, p) {\n  const d = p.dados || {};\n  const msg = { de: c.nome ? `${c.nome} <${c.email}>` : c.email, para: d.para, assunto: d.assunto, texto: d.corpo,\n                in_reply_to: d.message_id || '', referencias: d.referencias || d.message_id || '' };\n  if (c.tipo === 'imap') {\n    const s = c.segredo || {};\n    if (p.tipo === 'evento') {\n      if (!s.caldav || !s.caldav.url) throw new Error('Esta conta nao tem agenda (CalDAV)');\n      await correio('/caldav/criar', { caldav: s.caldav, evento: d }); return { texto: 'Evento criado na agenda de ' + c.email };\n    }\n    if (p.modo === 'enviar') {\n      if (!s.smtp || !s.smtp.host) throw new Error('Esta conta nao tem servidor de envio (SMTP)');\n      await correio('/smtp/enviar', { smtp: s.smtp, imap: s.imap, mensagem: msg }); return { texto: 'E-mail enviado de ' + c.email };\n    }\n    await correio('/imap/rascunho', { imap: s.imap, mensagem: msg }); return { texto: 'Rascunho salvo em ' + c.email };\n  }\n  const { tok, novo } = await acesso(c);\n  const fim = t => ({ texto: t, novo });\n  if (c.tipo === 'google') {\n    const G = 'https://gmail.googleapis.com/gmail/v1/users/me';\n    if (p.tipo === 'evento') {\n      const conv = (d.convidados || []).map(email => ({ email }));\n      await api(tok, 'POST', 'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=' + (conv.length ? 'all' : 'none'), {\n        summary: d.titulo, location: d.local || undefined, description: d.descricao || undefined, attendees: conv.length ? conv : undefined,\n        start: { dateTime: ateSegundos(d.inicio), timeZone: TZ }, end: { dateTime: ateSegundos(d.fim || d.inicio), timeZone: TZ } });\n      return fim('Evento criado no Google Agenda de ' + c.email + (conv.length ? ' (convites enviados)' : ''));\n    }\n    const raw = mime(msg);\n    if (p.modo === 'enviar') { await api(tok, 'POST', `${G}/messages/send`, { raw, threadId: d.thread_id || undefined }); return fim('E-mail enviado de ' + c.email); }\n    await api(tok, 'POST', `${G}/drafts`, { message: { raw, threadId: d.thread_id || undefined } }); return fim('Rascunho salvo no Gmail de ' + c.email);\n  }\n  const G = 'https://graph.microsoft.com/v1.0/me';\n  if (p.tipo === 'evento') {\n    const tz = 'E. South America Standard Time';\n    await api(tok, 'POST', `${G}/events`, { subject: d.titulo, body: { contentType: 'text', content: d.descricao || '' },\n      start: { dateTime: ateSegundos(d.inicio), timeZone: tz }, end: { dateTime: ateSegundos(d.fim || d.inicio), timeZone: tz },\n      location: d.local ? { displayName: d.local } : undefined,\n      attendees: (d.convidados || []).map(address => ({ emailAddress: { address }, type: 'required' })) });\n    return fim('Evento criado no calendario do Outlook de ' + c.email);\n  }\n  const para = String(d.para || '').split(',').map(x => (x.match(/<([^>]+)>/) || [0, x.trim()])[1]).filter(Boolean)\n    .map(address => ({ emailAddress: { address } }));\n  let rascunho;\n  if (d.responder_a) {\n    rascunho = await api(tok, 'POST', `${G}/messages/${d.responder_a}/createReply`, { comment: d.corpo });\n    await api(tok, 'PATCH', `${G}/messages/${rascunho.id}`, { toRecipients: para, subject: d.assunto });\n  } else {\n    rascunho = await api(tok, 'POST', `${G}/messages`, { subject: d.assunto, body: { contentType: 'text', content: d.corpo }, toRecipients: para });\n  }\n  if (p.modo === 'enviar') { await api(tok, 'POST', `${G}/messages/${rascunho.id}/send`); return fim('E-mail enviado de ' + c.email); }\n  return fim('Rascunho salvo no Outlook de ' + c.email);\n}\n\nasync function testarConta(c) {\n  if (c.tipo === 'imap') { const s = c.segredo || {}; await correio('/imap/testar', { imap: s.imap, smtp: s.smtp, caldav: s.caldav }); return { texto: 'Conexao ok' }; }\n  const { tok, novo } = await acesso(c);\n  await api(tok, 'GET', c.tipo === 'google' ? 'https://gmail.googleapis.com/gmail/v1/users/me/profile' : 'https://graph.microsoft.com/v1.0/me');\n  return { texto: 'Conexao ok', novo };\n}\n\nconst d = $input.first().json.d || {};\nconst gat = $('Quando chamado').first().json;\nlet ok = false, resultado = '', novo = null;\ntry {\n  if (d.erro) throw new Error(d.erro);\n  const r = d.acao === 'testar' ? await testarConta(d.conta) : await executar(d.conta, d.proposta);\n  ok = true; resultado = r.texto; novo = r.novo || null;\n} catch (e) { resultado = erroDe(e); }\nreturn [{ json: { acao: gat.acao, id: String(gat.id || ''), ok: String(ok), resultado, segredo: novo ? JSON.stringify(novo) : '' } }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000199",
+      "name": "Resultado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        680,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.correio_resultado($1, $2, nullif($3, '')::int, $4::boolean, $5, nullif($6, '')::jsonb) AS r",
+        "options": {
+          "queryReplacement": "={{ [$env.N8N_ENCRYPTION_KEY || '', $json.acao, $json.id, $json.ok, $json.resultado || '', $json.segredo || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado": {
+      "main": [
+        [
+          {
+            "node": "Dados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dados": {
+      "main": [
+        [
+          {
+            "node": "Executar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar": {
+      "main": [
+        [
+          {
+            "node": "Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none"
+  },
+  "pinData": {}
+}

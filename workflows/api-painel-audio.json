@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000138",
+      "id": "c0000000-0000-4000-8000-000000000142",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -24,7 +24,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000003"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000139",
+      "id": "c0000000-0000-4000-8000-000000000143",
       "name": "Regras (banco)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -47,7 +47,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000140",
+      "id": "c0000000-0000-4000-8000-000000000144",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -62,7 +62,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000141",
+      "id": "c0000000-0000-4000-8000-000000000145",
       "name": "Negado",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -80,7 +80,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000142",
+      "id": "c0000000-0000-4000-8000-000000000146",
       "name": "Preparar audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -94,7 +94,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000143",
+      "id": "c0000000-0000-4000-8000-000000000147",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -137,7 +137,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000144",
+      "id": "c0000000-0000-4000-8000-000000000148",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -235,7 +235,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000145",
+      "id": "c0000000-0000-4000-8000-000000000149",
       "name": "Resposta",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -253,7 +253,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000146",
+      "id": "c0000000-0000-4000-8000-000000000150",
       "name": "Nao entendi",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,

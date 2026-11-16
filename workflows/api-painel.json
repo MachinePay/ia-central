@@ -33,9 +33,9 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.api($1, $2, $3::jsonb) AS r",
+        "query": "SELECT nucleo.api($1, $2, $3::jsonb) AS r FROM (SELECT set_config('nucleo.chave', $4, true)) k",
         "options": {
-          "queryReplacement": "={{ [($json.headers.authorization || '').replace(/^Bearer\\s+/i, ''), $json.body.acao || '', JSON.stringify($json.body.dados || {})] }}"
+          "queryReplacement": "={{ [($json.headers.authorization || '').replace(/^Bearer\\s+/i, ''), $json.body.acao || '', JSON.stringify($json.body.dados || {}), $env.N8N_ENCRYPTION_KEY || ''] }}"
         }
       },
       "credentials": {
@@ -56,12 +56,162 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 8,
+        "numberOutputs": 10,
         "output": "={{ $json.r.saida }}"
       }
     },
     {
       "id": "c0000000-0000-4000-8000-000000000119",
+      "name": "Correio (acoes)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        700,
+        1400
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "correioAcoes01",
+          "cachedResultName": "Correio (testar conta e executar aprovadas)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "acao": "={{ $json.r.corpo.acao }}",
+            "id": "={{ String($json.r.corpo.id || '') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "acao",
+              "displayName": "acao",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000120",
+      "name": "Correio feito",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        1400
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.r || { ok: false, erro: 'Falhou: ' + (($json.error && $json.error.message) || $json.error || 'sem resposta') }) }}",
+        "options": {
+          "responseCode": 200,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000121",
+      "name": "Ler e-mails",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        700,
+        1600
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "correio0000001",
+          "cachedResultName": "Correio (le e-mail e agenda)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "origem": "painel",
+            "agente": "={{ $json.r.corpo.agente || '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "origem",
+              "displayName": "origem",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agente",
+              "displayName": "agente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000122",
+      "name": "E-mails lidos",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        1600
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.error ? { ok: false, erro: String($json.error.message || $json.error) } : { ok: true, lidos: +$json.lidos || 0, itens: +$json.itens || 0, contas: +$json.contas || 0 }) }}",
+        "options": {
+          "responseCode": 200,
+          "enableStreaming": false
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000123",
       "name": "WhatsApp (Evolution)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -76,7 +226,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000120",
+      "id": "c0000000-0000-4000-8000-000000000124",
       "name": "Resposta WhatsApp",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -94,7 +244,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000121",
+      "id": "c0000000-0000-4000-8000-000000000125",
       "name": "Rodar monitor",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -139,7 +289,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000122",
+      "id": "c0000000-0000-4000-8000-000000000126",
       "name": "Verificado",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -157,7 +307,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000123",
+      "id": "c0000000-0000-4000-8000-000000000127",
       "name": "Enviar aprovada",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -172,7 +322,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000124",
+      "id": "c0000000-0000-4000-8000-000000000128",
       "name": "Guardar ids aprovada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -197,7 +347,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000125",
+      "id": "c0000000-0000-4000-8000-000000000129",
       "name": "Rodar aprendiz",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -243,7 +393,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000126",
+      "id": "c0000000-0000-4000-8000-000000000130",
       "name": "Aprendido",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -261,7 +411,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000127",
+      "id": "c0000000-0000-4000-8000-000000000131",
       "name": "Aprovada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -279,7 +429,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000128",
+      "id": "c0000000-0000-4000-8000-000000000132",
       "name": "Simular atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -377,7 +527,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000129",
+      "id": "c0000000-0000-4000-8000-000000000133",
       "name": "Anotar falha simulada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -401,7 +551,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000130",
+      "id": "c0000000-0000-4000-8000-000000000134",
       "name": "Resposta simulada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -419,7 +569,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000131",
+      "id": "c0000000-0000-4000-8000-000000000135",
       "name": "Responder",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -437,7 +587,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000132",
+      "id": "c0000000-0000-4000-8000-000000000136",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -535,7 +685,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000133",
+      "id": "c0000000-0000-4000-8000-000000000137",
       "name": "Anotar falha",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -559,7 +709,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000134",
+      "id": "c0000000-0000-4000-8000-000000000138",
       "name": "Resposta da IA",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -577,7 +727,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000135",
+      "id": "c0000000-0000-4000-8000-000000000139",
       "name": "Voz (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -610,7 +760,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000136",
+      "id": "c0000000-0000-4000-8000-000000000140",
       "name": "Audio",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -634,7 +784,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000137",
+      "id": "c0000000-0000-4000-8000-000000000141",
       "name": "Voz falhou",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
@@ -762,6 +912,42 @@
         [
           {
             "node": "Rodar aprendiz",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Correio (acoes)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ler e-mails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correio (acoes)": {
+      "main": [
+        [
+          {
+            "node": "Correio feito",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler e-mails": {
+      "main": [
+        [
+          {
+            "node": "E-mails lidos",
             "type": "main",
             "index": 0
           }

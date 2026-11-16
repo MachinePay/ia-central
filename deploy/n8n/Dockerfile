@@ -1,11 +1,20 @@
 # n8n da IA Central: ao iniciar, cria as tabelas, o admin, as credenciais e importa/ativa os workflows.
 # Build a partir da raiz do repositorio:  docker build -f deploy/n8n/Dockerfile .
+
+# servico "correio" (IMAP/SMTP/CalDAV dos e-mails das IAs): dependencias montadas a parte
+FROM node:22-alpine AS correio
+WORKDIR /app
+COPY deploy/correio/package.json deploy/correio/package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY deploy/correio/servidor.js ./
+
 FROM n8nio/n8n:2.47.5
 
 USER root
 COPY db/init/ /opt/ia/db/
 COPY workflows/ /opt/ia/workflows/
 COPY deploy/n8n/preparar.js deploy/n8n/iniciar.sh /opt/ia/
+COPY --from=correio /app /opt/ia/correio
 RUN rm -f /opt/ia/workflows/credenciais.json \
  && sed -i 's/\r$//' /opt/ia/iniciar.sh \
  && chmod +x /opt/ia/iniciar.sh \
