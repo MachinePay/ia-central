@@ -1449,7 +1449,7 @@ async function checar(s) {
     const corpo = typeof r.body === 'string' ? r.body : JSON.stringify(r.body || '');
     // -1 = site descoberto no Render/Vercel: qualquer resposta do servidor conta (API responde 404 na raiz)
     const statusOk = s.status_esperado > 0 ? st === s.status_esperado : st < (s.status_esperado === -1 ? 500 : 400);
-    if (!statusOk) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `HTTP ${st}` + (s.status_esperado ? ` (esperado ${s.status_esperado})` : '') };
+    if (!statusOk) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `HTTP ${st}` + (s.status_esperado > 0 ? ` (esperado ${s.status_esperado})` : st >= 500 ? ' (erro no servidor)' : '') };
     if (s.texto_esperado && !corpo.includes(s.texto_esperado)) return { sistema_id: s.id, ok: false, tempo_ms: ms, detalhe: `resposta sem "${s.texto_esperado}"` };
     return { sistema_id: s.id, ok: true, tempo_ms: ms, detalhe: `HTTP ${st} em ${ms} ms` + (ms > lento ? ' (LENTO)' : '') };
   } catch (e) {
@@ -2042,7 +2042,9 @@ const saida = [];
 // o que terminou e salvo; o resto fica para a proxima rodada (antes ia uma por uma, estourava 5 min e nada era salvo)
 const inicio = Date.now(), LIMITE = 240000;
 const fila = pendentes.slice();
+const contarMsgs = t => (String(t || '').match(/^(DONO|CONTATO|CLIENTE|ATENDENTE HUMANO|IA): /gm) || []).length;
 async function aprender(p) {
+  const mensagens = contarMsgs(p.transcricao);
   try {
     const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 90000,
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
@@ -2056,17 +2058,19 @@ async function aprender(p) {
     const perfil = String(p.chave).startsWith('dono:') ? '' : JSON.stringify(res.contato || {});
     const u = r.usage || {};
     saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil,
-      entrada: u.prompt_tokens || 0, saida_tokens: u.completion_tokens || 0, modelo: '__MODELO__' } });
+      entrada: u.prompt_tokens || 0, saida_tokens: u.completion_tokens || 0, modelo: '__MODELO__', mensagens } });
   } catch (e) {
     // falhou: NAO marca como lida (chave "erro:") -> tenta de novo na proxima rodada
-    saida.push({ json: { tipo: p.tipo, chave: 'erro:' + p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
+    saida.push({ json: { tipo: p.tipo, chave: 'erro:' + p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200), mensagens } });
   }
 }
 const trabalhador = async () => {
   while (fila.length && Date.now() - inicio < LIMITE) await aprender.call(this, fila.shift());
 };
 await Promise.all(Array.from({ length: 6 }, () => trabalhador()));
-return saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total: 0 } }];
+const duracao_ms = Date.now() - inicio;
+for (const it of saida) it.json.duracao_ms = duracao_ms;
+return saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total: 0, duracao_ms } }];
 """
 
 
@@ -2108,12 +2112,35 @@ def aprendiz():
         }, credentials=PG),
         node("Resultado", "n8n-nodes-base.code", 2, [1120, 180], {
             "mode": "runOnceForAllItems",
-            "jsCode": "const n = $input.all().reduce((a, i) => a + (+i.json.salvos || 0), 0);\nreturn [{ json: { sugestoes: n } }];",
+            "jsCode": r"""
+// junta o que cada IA leu e aprendeu nesta rodada (vai para a aba Aprendizado)
+const ext = $('Extrair conhecimento').all().map(i => i.json);
+const sal = $input.all().map(i => i.json);
+const por = {};
+let total = 0;
+ext.forEach((e, i) => {
+  if (!e.tipo || !e.chave) return;
+  const s = por[e.tipo] || (por[e.tipo] = { agente: e.tipo, conversas: 0, mensagens: 0, itens: 0, erros: 0, entrada: 0, saida: 0, modelo: e.modelo || '' });
+  const salvos = +((sal[i] || {}).salvos) || 0;
+  s.conversas++; s.mensagens += +e.mensagens || 0; s.itens += salvos; total += salvos;
+  s.entrada += +e.entrada || 0; s.saida += +e.saida_tokens || 0; if (e.modelo) s.modelo = e.modelo;
+  if (String(e.chave).startsWith('erro:')) s.erros++;
+});
+let origem = 'automatico';
+try { if ($('Quando chamado').isExecuted) origem = 'painel'; } catch (e) { /* rodou pela agenda */ }
+const rodada = { origem, duracao_ms: (ext[0] && ext[0].duracao_ms) || 0, agentes: Object.values(por) };
+return [{ json: { sugestoes: total, rodada: JSON.stringify(rodada) } }];
+""",
         }),
+        node("Registrar rodada", "n8n-nodes-base.postgres", 2.6, [1340, 180], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.rodada_registrar($1::jsonb) AS ok, $2::int AS sugestoes",
+            "options": {"queryReplacement": "={{ [$json.rodada || '{}', String($json.sugestoes || 0)] }}"},
+        }, credentials=PG),
     ]
     con = ligar(("A cada 15 minutos", "Base atual"), ("Testar agora", "Base atual"), ("Quando chamado", "Base atual"),
                 ("Base atual", "Conversas novas"), ("Conversas novas", "Extrair conhecimento"),
-                ("Extrair conhecimento", "Salvar sugestoes"), ("Salvar sugestoes", "Resultado"))
+                ("Extrair conhecimento", "Salvar sugestoes"), ("Salvar sugestoes", "Resultado"), ("Resultado", "Registrar rodada"))
     wf = workflow("aprendiz000001", "Aprendiz (observa e aprende)", nodes, con)
     wf["settings"]["saveDataSuccessExecution"] = "none"
     return wf

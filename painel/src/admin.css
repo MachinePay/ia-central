@@ -236,3 +236,7 @@
 .tabela-gastos td { padding: 6px 0; border-top: 1px dashed var(--linha); }
 .tabela-gastos td:last-child, .tabela-gastos th:last-child { text-align: right; font-family: var(--f-mono); }
 .alerta-erro code, .aviso code { font-family: var(--f-mono); }
+
+.tabela-rodadas td { vertical-align: top; }
+.tabela-rodadas td:nth-child(3) { text-align: right; font-family: var(--f-mono); }
+.tabela-rodadas th:nth-child(3) { text-align: right; }

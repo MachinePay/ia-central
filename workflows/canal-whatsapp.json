@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000146",
+      "id": "c0000000-0000-4000-8000-000000000147",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -21,7 +21,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000004"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000147",
+      "id": "c0000000-0000-4000-8000-000000000148",
       "name": "Ler mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -35,7 +35,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000148",
+      "id": "c0000000-0000-4000-8000-000000000149",
       "name": "Vai ler?",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -59,7 +59,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000149",
+      "id": "c0000000-0000-4000-8000-000000000150",
       "name": "Ouvir?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -74,7 +74,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000150",
+      "id": "c0000000-0000-4000-8000-000000000151",
       "name": "Mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -88,7 +88,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000151",
+      "id": "c0000000-0000-4000-8000-000000000152",
       "name": "Quem e",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -111,7 +111,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000152",
+      "id": "c0000000-0000-4000-8000-000000000153",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -126,7 +126,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000153",
+      "id": "c0000000-0000-4000-8000-000000000154",
       "name": "Transcrevendo",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -150,7 +150,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000154",
+      "id": "c0000000-0000-4000-8000-000000000155",
       "name": "Dados do audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,7 +164,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000155",
+      "id": "c0000000-0000-4000-8000-000000000156",
       "name": "Audio em arquivo",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.2,
@@ -184,7 +184,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000156",
+      "id": "c0000000-0000-4000-8000-000000000157",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -229,7 +229,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000157",
+      "id": "c0000000-0000-4000-8000-000000000158",
       "name": "Transcrever (reserva)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -274,7 +274,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000158",
+      "id": "c0000000-0000-4000-8000-000000000159",
       "name": "Transcrito",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -299,7 +299,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000159",
+      "id": "c0000000-0000-4000-8000-000000000160",
       "name": "Preparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -313,7 +313,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000160",
+      "id": "c0000000-0000-4000-8000-000000000161",
       "name": "Guardar no lote",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -336,7 +336,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000161",
+      "id": "c0000000-0000-4000-8000-000000000162",
       "name": "Esperar a pessoa terminar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -350,7 +350,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000162",
+      "id": "c0000000-0000-4000-8000-000000000163",
       "name": "Fechar lote",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -374,7 +374,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000163",
+      "id": "c0000000-0000-4000-8000-000000000164",
       "name": "Lote pronto",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -388,7 +388,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000164",
+      "id": "c0000000-0000-4000-8000-000000000165",
       "name": "Quem responde",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -403,7 +403,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000165",
+      "id": "c0000000-0000-4000-8000-000000000166",
       "name": "Perfil do contato",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -428,7 +428,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000166",
+      "id": "c0000000-0000-4000-8000-000000000167",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -526,7 +526,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000167",
+      "id": "c0000000-0000-4000-8000-000000000168",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -549,7 +549,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000168",
+      "id": "c0000000-0000-4000-8000-000000000169",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -563,7 +563,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000169",
+      "id": "c0000000-0000-4000-8000-000000000170",
       "name": "Guardar ids",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -587,7 +587,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000170",
+      "id": "c0000000-0000-4000-8000-000000000171",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -685,7 +685,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000171",
+      "id": "c0000000-0000-4000-8000-000000000172",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -699,7 +699,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000172",
+      "id": "c0000000-0000-4000-8000-000000000173",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

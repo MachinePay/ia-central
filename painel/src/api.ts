@@ -103,6 +103,9 @@ export interface Gastos {
   por_item: { item: string; valor: number }[]; mes: number; mes_estimado: number; erro_openai?: string | null; lido_em?: string | null
 }
 
+export interface Rodada { id: number; em: string; origem: 'automatico' | 'painel'; conversas: number; mensagens: number; itens: number; erros: number; custo: number; duracao_ms: number }
+export interface Rodadas { rodadas: Rodada[]; total_7d: { rodadas: number; conversas: number; mensagens: number; itens: number; custo: number } }
+
 export class ErroApi extends Error {
   constructor(public status: number, mensagem: string) { super(mensagem) }
 }
@@ -141,6 +144,7 @@ export const api = {
   feed: (agente: AgenteId) => chamar<Feed>('admin_agente_feed', { agente }),
   eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
   gastos: () => chamar<Gastos>('admin_gastos'),
+  rodadas: (agente: AgenteId) => chamar<Rodadas>('admin_rodadas', { agente }),
   gastosLimite: (limite: number) => chamar<Gastos>('admin_gastos_limite', { limite: String(limite) }),
   async gastosAtualizar(): Promise<Gastos | null> {   // busca agora o gasto real na OpenAI (chave admin)
     const r = await fetch(`${BASE}/webhook/gastos-atualizar`, { method: 'POST', headers: { Authorization: `Bearer ${token.get() ?? ''}` } })

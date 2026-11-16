@@ -3,7 +3,7 @@ import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
   Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Rodadas, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { avisar, confirmar } from '../alerta'
@@ -380,9 +380,43 @@ function Acoes({ a, i, recarregar }: { a: AgenteId; i: ItemAprendido; recarregar
   </>
 }
 
+// ------------------------------------------------------------------ o que o aprendiz leu e aprendeu em cada rodada
+const usd = (v: number) => `US$ ${(+v || 0).toFixed(3).replace('.', ',')}`
+function RodadasAprendiz({ r }: { r: Rodadas | null }) {
+  if (!r) return null
+  const t = r.total_7d
+  return (
+    <Hud titulo="Rodadas do aprendiz" icone={<RefreshCw size={14} />} extra={<span className="contagem">{t.rodadas} em 7 dias</span>}>
+      <div className="numeros pequeno" style={{ marginTop: 0, marginBottom: 10 }}>
+        <Numero valor={t.mensagens} rotulo="mensagens lidas (7d)" />
+        <Numero valor={t.conversas} rotulo="conversas (7d)" />
+        <Numero valor={t.itens} rotulo="itens aprendidos (7d)" />
+        <Numero valor={usd(t.custo)} rotulo="custo estimado (7d)" />
+      </div>
+      {r.rodadas.length === 0 && <div className="vazio">Nenhuma rodada registrada ainda. O aprendiz roda de hora em hora (ou clique em “aprender agora”).</div>}
+      {r.rodadas.length > 0 && (
+        <table className="tabela-gastos tabela-rodadas">
+          <thead><tr><th>Quando</th><th>Leu</th><th>Aprendeu</th><th>Custo</th></tr></thead>
+          <tbody>{r.rodadas.map(x => (
+            <tr key={x.id}>
+              <td>{fmt(x.em)}<span className="etiqueta"> · {x.origem === 'painel' ? 'você pediu' : 'automático'} · {Math.max(1, Math.round(x.duracao_ms / 1000))}s</span></td>
+              <td>{x.mensagens} msgs<span className="etiqueta"> / {x.conversas} conv.</span>{x.erros > 0 && <span className="etiqueta" style={{ color: '#ff8aa6' }}> · {x.erros} falha{x.erros > 1 ? 's' : ''}</span>}</td>
+              <td>{x.itens}</td>
+              <td>{usd(x.custo)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+    </Hud>
+  )
+}
+
 function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed | null; recarregar: () => void; manual: React.ReactNode }) {
   const [busca, setBusca] = useState('')
   const [rodando, setRodando] = useState('')
+  const [rodadas, setRodadas] = useState<Rodadas | null>(null)
+  const carregarRodadas = useCallback(async () => { try { setRodadas(await api.rodadas(a)) } catch { /* tenta de novo */ } }, [a])
+  useEffect(() => { void carregarRodadas(); const t = setInterval(carregarRodadas, 30000); return () => clearInterval(t) }, [carregarRodadas])
   if (!feed) return <div className="vazio">Carregando…</div>
   const filtra = (i: ItemAprendido) => !busca || `${i.titulo} ${i.conteudo} ${i.de || ''}`.toLowerCase().includes(busca.toLowerCase())
   const todos = feed.aprendizado.filter(filtra)
@@ -401,7 +435,7 @@ function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed 
           <BotaoMini disabled={rodando === '…'} onClick={async () => {
             setRodando('…')
             try { const r = await api.aprenderAgora(); setRodando(r.sugestoes ? `+${r.sugestoes}` : 'nada novo') } catch { setRodando('falhou') }
-            recarregar(); setTimeout(() => setRodando(''), 6000)
+            recarregar(); void carregarRodadas(); setTimeout(() => setRodando(''), 6000)
           }}><RefreshCw size={12} className={rodando === '…' ? 'girando' : ''} /> {rodando || 'aprender agora'}</BotaoMini>}>
           <div className="etiqueta" style={{ marginBottom: 8 }}>
             {AGENTES[a].nome} aprende sozinho a cada 15 min com o que {a === 'joao' || a === 'suporte' ? 'a equipe responde' : 'você escreve'} no número dele
@@ -435,6 +469,7 @@ function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed 
         </Hud>
       </div>
       <div className="coluna-pilha">
+        <RodadasAprendiz r={rodadas} />
         <Hud titulo={`O que ${AGENTES[a].nome} sabe, por assunto`} icone={<BookOpen size={14} />} extra={<span className="contagem">{feed.aprendizado.length}</span>}>
           {Object.keys(grupos).length === 0 && <div className="vazio">Nada ainda.</div>}
           {Object.entries(grupos).map(([g, itens]) => (

@@ -188,6 +188,7 @@ BEGIN
                 FROM nucleo.sistemas WHERE NOT coalesce(oculto_auto, false)), '[]'),   -- suspensos/apagados na plataforma nem aparecem
             'incidentes', coalesce((SELECT jsonb_agg(x) FROM (
                 SELECT s.nome, i.inicio, i.fim FROM nucleo.incidentes i JOIN nucleo.sistemas s ON s.id=i.sistema_id
+                 WHERE s.ativo AND NOT coalesce(s.oculto_auto, false)   -- suspensos/apagados/desligados nem aparecem
                  ORDER BY i.inicio DESC LIMIT 6) x), '[]'),
             'lembretes', coalesce((SELECT jsonb_agg(x) FROM (
                 SELECT id, texto, quando, contato FROM nucleo.lembretes
@@ -314,6 +315,10 @@ BEGIN
         VALUES (NULL, d->>'area', nullif(d->>'titulo',''), d->>'conteudo', 'manual',
                 CASE WHEN d->>'agente' IN ('joao','suporte') THEN jsonb_build_object('agente', d->>'agente') ELSE '{}'::jsonb END);
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
+    ELSIF p_acao = 'admin_rodadas' THEN           -- o que o aprendiz leu/aprendeu em cada rodada
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo',
+            nucleo.rodadas_agente(CASE WHEN d->>'agente' IN ('leo','gabriel','joao','suporte') THEN d->>'agente' ELSE 'leo' END));
 
     ELSIF p_acao = 'admin_gastos' THEN            -- quanto estamos gastando com IA
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_gastos());

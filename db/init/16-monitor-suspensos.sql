@@ -27,6 +27,8 @@ BEGIN
         IF coalesce((it->>'suspenso')::boolean, false) THEN
             UPDATE nucleo.sistemas SET ativo = false, oculto_auto = true, estado = 'desconhecido', visto_em = now()
              WHERE externo_id IN (eid, eid || ':site');
+            UPDATE nucleo.incidentes i SET fim = now() FROM nucleo.sistemas x
+             WHERE x.id = i.sistema_id AND i.fim IS NULL AND x.externo_id IN (eid, eid || ':site');
             CONTINUE;
         END IF;
 
@@ -67,3 +69,8 @@ END $$;
 UPDATE nucleo.sistemas SET ativo = false, oculto_auto = true, estado = 'desconhecido'
  WHERE origem = 'render' AND (ultimo_detalhe ILIKE '%SUSPENSO%'
     OR externo_id IN (SELECT externo_id || ':site' FROM nucleo.sistemas WHERE ultimo_detalhe ILIKE '%SUSPENSO%'));
+
+-- incidente de servico que foi escondido (suspenso/apagado) ou desligado: fecha (nao fica "em aberto" para sempre)
+UPDATE nucleo.incidentes i SET fim = now()
+  FROM nucleo.sistemas s
+ WHERE s.id = i.sistema_id AND i.fim IS NULL AND (s.oculto_auto OR NOT s.ativo);
