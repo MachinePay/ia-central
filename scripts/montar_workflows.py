@@ -2038,9 +2038,13 @@ Regras:
 O que a IA ja sabe:
 `;
 const saida = [];
-for (const p of pendentes) {
+// 6 conversas ao mesmo tempo e para de comecar novas antes do limite de tempo do n8n:
+// o que terminou e salvo; o resto fica para a proxima rodada (antes ia uma por uma, estourava 5 min e nada era salvo)
+const inicio = Date.now(), LIMITE = 240000;
+const fila = pendentes.slice();
+async function aprender(p) {
   try {
-    const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 120000,
+    const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 90000,
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
       body: { model: '__MODELO__', reasoning_effort: 'low',
         response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: (p.tipo === 'leo' || p.tipo === 'gabriel') ? schemaLeo : schema } },
@@ -2054,9 +2058,14 @@ for (const p of pendentes) {
     saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil,
       entrada: u.prompt_tokens || 0, saida_tokens: u.completion_tokens || 0, modelo: '__MODELO__' } });
   } catch (e) {
-    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
+    // falhou: NAO marca como lida (chave "erro:") -> tenta de novo na proxima rodada
+    saida.push({ json: { tipo: p.tipo, chave: 'erro:' + p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
   }
 }
+const trabalhador = async () => {
+  while (fila.length && Date.now() - inicio < LIMITE) await aprender.call(this, fila.shift());
+};
+await Promise.all(Array.from({ length: 6 }, () => trabalhador()));
 return saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total: 0 } }];
 """
 
@@ -2084,6 +2093,7 @@ def aprendiz():
         node("Salvar sugestoes", "n8n-nodes-base.postgres", 2.6, [900, 180], {
             "operation": "executeQuery",
             "query": "SELECT CASE\n"
+                     "  WHEN $1 LIKE 'erro:%' THEN 0\n"
                      "  WHEN $1 LIKE 'dono:%' THEN nucleo.aprendiz_dono_salvar($3, $1, nullif($4, '')::int, $2::jsonb)\n"
                      "  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 = 'gabriel' THEN nucleo.aprendiz_gabriel_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
