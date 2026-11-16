@@ -156,3 +156,15 @@ LANGUAGE sql STABLE AS $$
               FROM nucleo.atendimento_fila f LEFT JOIN nucleo.clientes c ON c.id = f.cliente_id
              WHERE f.status = 'pendente' AND f.agente = p_agente ORDER BY f.criado_em LIMIT 30) x), '[]'))
 $$;
+
+-- (uma vez) o Leo respondeu se apresentando como "Gabriel": limpa so a memoria curta dessas conversas
+-- para ele nao repetir o erro (o aprendizado continua)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM nucleo.config WHERE chave = 'migracao_nome_leo') THEN
+        IF to_regclass('public.nucleo_memoria_chat') IS NOT NULL THEN   -- num banco novo a tabela ainda nao existe
+            DELETE FROM nucleo_memoria_chat WHERE session_id LIKE 'l:%';
+        END IF;
+        INSERT INTO nucleo.config VALUES ('migracao_nome_leo', 'true');
+    END IF;
+END $$;
