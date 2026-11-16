@@ -739,17 +739,13 @@ const AINDA = 'Ainda preparando a conexao do WhatsApp. Clique em "Conectar com Q
 // "open" na Evolution nem sempre e verdade: se o celular removeu o aparelho, a sessao fica zumbi.
 // Testa de verdade: pergunta ao WhatsApp se o proprio numero existe (so funciona com a conexao viva).
 async function respondendo() {
+  // o que a Evolution mostra no manager (connectionStatus). Obs.: o teste de "presenca" dava falso alarme
+  // em conexao boa, entao nao e usado.
   try {
     const lista = await evo('GET', `/instance/fetchInstances?instanceName=${I}`);
     const inst = Array.isArray(lista) ? lista[0] : lista;
-    const dono = String((inst && (inst.ownerJid || inst.owner)) || '').split('@')[0];
-    if (!dono) return false;
-    await Promise.race([
-      evo('POST', `/chat/sendPresence/${I}`, { number: dono, presence: 'paused', delay: 0 }),
-      new Promise((_, nao) => setTimeout(() => nao(new Error('sem resposta')), 7000)),
-    ]);
-    return true;
-  } catch (e) { return false; }
+    return !!inst && (inst.connectionStatus || 'open') === 'open';
+  } catch (e) { return true; }
 }
 async function apagarSessao() {   // desconecta e, se nao der, apaga a sessao inteira
   try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
