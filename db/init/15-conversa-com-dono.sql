@@ -48,7 +48,7 @@ BEGIN
     IF p_msg_id IS NOT NULL AND EXISTS (SELECT 1 FROM nucleo.whatsapp_enviadas WHERE id = p_msg_id) THEN
         RETURN jsonb_build_object('saida', 0, 'motivo', 'mensagem da propria IA');
     END IF;
-    IF p_de_mim AND texto LIKE '🤖%' THEN
+    IF p_de_mim AND (texto LIKE '🤖%' OR texto LIKE E'\u2063%') THEN   -- marca da IA (o robo antigo ou a invisivel)
         RETURN jsonb_build_object('saida', 0, 'motivo', 'mensagem da propria IA');
     END IF;
 

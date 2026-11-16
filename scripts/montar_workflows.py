@@ -182,7 +182,8 @@ async function whatsappConectado(inst = INST) {
 }
 async function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {
   let t = paraWhatsapp(texto);
-  if (marcar && !t.startsWith('🤖')) t = '🤖 ' + t;   // marca da IA: nunca responde a si mesma
+  t = t.replace(/^\s*🤖\s*/, '');                       // nunca mostrar o robo
+  if (marcar && !t.startsWith('\u2063')) t = '\u2063' + t;   // marca INVISIVEL da IA: o sistema nunca responde a si mesmo
   return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\D/g, ''), text: t });
 }
 // nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)
@@ -996,6 +997,13 @@ if (r.falhou) {
   }
   return [{ json: { enviado: false, falhou: true, motivo: r.motivo, ids: '' } }];
 }
+if (r.pulou) {   // pedido de agendamento: a pessoa nao recebe nada, o dono e avisado
+  const ok = await whatsappConectado();
+  for (const n of r.avisar || []) {
+    try { if (ok) await enviarWhatsapp(n, `📅 ${NOMES[r.agente] || r.agente}: ${r.nome || 'um contato'} (+${r.numero}) pediu para marcar/confirmar algo. Responda você:\n“${String(r.pergunta || '').slice(0, 300)}”`); } catch (e) {}
+  }
+  return [{ json: { enviado: false, pulou: true, ids: '' } }];
+}
 if (r.enviar) {
   const env = await enviarWhatsapp(r.numero, fila, !!r.dono, r.instancia || $('Ler mensagem').first().json.instancia);
   return [{ json: { enviado: true, fila_id: r.fila_id, ids: (env && env.key && env.key.id) || '' } }];
@@ -1206,6 +1214,7 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
             "operation": "executeQuery",
             # sem resposta da IA: registra a falha com o motivo e avisa o admin (nada vai para o cliente)
             "query": "SELECT CASE WHEN $3 = '' THEN nucleo.agente_falhou($4, $7, nullif($5, ''), $2)\n"
+                     "  WHEN position('[NAO_RESPONDER]' in $3) > 0 AND $8 <> 'dono' THEN nucleo.agente_nao_responder($4, nullif($5, ''), $2, $6)\n"
                      "  WHEN $8 = 'dono' THEN nucleo.agente_responder_dono($4, $5, $3)\n"
                      "  ELSE nucleo.agente_registrar(nullif($1, '')::int, $2, $3, $4, nullif($5, ''), nullif($6, '')) END AS r",
             "options": {"queryReplacement": "={{ [String($('Lote pronto').first().json.cliente_id || ''), $('Lote pronto').first().json.chatInput, "
@@ -1626,6 +1635,10 @@ Horario de atendimento humano: {{ """ + EMPRESA + """.horario || 'nao informado'
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}."""
 
 REGRAS_CLIENTE = """Regras com o cliente (sempre, sem excecao):
+- AGENDAMENTO (regra do dono, por enquanto): se a pessoa pedir para marcar, agendar, remarcar, confirmar ou
+  cancelar reuniao, evento, horario, visita, compromisso, treino, entrega com data ou qualquer coisa de agenda,
+  NAO responda nada: devolva exatamente [NAO_RESPONDER] e mais nada. O dono responde pessoalmente.
+  (Nao vale para a conversa interna com o chefe/dono.)
 - Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
   Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - O cliente pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
@@ -1846,9 +1859,14 @@ O que voce sabe sobre ele (use buscar_memoria para mais):
 Agora: {{ $now.setZone('America/Sao_Paulo').toFormat("cccc, dd/MM/yyyy HH:mm", { locale: 'pt-BR' }) }}.
 
 Regras (sempre):
+- AGENDAMENTO (regra do dono, por enquanto): se a pessoa pedir para marcar, agendar, remarcar, confirmar ou
+  cancelar reuniao, evento, horario, visita, compromisso, treino, entrega com data ou qualquer coisa de agenda,
+  NAO responda nada: devolva exatamente [NAO_RESPONDER] e mais nada. O dono responde pessoalmente.
+  (Nao vale para a conversa interna com o chefe/dono.)
 - Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
   Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - A pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
+- Nunca comece a mensagem com emoji de robo nem nada que mostre que e IA.
 - Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Siga o tom e os cuidados dele:
   pessoa nova = educado; amigo = solto; familia/intimo = carinhoso, sem prometer nada e sem assunto delicado.
 - Escreva exatamente como ele: tamanho das mensagens, girias, pontuacao, risadas, emojis. Mensagem curta de WhatsApp.
