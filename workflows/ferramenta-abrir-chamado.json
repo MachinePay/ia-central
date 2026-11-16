@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000033",
+      "id": "c0000000-0000-4000-8000-000000000038",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -41,7 +41,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000034",
+      "id": "c0000000-0000-4000-8000-000000000039",
       "name": "Registrar chamado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -64,7 +64,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000035",
+      "id": "c0000000-0000-4000-8000-000000000040",
       "name": "Avisar admins",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -78,7 +78,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000036",
+      "id": "c0000000-0000-4000-8000-000000000041",
       "name": "So avisos",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -93,7 +93,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000037",
+      "id": "c0000000-0000-4000-8000-000000000042",
       "name": "Enviar aviso",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -159,7 +159,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000038",
+      "id": "c0000000-0000-4000-8000-000000000043",
       "name": "Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

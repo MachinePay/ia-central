@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, DollarSign, Save } from 'lucide-react'
+import { AlertTriangle, DollarSign, RefreshCw, Save } from 'lucide-react'
 import { api, type Gastos as DadosGastos } from '../api'
-import { Hud, Numero } from './ui'
+import { BotaoMini, Hud, Numero, haQuanto } from './ui'
+import { avisar } from '../alerta'
 
 const usd = (v: number | null | undefined, casas = 2) => `US$ ${(v ?? 0).toFixed(casas).replace('.', ',')}`
 const diaCurto = (iso: string) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
@@ -68,6 +69,7 @@ export function Gastos() {
   const [g, setG] = useState<DadosGastos | null>(null)
   const [limite, setLimite] = useState('')
   const [salvo, setSalvo] = useState('')
+  const [buscando, setBuscando] = useState(false)
   const carregar = useCallback(async () => {
     try { const r = await api.gastos(); setG(r); setLimite(l => l || String(r.limite)) } catch { /* tenta de novo */ }
   }, [])
@@ -90,9 +92,26 @@ export function Gastos() {
         <Numero valor={usd(g.fonte === 'openai' ? g.mes : g.mes_estimado)} rotulo={`este mês${g.fonte === 'openai' ? '' : ' (estimado)'}`} />
         <Numero valor={g.limite > 0 ? usd(g.limite) : 'sem teto'} rotulo="teto por dia (aprendiz)" />
       </div>
-      <Hud titulo="Gasto por dia · últimos 30 dias" icone={<DollarSign size={14} />}>
+      <Hud titulo="Gasto por dia · últimos 30 dias" icone={<DollarSign size={14} />} extra={
+        <BotaoMini disabled={buscando} onClick={async () => {
+          setBuscando(true)
+          try {
+            await api.gastosAtualizar()
+            const n = await api.gastos(); setG(n)
+            if (n.erro_openai) avisar('Não consegui ler a OpenAI', 'error', n.erro_openai); else avisar('Gasto atualizado ✓')
+          }
+          catch (e) { avisar('Não consegui atualizar', 'error', e instanceof Error ? e.message : '') }
+          finally { setBuscando(false) }
+        }}><RefreshCw size={12} className={buscando ? 'girando' : ''} /> {buscando ? 'buscando…' : 'atualizar agora'}</BotaoMini>}>
         <GraficoDias g={g} />
-        {g.fonte !== 'openai' && (
+        {g.erro_openai && (
+          <div className="aviso erro" style={{ marginTop: 10 }}>
+            <b>Não consegui ler o gasto na OpenAI</b>{g.lido_em ? ` (${haQuanto(g.lido_em)})` : ''}: {g.erro_openai}
+            <br />Confira se a chave é <b>Admin</b> (platform.openai.com → Settings → Organization → Admin keys, começa com <code>sk-admin-</code>)
+            e se está no <b>ia-central-n8n</b> do Render como <code>OPENAI_ADMIN_KEY</code>.
+          </div>
+        )}
+        {g.fonte !== 'openai' && !g.erro_openai && (
           <div className="aviso erro" style={{ marginTop: 10 }}>
             Mostrando só a <b>estimativa</b> (aprendiz e áudios). Para ver o gasto <b>exato</b> de tudo (inclusive as respostas das IAs):
             crie uma chave <b>Admin</b> em platform.openai.com → Settings → Organization → Admin keys e coloque no Render como <code>OPENAI_ADMIN_KEY</code>.

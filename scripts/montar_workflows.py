@@ -2091,8 +2091,9 @@ def aprendiz():
                      "  ELSE 0 END AS salvos,\n"
                      "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte', 'gabriel') THEN $3 ELSE 'aprendiz' END,\n"
                      "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento,\n"
-                     "  CASE WHEN $6 <> '' THEN nucleo.perfil_salvar($3, $1, $6::jsonb) END AS perfil,\n"
-                     "  CASE WHEN $7::int + $8::int > 0 THEN nucleo.uso_registrar('aprendiz', $3, $9, $7::int, $8::int, 0) END AS uso",
+                     "  nucleo.perfil_salvar($3, $1, nullif($6, '')::jsonb) AS perfil,\n"
+                     "  CASE WHEN coalesce(nullif($7, '')::int, 0) + coalesce(nullif($8, '')::int, 0) > 0\n"
+                     "       THEN nucleo.uso_registrar('aprendiz', $3, $9, nullif($7, '')::int, nullif($8, '')::int, 0) END AS uso",
             "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || '', $json.perfil || '', String($json.entrada || 0), String($json.saida_tokens || 0), $json.modelo || ''] }}"},
         }, credentials=PG),
         node("Resultado", "n8n-nodes-base.code", 2, [1120, 180], {
@@ -2125,7 +2126,7 @@ def erros():
 
 JS_GASTOS = r"""
 // Gasto REAL da OpenAI por dia e por item (API de custos; precisa de uma chave ADMIN: OPENAI_ADMIN_KEY).
-if (!$env.OPENAI_ADMIN_KEY) return [];
+if (!$env.OPENAI_ADMIN_KEY) return [{ json: { itens: '[]', erro: 'OPENAI_ADMIN_KEY nao configurada no ia-central-n8n (Render > Environment)' } }];
 const desde = Math.floor(Date.now() / 1000) - 31 * 86400;
 const itens = [];
 let pagina = null;
@@ -2141,8 +2142,12 @@ try {
     if (!r.has_more || !r.next_page) break;
     pagina = r.next_page;
   }
-} catch (e) { return []; }   // chave errada ou API fora: tenta na proxima rodada (sem gerar alarme)
-return [{ json: { itens: JSON.stringify(itens) } }];
+} catch (e) {
+  // mostra o motivo na pagina Gastos (ex.: chave sem permissao de "Usage"/admin, chave errada)
+  const det = (e.description || (e.response && e.response.body) || e.message || e);
+  return [{ json: { itens: '[]', erro: String(typeof det === 'string' ? det : JSON.stringify(det)).slice(0, 300) } }];
+}
+return [{ json: { itens: JSON.stringify(itens), erro: '' } }];
 """
 
 
@@ -2153,11 +2158,36 @@ def gastos():
         node("Buscar gasto na OpenAI", "n8n-nodes-base.code", 2, [240, 0], {"mode": "runOnceForAllItems", "jsCode": JS_GASTOS}),
         node("Guardar gasto", "n8n-nodes-base.postgres", 2.6, [480, 0], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.gastos_salvar($1::jsonb) AS dias",
-            "options": {"queryReplacement": "={{ [$json.itens || '[]'] }}"},
+            "query": "SELECT nucleo.gastos_salvar($1::jsonb) AS dias, nucleo.gastos_status($2) AS st",
+            "options": {"queryReplacement": "={{ [$json.itens || '[]', $json.erro || ''] }}"},
+        }, credentials=PG),
+        # botao "Atualizar agora" da pagina Gastos (so admin)
+        node("Pedido do painel", "n8n-nodes-base.webhook", 2.1, [0, 200], {
+            "httpMethod": "POST", "path": "gastos-atualizar", "responseMode": "lastNode",
+            "options": {"allowedOrigins": "*"},
+        }, webhookId="9b1f6c2e-1a00-4000-8000-000000000031"),
+        node("So admin", "n8n-nodes-base.postgres", 2.6, [240, 200], {
+            "operation": "executeQuery",
+            "query": "SELECT (nucleo.api($1, 'admin_gastos', '{}'::jsonb)->>'status')::int = 200 AS ok",
+            "options": {"queryReplacement": "={{ [" + TOKEN + "] }}"},
+        }, credentials=PG),
+        node("Pode?", "n8n-nodes-base.if", 2.2, [460, 200], {
+            "conditions": {"options": {"caseSensitive": True, "leftValue": "", "typeValidation": "loose"},
+                           "conditions": [{"leftValue": "={{ $json.ok }}", "rightValue": True,
+                                           "operator": {"type": "boolean", "operation": "true", "singleValue": True}}],
+                           "combinator": "and"},
+        }),
+        node("Buscar agora", "n8n-nodes-base.code", 2, [680, 160], {"mode": "runOnceForAllItems", "jsCode": JS_GASTOS}),
+        node("Guardar e mostrar", "n8n-nodes-base.postgres", 2.6, [900, 160], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.gastos_salvar($1::jsonb) AS dias, nucleo.gastos_status($2) AS st, nucleo.painel_gastos() AS gastos",
+            "options": {"queryReplacement": "={{ [$json.itens || '[]', $json.erro || ''] }}"},
         }, credentials=PG),
     ]
-    wf = workflow("gastosOpenAI01", "Gastos da OpenAI", nodes, ligar(("A cada 30 minutos", "Buscar gasto na OpenAI"), ("Buscar gasto na OpenAI", "Guardar gasto")))
+    con = ligar(("A cada 30 minutos", "Buscar gasto na OpenAI"), ("Buscar gasto na OpenAI", "Guardar gasto"),
+                ("Pedido do painel", "So admin"), ("So admin", "Pode?"), ("Buscar agora", "Guardar e mostrar"))
+    con["Pode?"] = {"main": [[{"node": "Buscar agora", "type": "main", "index": 0}], []]}
+    wf = workflow("gastosOpenAI01", "Gastos da OpenAI", nodes, con)
     wf["settings"]["saveDataSuccessExecution"] = "none"
     return wf
 

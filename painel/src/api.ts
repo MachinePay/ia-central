@@ -100,7 +100,7 @@ export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[];
 export interface Gastos {
   fonte: 'openai' | 'estimativa'; atualizado_em: string | null; limite: number; hoje: number; aprendiz_pausado: boolean
   dias: { dia: string; real: number | null; estimado: number; aprendiz: number; audio: number }[]
-  por_item: { item: string; valor: number }[]; mes: number; mes_estimado: number
+  por_item: { item: string; valor: number }[]; mes: number; mes_estimado: number; erro_openai?: string | null; lido_em?: string | null
 }
 
 export class ErroApi extends Error {
@@ -142,6 +142,12 @@ export const api = {
   eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
   gastos: () => chamar<Gastos>('admin_gastos'),
   gastosLimite: (limite: number) => chamar<Gastos>('admin_gastos_limite', { limite: String(limite) }),
+  async gastosAtualizar(): Promise<Gastos | null> {   // busca agora o gasto real na OpenAI (chave admin)
+    const r = await fetch(`${BASE}/webhook/gastos-atualizar`, { method: 'POST', headers: { Authorization: `Bearer ${token.get() ?? ''}` } })
+    if (!r.ok) throw await lerErro(r)
+    const j = await r.json().catch(() => null)
+    return (j && j.gastos) || null
+  },
   perfilSalvar: (agente: AgenteId, numero: string, d: { relacao?: Relacao; genero?: string; cuidados?: string }) =>
     chamar('admin_perfil_salvar', { agente, numero, ...d }),
   atendimento: (agente: AgenteAtend) => chamar<AtendimentoPainel>('admin_atendimento', { agente }),

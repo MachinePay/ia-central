@@ -202,6 +202,16 @@ LANGUAGE sql STABLE AS $$
         'por_item', coalesce((SELECT jsonb_agg(jsonb_build_object('item', item, 'valor', v) ORDER BY v DESC)
                    FROM (SELECT item, sum(valor) AS v FROM nucleo.gastos_openai
                           WHERE dia > (now() AT TIME ZONE 'UTC')::date - 30 GROUP BY 1) x), '[]'),
+        'erro_openai', (SELECT valor->>'erro' FROM nucleo.config WHERE chave = 'gastos_status'),
+        'lido_em', (SELECT valor->>'em' FROM nucleo.config WHERE chave = 'gastos_status'),
         'mes', coalesce((SELECT sum(valor) FROM nucleo.gastos_openai WHERE date_trunc('month', dia) = date_trunc('month', now() AT TIME ZONE 'UTC')), 0),
         'mes_estimado', coalesce((SELECT sum(custo) FROM nucleo.uso_ia WHERE date_trunc('month', em AT TIME ZONE 'America/Sao_Paulo') = date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo')), 0))
+$$;
+
+-- ultima leitura do gasto na OpenAI: deu certo ou o motivo do erro (mostrado na pagina Gastos)
+CREATE OR REPLACE FUNCTION nucleo.gastos_status(p_erro text) RETURNS int
+LANGUAGE sql AS $$
+    INSERT INTO nucleo.config VALUES ('gastos_status', jsonb_build_object('erro', nullif(p_erro, ''), 'em', now()))
+    ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+    SELECT 1
 $$;
