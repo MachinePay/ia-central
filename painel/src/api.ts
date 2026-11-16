@@ -108,6 +108,13 @@ export interface Gastos {
 export interface Rodada { id: number; em: string; origem: 'automatico' | 'painel'; conversas: number; mensagens: number; itens: number; erros: number; custo: number; duracao_ms: number }
 export interface Rodadas { rodadas: Rodada[]; total_7d: { rodadas: number; conversas: number; mensagens: number; itens: number; custo: number } }
 
+export type ModoIA = 'desligado' | 'observando' | 'aprovacao' | 'automatico'
+export interface Responder {
+  agente: AgenteId; modo: ModoIA; alcance: 'selecionados' | 'todos'; pode_todos: boolean
+  contatos: { numero: string; nome: string | null }[]
+  fila: AtendimentoPainel['fila']
+}
+
 export class ErroApi extends Error {
   constructor(public status: number, mensagem: string) { super(mensagem) }
 }
@@ -147,6 +154,10 @@ export const api = {
   eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
   gastos: () => chamar<Gastos>('admin_gastos'),
   rodadas: (agente: AgenteId) => chamar<Rodadas>('admin_rodadas', { agente }),
+  responder: (agente: AgenteId) => chamar<Responder>('admin_responder', { agente }),
+  responderConfig: (agente: AgenteId, d: { modo?: ModoIA; alcance?: string }) => chamar<Responder>('admin_responder_config', { agente, ...d }),
+  responderDefinir: (agente: AgenteId, numero: string, nome: string, sim: boolean) =>
+    chamar<Responder>('admin_responder_definir', { agente, numero, nome, sim: String(sim) }),
   gastosLimite: (limite: number) => chamar<Gastos>('admin_gastos_limite', { limite: String(limite) }),
   async gastosAtualizar(): Promise<Gastos | null> {   // busca agora o gasto real na OpenAI (chave admin)
     const r = await fetch(`${BASE}/webhook/gastos-atualizar`, { method: 'POST', headers: { Authorization: `Bearer ${token.get() ?? ''}` } })

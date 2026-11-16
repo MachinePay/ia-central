@@ -3,11 +3,11 @@ import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
   Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Rodadas, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Rodadas, type Responder, type ModoIA, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { avisar, confirmar } from '../alerta'
-import { Chamados, Clientes, ConfigModo, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, useAtendimento } from './Secoes'
+import { Chamados, EmpresaForm, EnsinarManual, FilaAprovacao, VisivelClientes, useAtendimento } from './Secoes'
 import { Conexao, FiltroObservacao } from './Whatsapp'
 import { Conversa } from './Conversa'
 import { Orbe, type EstadoOrbe } from './Orbe'
@@ -108,31 +108,34 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
   const [feed, setFeed] = useState<Feed | null>(null)
   const atend = useAtendimento(a === 'joao' || a === 'suporte' ? a : null, aoSair)
   const [gab, setGab] = useState<GabrielPainel | null>(null)
+  const [resp, setResp] = useState<Responder | null>(null)
   const [estadoOrbe, setEstadoOrbe] = useState<EstadoOrbe>('parado')
+  const carregarResp = useCallback(async () => { try { setResp(await api.responder(a)) } catch { /* tenta de novo */ } }, [a])
 
   const carregarFeed = useCallback(async () => {
     try { setFeed(await api.feed(a)) } catch (e) { if (e instanceof ErroApi && e.status === 401) aoSair() }
   }, [a, aoSair])
   const carregarGab = useCallback(async () => { if (a === 'gabriel') try { setGab(await api.gabriel()) } catch { /* tenta de novo */ } }, [a])
-  const tudo = useCallback(() => { void carregarFeed(); void carregarGab(); void atend.carregar(); recarregarSaude() }, [carregarFeed, carregarGab, atend, recarregarSaude])
+  const tudo = useCallback(() => { void carregarFeed(); void carregarGab(); void carregarResp(); void atend.carregar(); recarregarSaude() }, [carregarFeed, carregarGab, carregarResp, atend, recarregarSaude])
 
-  useEffect(() => { setFeed(null); setGab(null) }, [a])
-  useEffect(() => { void carregarFeed(); void carregarGab(); const t = setInterval(() => { void carregarFeed(); void carregarGab() }, 20000); return () => clearInterval(t) }, [carregarFeed, carregarGab])
+  useEffect(() => { setFeed(null); setGab(null); setResp(null) }, [a])
+  useEffect(() => {
+    void carregarFeed(); void carregarGab(); void carregarResp()
+    const t = setInterval(() => { void carregarFeed(); void carregarGab(); void carregarResp() }, 20000); return () => clearInterval(t)
+  }, [carregarFeed, carregarGab, carregarResp])
 
   const revisar = 0   // aprende sozinho: nada para revisar
-  const pendentes = a === 'gabriel' ? gab?.fila.length ?? 0 : atend.d?.fila.length ?? 0
+  const pendentes = resp?.fila.length ?? 0
   const errosNovos = feed?.eventos.filter(e => !e.visto && e.nivel === 'erro').length ?? 0
-  const modo = a === 'leo' ? 'ativo' : a === 'gabriel' ? gab?.modo ?? s?.modo ?? '' : atend.d?.config.modo ?? s?.modo ?? ''
+  const modo = resp?.modo ?? (a === 'leo' ? 'ativo' : s?.modo ?? '')
 
   const abas: { id: Aba; rotulo: string; icone: React.ReactNode; badge?: number; alerta?: boolean }[] = [
     ...(a === 'leo' ? [{ id: 'conversar' as Aba, rotulo: 'Conversar', icone: <MessageSquare size={14} /> }] : []),
     { id: 'visao', rotulo: 'Visão geral', icone: <Activity size={14} /> },
     { id: 'leu', rotulo: 'O que leu', icone: <Eye size={14} />, badge: feed?.conversas.length },
     { id: 'aprendizado', rotulo: 'Aprendizado', icone: <Sparkles size={14} />, badge: s?.aprendeu_24h || undefined },
-    ...(a !== 'leo' ? [
-      { id: 'aprovar' as Aba, rotulo: 'Aprovar', icone: <Inbox size={14} />, badge: pendentes || undefined, alerta: pendentes > 0 },
-      { id: 'simular' as Aba, rotulo: 'Testar', icone: <MessagesSquare size={14} /> },
-    ] : []),
+    { id: 'aprovar' as Aba, rotulo: 'Aprovar', icone: <Inbox size={14} />, badge: pendentes || undefined, alerta: pendentes > 0 },
+    ...(a !== 'leo' ? [{ id: 'simular' as Aba, rotulo: 'Testar', icone: <MessagesSquare size={14} /> }] : []),
     { id: 'configurar', rotulo: 'Configurar', icone: <Settings2 size={14} /> },
     { id: 'erros', rotulo: 'Erros', icone: <AlertTriangle size={14} />, badge: errosNovos || undefined, alerta: errosNovos > 0 },
   ]
@@ -169,12 +172,11 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
         )}
         {aba === 'visao' && <Visao a={a} s={s} estado={estado} wa={wa[info.instancia]} feed={feed} modo={modo} revisar={revisar} pendentes={pendentes}
           irPara={setAba} extra={atend.d && <Chamados d={atend.d} carregar={atend.carregar} />} gab={gab} />}
-        {aba === 'leu' && <OQueLeu a={a} feed={feed} />}
+        {aba === 'leu' && <OQueLeu a={a} feed={feed} resp={resp} setResp={setResp} />}
         {aba === 'aprendizado' && <Aprendizado a={a} feed={feed} recarregar={tudo}
           manual={atend.d && (a === 'joao' || a === 'suporte') ? <EnsinarManual d={atend.d} agente={a} carregar={tudo} /> : null} />}
-        {aba === 'aprovar' && (a === 'gabriel'
-          ? gab && <FilaAprovacao fila={gab.fila} carregar={tudo} aprender={false} />
-          : atend.d && <FilaAprovacao fila={atend.d.fila} carregar={tudo} areaPadrao={a === 'suporte' ? 'suporte' : 'comercial'} />)}
+        {aba === 'aprovar' && resp && <FilaAprovacao fila={resp.fila} carregar={tudo} aprender={a === 'joao' || a === 'suporte'}
+          areaPadrao={a === 'suporte' ? 'suporte' : 'comercial'} />}
         {aba === 'simular' && a !== 'leo' && (
           <div className="duas-colunas">
             <Simulador aoMudar={tudo} agente={a as AgenteAtend | 'gabriel'} dica={a === 'gabriel'
@@ -190,7 +192,7 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
             </Hud>
           </div>
         )}
-        {aba === 'configurar' && <Configurar a={a} atend={atend} gab={gab} setGab={setGab} recarregar={tudo} />}
+        {aba === 'configurar' && <Configurar a={a} atend={atend} resp={resp} setResp={setResp} recarregar={tudo} />}
         {aba === 'erros' && <Erros a={a} feed={feed} recarregar={tudo} />}
       </div>
     </div>
@@ -266,7 +268,7 @@ function Visao({ a, s, estado, wa, feed, modo, revisar, pendentes, irPara, extra
 }
 
 // ------------------------------------------------------------------ o que leu
-function OQueLeu({ a, feed }: { a: AgenteId; feed: Feed | null }) {
+function OQueLeu({ a, feed, resp, setResp }: { a: AgenteId; feed: Feed | null; resp: Responder | null; setResp: (r: Responder) => void }) {
   const [sel, setSel] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const lista = useMemo(() => (feed?.conversas || []).filter(c => !busca || `${c.nome} ${c.numero} ${c.historico.map(h => h.texto).join(' ')}`.toLowerCase().includes(busca.toLowerCase())), [feed, busca])
@@ -295,6 +297,7 @@ function OQueLeu({ a, feed }: { a: AgenteId; feed: Feed | null }) {
           <>
             <div className="hud-titulo"><span>{atual.nome || atual.perfil?.nome || 'sem nome'} · +{atual.numero}</span><span className="contagem">{atual.mensagens} msgs</span></div>
             <PerfilPessoa key={atual.numero} a={a} c={atual} />
+            <ResponderEsta a={a} c={atual} resp={resp} setResp={setResp} />
             <div className="leitor-msgs">
               {atual.historico.map((m, i) => (
                 <div key={i} className={`sim-msg ${m.papel === 'usuario' ? 'cliente-de-la' : m.papel === 'humano' ? 'voce' : 'ia'}`}>
@@ -508,83 +511,111 @@ function CopiarPara({ a, id }: { a: AgenteId; id: number }) {
   )
 }
 
-// ------------------------------------------------------------------ configurar
-function Configurar({ a, atend, gab, setGab, recarregar }: {
-  a: AgenteId; atend: ReturnType<typeof useAtendimento>; gab: GabrielPainel | null; setGab: (g: GabrielPainel) => void; recarregar: () => void
-}) {
-  const info = AGENTES[a]
-  const [novo, setNovo] = useState({ nome: '', numero: '' })
-  const conexao = (
-    <Hud titulo={`WhatsApp · ${info.numero}`} icone={<MessageSquare size={14} />}>
-      <Conexao instancia={info.instancia} titulo={info.numero} dica={
-        a === 'leo' ? 'Conecte o número do Leo. Você fala com ele na conversa “Você” desse número; as outras conversas ele lê para aprender.'
-        : a === 'gabriel' ? 'Conecte o número do Gabriel. Ele lê as conversas desse número para aprender o seu jeito e só responde quem você liberar.'
-        : `Conecte o chip ${a === 'joao' ? 'do João' : 'do Suporte24hrs'}. Quem responder por esse número ensina a IA.`} />
-      <div className="etiqueta" style={{ marginTop: 8 }}>Para trocar o número desta IA: desconecte e conecte outro. O que ela já aprendeu continua.</div>
-    </Hud>
-  )
-  if (a === 'leo') return (
-    <div className="duas-colunas">
-      <Hud titulo="O que o Leo pode ler" icone={<Eye size={14} />}><FiltroObservacao agente="leo" /></Hud>
-      {conexao}
+// ------------------------------------------------------------------ responder pessoas por voce (igual nas 4 IAs)
+const MODOS: ModoIA[] = ['desligado', 'observando', 'aprovacao', 'automatico']
+const comoQuem = (a: AgenteId) => a === 'leo' || a === 'gabriel' ? 'como você' : 'como a equipe'
+const mesmoNumero = (x: string, y: string) => { const a = x.replace(/\D/g, ''), b = y.replace(/\D/g, ''); return a.slice(-10) === b.slice(-10) }
+
+function ResponderEsta({ a, c, resp, setResp }: { a: AgenteId; c: ConversaLida; resp: Responder | null; setResp: (r: Responder) => void }) {
+  if (!resp || c.nome === 'Você') return null
+  const marcada = resp.contatos.some(x => mesmoNumero(x.numero, c.numero)) || resp.alcance === 'todos'
+  const ativo = resp.modo === 'aprovacao' || resp.modo === 'automatico'
+  return (
+    <div className="responder-esta">
+      <div className="chave-texto"><b>{AGENTES[a].nome} responde esta pessoa {comoQuem(a)}</b>
+        <span>{resp.alcance === 'todos' ? 'Está respondendo todos (mude em Configurar).' : !ativo ? `Hoje ${AGENTES[a].nome} só observa: ligue “${MODO.aprovacao.rotulo}” ou “${MODO.automatico.rotulo}” em Configurar.`
+          : resp.modo === 'aprovacao' ? 'Ela escreve a resposta e espera você aprovar.' : 'Ela responde sozinha.'}</span></div>
+      <button role="switch" aria-checked={marcada} aria-label="Responder esta pessoa" className={`interruptor ${marcada ? 'ligado' : ''}`} disabled={resp.alcance === 'todos'}
+        onClick={async () => {
+          if (!marcada && resp.modo === 'automatico' && !(await confirmar({ titulo: 'Responder sozinha?', texto: `${AGENTES[a].nome} vai responder <b>${c.nome || '+' + c.numero}</b> ${comoQuem(a)}, sem você aprovar antes.`, botao: 'Pode responder', perigo: true }))) return
+          setResp(await api.responderDefinir(a, c.numero, c.nome || '', !marcada))
+          avisar(marcada ? 'Não responde mais esta pessoa' : `${AGENTES[a].nome} vai responder esta pessoa ✓`)
+        }} />
     </div>
   )
-  if (a === 'gabriel') {
-    if (!gab) return <div className="vazio">Carregando…</div>
-    return (
-      <div className="duas-colunas">
-        <div className="coluna-pilha">
-          <Hud titulo="Como o Gabriel trabalha" icone={<UserRound size={14} />}>
-            <div className="modos">
-              {(['desligado', 'observando', 'aprovacao', 'automatico'] as const).map(m => (
-                <button key={m} className={gab.modo === m ? 'ativo' : ''} onClick={async () => {
-                  if (m === 'automatico' && !(await confirmar({ titulo: 'Gabriel automático?', texto: 'O Gabriel vai responder <b>sozinho</b>, como você, os contatos liberados.', botao: 'Ligar automático', perigo: true }))) return
-                  setGab(await api.gabrielConfig(m)); recarregar()
-                }}>{MODO[m].rotulo}</button>
-              ))}
-            </div>
-            <div className="etiqueta" style={{ marginTop: 8 }}>{MODO[gab.modo]?.texto} Só responde os contatos liberados ao lado.</div>
-            <FiltroObservacao agente="gabriel" />
-          </Hud>
-          {conexao}
-        </div>
-        <Hud titulo="Contatos que ele pode responder" icone={<UserRound size={14} />} extra={<span className="contagem">{gab.contatos.length}</span>}>
-          <div className="etiqueta" style={{ marginBottom: 6 }}>Só estes recebem resposta do Gabriel. Todo o resto do número dele ele só lê para aprender.</div>
+}
+
+function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder | null; setResp: (r: Responder) => void }) {
+  const [novo, setNovo] = useState({ nome: '', numero: '' })
+  if (!resp) return <Hud titulo="3 · Responder pessoas por você"><div className="vazio">Carregando…</div></Hud>
+  const info = AGENTES[a]
+  const resumo = resp.modo === 'desligado' ? `${info.nome} está desligada: não lê nem responde.`
+    : resp.modo === 'observando' ? `${info.nome} só lê e aprende. Não responde ninguém.`
+    : `${info.nome} responde ${resp.alcance === 'todos' ? 'TODOS os contatos' : `${resp.contatos.length} pessoa${resp.contatos.length === 1 ? '' : 's'} escolhida${resp.contatos.length === 1 ? '' : 's'}`} ${comoQuem(a)}, ${resp.modo === 'aprovacao' ? 'esperando você aprovar cada resposta' : 'sozinha'}.`
+  return (
+    <Hud titulo="3 · Responder pessoas por você" icone={<UserRound size={14} />}>
+      <div className="resumo-config">{resumo}</div>
+      <div className="etiqueta" style={{ margin: '10px 0 6px' }}>COMO RESPONDE</div>
+      <div className="modos">
+        {MODOS.map(m => (
+          <button key={m} className={resp.modo === m ? 'ativo' : ''} onClick={async () => {
+            if (m === 'automatico' && !(await confirmar({ titulo: `${info.nome} automática?`, texto: `${info.nome} vai responder as pessoas escolhidas <b>sozinha</b>, ${comoQuem(a)}, sem você aprovar.`, botao: 'Ligar automático', perigo: true }))) return
+            setResp(await api.responderConfig(a, { modo: m }))
+          }}>{MODO[m].rotulo}</button>
+        ))}
+      </div>
+      <div className="etiqueta" style={{ marginTop: 6 }}>{MODO[resp.modo]?.texto}</div>
+      {resp.pode_todos && (
+        <>
+          <div className="etiqueta" style={{ margin: '12px 0 6px' }}>QUEM ELA RESPONDE</div>
+          <div className="modos">
+            {(['selecionados', 'todos'] as const).map(x => (
+              <button key={x} className={resp.alcance === x ? 'ativo' : ''} onClick={async () => {
+                if (x === 'todos' && !(await confirmar({ titulo: 'Responder todos?', texto: `${info.nome} vai responder <b>qualquer pessoa</b> que escrever no número dela (quando o modo permitir).`, botao: 'Responder todos', perigo: true }))) return
+                setResp(await api.responderConfig(a, { alcance: x }))
+              }}>{x === 'todos' ? 'Todos os contatos' : 'Só quem eu escolher'}</button>
+            ))}
+          </div>
+        </>
+      )}
+      {resp.alcance !== 'todos' && (
+        <>
+          <div className="etiqueta" style={{ margin: '12px 0 6px' }}>PESSOAS ESCOLHIDAS ({resp.contatos.length}) · também dá para ligar direto em “O que leu”</div>
           <form style={{ display: 'flex', gap: 6, marginBottom: 6 }} onSubmit={async e => {
-            e.preventDefault(); await api.observacaoAdd('gabriel', novo.numero, novo.nome, 'incluir'); setNovo({ nome: '', numero: '' }); recarregar()
+            e.preventDefault(); setResp(await api.responderDefinir(a, novo.numero, novo.nome, true)); setNovo({ nome: '', numero: '' }); avisar('Pessoa adicionada ✓')
           }}>
             <div className="campo" style={{ flex: 1, margin: 0 }}><input aria-label="Nome" placeholder="Nome" value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} /></div>
             <div className="campo" style={{ flex: 1.2, margin: 0 }}><input aria-label="Número" placeholder="55 11 9…" inputMode="tel" value={novo.numero} onChange={e => setNovo({ ...novo, numero: e.target.value })} /></div>
-            <button className="botao" style={{ width: 'auto' }} disabled={novo.numero.replace(/\D/g, '').length < 10} aria-label="Liberar contato"><Plus size={14} /></button>
+            <button className="botao" style={{ width: 'auto' }} disabled={novo.numero.replace(/\D/g, '').length < 10} aria-label="Adicionar pessoa"><Plus size={14} /></button>
           </form>
-          {gab.contatos.length === 0 && <div className="vazio">Ninguém liberado ainda.</div>}
-          {gab.contatos.map(c => (
-            <div className="item" key={c.id}>
+          {resp.contatos.length === 0 && <div className="vazio">Ninguém escolhido ainda.</div>}
+          {resp.contatos.map(c => (
+            <div className="item" key={c.numero}>
               <div><div className="item-titulo">{c.nome || 'sem nome'}</div><div className="etiqueta">+{c.numero}</div></div>
-              <button aria-label={`Remover ${c.nome || c.numero}`} onClick={async () => { await api.observacaoDel(c.id); recarregar() }}><Trash2 size={13} /></button>
+              <button aria-label={`Parar de responder ${c.nome || c.numero}`} title="Parar de responder"
+                onClick={async () => { setResp(await api.responderDefinir(a, c.numero, c.nome || '', false)) }}><Trash2 size={13} /></button>
             </div>
           ))}
-        </Hud>
-      </div>
-    )
-  }
-  const d = atend.d
-  if (!d) return <div className="vazio">{atend.erro || 'Carregando…'}</div>
-  const ag = a as AgenteAtend
+        </>
+      )}
+    </Hud>
+  )
+}
+
+// ------------------------------------------------------------------ configurar (mesma ordem nas 4 IAs)
+function Configurar({ a, atend, resp, setResp, recarregar }: {
+  a: AgenteId; atend: ReturnType<typeof useAtendimento>; resp: Responder | null; setResp: (r: Responder) => void; recarregar: () => void
+}) {
+  const info = AGENTES[a]
+  const empresa = (a === 'joao' || a === 'suporte') && atend.d
   return (
     <div className="duas-colunas">
       <div className="coluna-pilha">
-        <Hud titulo={`Como ${info.nome} trabalha`} icone={<Settings2 size={14} />}>
-          <ConfigModo d={d} agente={ag} carregar={recarregar} />
-          <div className="etiqueta" style={{ marginTop: 8 }}>{MODO[d.config.modo]?.texto}</div>
-          <FiltroObservacao agente={ag} />
+        <Hud titulo={`1 · WhatsApp · ${info.numero}`} icone={<MessageSquare size={14} />}>
+          <Conexao instancia={info.instancia} titulo={info.numero} dica={
+            a === 'leo' ? 'Conecte o número do Leo. Você fala com ele na conversa “Você” desse número; as outras conversas ele lê para aprender.'
+            : a === 'gabriel' ? 'Conecte o número do Gabriel. Ele lê as conversas desse número para aprender o seu jeito.'
+            : `Conecte o chip ${a === 'joao' ? 'do João' : 'do Suporte24hrs'}. Quem responder por esse número ensina a IA.`} />
+          <div className="etiqueta" style={{ marginTop: 8 }}>Para trocar o número desta IA: desconecte e conecte outro. O que ela já aprendeu continua.</div>
         </Hud>
-        {conexao}
-        <EmpresaForm key={a} d={d} agente={ag} />
+        <Hud titulo="2 · O que ela lê (para aprender)" icone={<Eye size={14} />}>
+          <FiltroObservacao agente={a} />
+        </Hud>
       </div>
       <div className="coluna-pilha">
-        <Clientes d={d} agente={ag} carregar={recarregar} />
-        <VisivelClientes d={d} carregar={recarregar} />
+        <ResponderPessoas a={a} resp={resp} setResp={setResp} />
+        {empresa && <EmpresaForm key={a} d={atend.d!} agente={a as AgenteAtend} />}
+        {empresa && <VisivelClientes d={atend.d!} carregar={recarregar} />}
       </div>
     </div>
   )

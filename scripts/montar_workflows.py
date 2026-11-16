@@ -988,7 +988,7 @@ JS_ENTREGAR_ATENDIMENTO = r"""
 // automatico: manda para o cliente | aprovacao: guarda na fila e avisa os admins
 const r = $input.first().json.r;
 const fila = r.texto || 'Desculpe, tive um problema agora. Ja ja te respondo.';
-const NOMES = { joao: 'João', suporte: 'Suporte24hrs', gabriel: 'Gabriel (seu clone)' };
+const NOMES = { joao: 'João', suporte: 'Suporte24hrs', gabriel: 'Gabriel (seu clone)', leo: 'Leo (respondendo como você)' };
 if (r.falhou) {
   const ok = await whatsappConectado();
   for (const n of r.avisar || []) {
@@ -1859,14 +1859,15 @@ Regras (sempre):
 
 def gabriel():
     nodes = [
-        gatilho_subworkflow(["cliente_id", "nome", "chatInput", "sessionId", "numero"]),
+        gatilho_subworkflow(["cliente_id", "nome", "chatInput", "sessionId", "numero", "agente"]),
         node("Contexto", "n8n-nodes-base.postgres", 2.6, [200, -160], {
             "operation": "executeQuery",
-            # SO o que o Gabriel aprendeu (nada da memoria do Leo)
+            # so a inteligencia de quem responde: Gabriel (a dele) ou Leo respondendo como voce (a do Leo)
             "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome,\n"
-                     "  nucleo.estilo_gabriel() AS estilo, nucleo.memoria_gabriel(60) AS memoria\n"
+                     "  CASE WHEN $1 = 'leo' THEN nucleo.estilo_dono(u.id) ELSE nucleo.estilo_gabriel() END AS estilo,\n"
+                     "  CASE WHEN $1 = 'leo' THEN nucleo.memoria_resumo(u.id) ELSE nucleo.memoria_gabriel(60) END AS memoria\n"
                      "FROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
-            "options": {},
+            "options": {"queryReplacement": "={{ [$('Quando chamado').first().json.agente || 'gabriel'] }}"},
         }, credentials=PG),
         node("Gabriel", "@n8n/n8n-nodes-langchain.agent", 3.1, [440, 0], {
             "promptType": "define",
@@ -1883,8 +1884,10 @@ def gabriel():
         ferramenta_sql(
             "buscar_memoria", "buscar_memoria",
             "procura no que voce (Gabriel) aprendeu: fatos, pessoas, preferencias, jeito de resolver.",
-            "SELECT titulo, conteudo FROM nucleo.buscar_memoria_gabriel($2) WHERE $1::text IS NOT NULL",
-            ["$('Contexto').first().json.dono_id", ia("busca", "palavras-chave simples")], [600, 240]),
+            "SELECT titulo, conteudo FROM nucleo.buscar_memoria_gabriel($2) WHERE $3 <> 'leo' AND $1::text IS NOT NULL\n"
+            "UNION ALL SELECT titulo, conteudo FROM nucleo.buscar_memoria($1::int, $2, 'minha') WHERE $3 = 'leo'",
+            ["$('Contexto').first().json.dono_id", ia("busca", "palavras-chave simples"),
+             "($('Quando chamado').first().json.agente || 'gabriel')"], [600, 240]),
     ]
     modelos, lig = modelos_do_agente("Gabriel", "orquestrador", 200, 240)
     nodes += modelos
@@ -1900,28 +1903,31 @@ def gabriel():
 # ROTEADOR: manda para Joao, Suporte24hrs ou Gabriel
 # ---------------------------------------------------------------------------
 def roteador():
-    def chama(nome, wid, wnome, pos):
+    def chama(nome, wid, wnome, pos, com_agente=False):
+        campos = {
+            "cliente_id": "={{ $('Quando chamado').first().json.cliente_id }}",
+            "nome": "={{ $('Quando chamado').first().json.nome }}",
+            "chatInput": "={{ $('Quando chamado').first().json.chatInput }}",
+            "sessionId": "={{ $('Quando chamado').first().json.sessionId }}",
+            "numero": "={{ $('Quando chamado').first().json.numero }}",
+        }
+        if com_agente:
+            campos["agente"] = "={{ $('Quando chamado').first().json.agente }}"
         return node(nome, "n8n-nodes-base.executeWorkflow", 1.4, pos, {
             "source": "database",
             "workflowId": {"__rl": True, "mode": "id", "value": wid, "cachedResultName": wnome},
-            "workflowInputs": mapear({
-                "cliente_id": "={{ $('Quando chamado').first().json.cliente_id }}",
-                "nome": "={{ $('Quando chamado').first().json.nome }}",
-                "chatInput": "={{ $('Quando chamado').first().json.chatInput }}",
-                "sessionId": "={{ $('Quando chamado').first().json.sessionId }}",
-                "numero": "={{ $('Quando chamado').first().json.numero }}",
-            }),
+            "workflowInputs": mapear(campos),
             "mode": "once", "options": {},
         }, onError="continueRegularOutput")
     nodes = [
         gatilho_subworkflow(["agente", "cliente_id", "nome", "chatInput", "sessionId", "numero"]),
         node("Qual agente", "n8n-nodes-base.switch", 3.2, [220, 0], {
             "mode": "expression", "numberOutputs": 3,
-            "output": "={{ $json.agente === 'suporte' ? 1 : ($json.agente === 'gabriel' ? 2 : 0) }}",
+            "output": "={{ $json.agente === 'suporte' ? 1 : (($json.agente === 'gabriel' || $json.agente === 'leo') ? 2 : 0) }}",
         }),
         chama("Joao", "atendente00001", "Joao (vendas)", [460, -160]),
         chama("Suporte24hrs", "suporte24h0001", "Suporte24hrs", [460, 0]),
-        chama("Gabriel", "gabriel000001", "Gabriel (clone do dono)", [460, 160]),
+        chama("Gabriel", "gabriel000001", "Gabriel (clone do dono)", [460, 160], com_agente=True),
     ]
     con = ligar(("Quando chamado", "Qual agente"))
     con["Qual agente"] = {"main": [

@@ -247,3 +247,9 @@
 .tabela-rodadas td { vertical-align: top; }
 .tabela-rodadas td:nth-child(3) { text-align: right; font-family: var(--f-mono); }
 .tabela-rodadas th:nth-child(3) { text-align: right; }
+
+/* configurar: resumo em uma frase e o interruptor "responder esta pessoa" */
+.resumo-config { font-size: 14px; line-height: 1.45; padding: 10px 12px; border-radius: 10px; color: var(--texto);
+  background: color-mix(in srgb, var(--ciano) 8%, transparent); border: 1px solid var(--linha); }
+.responder-esta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 14px 8px; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid var(--linha-forte); background: color-mix(in srgb, var(--ciano) 6%, transparent); }

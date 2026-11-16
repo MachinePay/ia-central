@@ -316,6 +316,37 @@ BEGIN
                 CASE WHEN d->>'agente' IN ('joao','suporte') THEN jsonb_build_object('agente', d->>'agente') ELSE '{}'::jsonb END);
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
 
+    ELSIF p_acao IN ('admin_responder', 'admin_responder_config', 'admin_responder_definir') THEN   -- igual para as 4 IAs
+        DECLARE ag text := CASE WHEN d->>'agente' IN ('leo','gabriel','joao','suporte') THEN d->>'agente' ELSE 'joao' END;
+                num text := nucleo.so_digitos(coalesce(d->>'numero', ''));
+        BEGIN
+            IF p_acao = 'admin_responder_config' THEN
+                IF d->>'modo' IN ('desligado','observando','aprovacao','automatico') THEN
+                    INSERT INTO nucleo.config VALUES (ag || '_modo', to_jsonb(d->>'modo')) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+                END IF;
+                IF d->>'alcance' IN ('selecionados','todos') AND ag IN ('joao','suporte') THEN
+                    INSERT INTO nucleo.config VALUES (ag || '_alcance', to_jsonb(d->>'alcance')) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+                END IF;
+            ELSIF p_acao = 'admin_responder_definir' THEN
+                IF length(num) < 10 THEN
+                    RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Numero invalido'));
+                END IF;
+                IF (d->>'sim')::boolean THEN
+                    INSERT INTO nucleo.responde_para (agente, numero, nome) VALUES (ag, num, nullif(d->>'nome',''))
+                    ON CONFLICT (agente, numero) DO UPDATE SET nome = coalesce(EXCLUDED.nome, nucleo.responde_para.nome);
+                ELSE
+                    DELETE FROM nucleo.responde_para WHERE agente = ag AND nucleo.variantes_numero(numero) && nucleo.variantes_numero(num);
+                    -- listas antigas: tira tambem, para nao continuar respondendo
+                    DELETE FROM nucleo.observacao_lista WHERE agente = ag AND regra = 'incluir' AND ag = 'gabriel'
+                       AND nucleo.variantes_numero(numero) && nucleo.variantes_numero(num);
+                    UPDATE nucleo.clientes SET ia_responde = CASE WHEN ag = 'joao' THEN false ELSE ia_responde END,
+                                               suporte_responde = CASE WHEN ag = 'suporte' THEN false ELSE suporte_responde END
+                     WHERE nucleo.variantes_numero(whatsapp) && nucleo.variantes_numero(num);
+                END IF;
+            END IF;
+            RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.responder_painel(ag));
+        END;
+
     ELSIF p_acao = 'admin_rodadas' THEN           -- o que o aprendiz leu/aprendeu em cada rodada
         RETURN jsonb_build_object('saida',0,'status',200,'corpo',
             nucleo.rodadas_agente(CASE WHEN d->>'agente' IN ('leo','gabriel','joao','suporte') THEN d->>'agente' ELSE 'leo' END));

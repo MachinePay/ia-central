@@ -35,6 +35,10 @@
             {
               "name": "numero",
               "type": "string"
+            },
+            {
+              "name": "agente",
+              "type": "string"
             }
           ]
         }
@@ -51,8 +55,10 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome,\n  nucleo.estilo_gabriel() AS estilo, nucleo.memoria_gabriel(60) AS memoria\nFROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
-        "options": {}
+        "query": "SELECT u.id AS dono_id, nucleo.cfg('gabriel_nome', split_part(u.nome, ' ', 1)) AS dono_nome,\n  CASE WHEN $1 = 'leo' THEN nucleo.estilo_dono(u.id) ELSE nucleo.estilo_gabriel() END AS estilo,\n  CASE WHEN $1 = 'leo' THEN nucleo.memoria_resumo(u.id) ELSE nucleo.memoria_gabriel(60) END AS memoria\nFROM nucleo.usuarios u WHERE u.papel = 'admin' AND u.ativo ORDER BY u.id LIMIT 1",
+        "options": {
+          "queryReplacement": "={{ [$('Quando chamado').first().json.agente || 'gabriel'] }}"
+        }
       },
       "credentials": {
         "postgres": {
@@ -116,9 +122,9 @@
         "descriptionType": "manual",
         "toolDescription": "buscar_memoria: procura no que voce (Gabriel) aprendeu: fatos, pessoas, preferencias, jeito de resolver.",
         "operation": "executeQuery",
-        "query": "SELECT titulo, conteudo FROM nucleo.buscar_memoria_gabriel($2) WHERE $1::text IS NOT NULL",
+        "query": "SELECT titulo, conteudo FROM nucleo.buscar_memoria_gabriel($2) WHERE $3 <> 'leo' AND $1::text IS NOT NULL\nUNION ALL SELECT titulo, conteudo FROM nucleo.buscar_memoria($1::int, $2, 'minha') WHERE $3 = 'leo'",
         "options": {
-          "queryReplacement": "={{ [$('Contexto').first().json.dono_id, $fromAI('busca', 'palavras-chave simples', 'string')] }}"
+          "queryReplacement": "={{ [$('Contexto').first().json.dono_id, $fromAI('busca', 'palavras-chave simples', 'string'), ($('Quando chamado').first().json.agente || 'gabriel')] }}"
         }
       },
       "credentials": {

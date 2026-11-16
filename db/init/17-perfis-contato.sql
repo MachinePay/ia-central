@@ -112,7 +112,7 @@ LANGUAGE sql STABLE AS $$
                    jsonb_agg(jsonb_build_object('papel', v.papel, 'texto', left(v.mensagem, 500), 'em', v.criado_em) ORDER BY v.criado_em) AS historico
               FROM (SELECT * FROM nucleo.conversas
                      WHERE criado_em > now() - interval '14 days' AND CASE p_agente
-                        WHEN 'leo' THEN agente IN ('leo-observa', 'ia-pessoal') OR (papel = 'ia' AND usuario_id IS NOT NULL AND cliente_id IS NULL
+                        WHEN 'leo' THEN agente IN ('leo-observa', 'ia-pessoal', 'leo', 'leo-clone') OR (papel = 'ia' AND usuario_id IS NOT NULL AND cliente_id IS NULL
                                         AND agente NOT IN ('gabriel', 'gabriel-observa') AND agente NOT LIKE '%-dono')
                         WHEN 'gabriel' THEN agente IN ('gabriel-observa', 'gabriel', 'gabriel-dono')
                         ELSE (cliente_id IS NOT NULL AND coalesce(instancia, 'joao') = nucleo.instancia_do_agente(p_agente))
