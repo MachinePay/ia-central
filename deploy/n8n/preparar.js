@@ -30,13 +30,28 @@ function exigir(nome) {
   return env[nome]
 }
 
+async function conectar() {
+  // o banco pode estar reiniciando ou cheio de conexoes: tenta por ate ~2 min antes de desistir
+  let ultimo
+  for (let i = 1; i <= 24; i++) {
+    const db = new Client({
+      host: exigir('DB_POSTGRESDB_HOST'), port: +(env.DB_POSTGRESDB_PORT || 5432),
+      database: exigir('DB_POSTGRESDB_DATABASE'), user: exigir('DB_POSTGRESDB_USER'),
+      password: exigir('DB_POSTGRESDB_PASSWORD'), ssl, connectionTimeoutMillis: 10000,
+    })
+    try { await db.connect(); if (i > 1) console.log(`[ia-central] banco conectou na tentativa ${i}`); return db }
+    catch (e) {
+      ultimo = e
+      try { await db.end() } catch { /* ok */ }
+      console.log(`[ia-central] banco ainda nao respondeu (tentativa ${i}/24): ${e.message}`)
+      await new Promise(r => setTimeout(r, 5000))
+    }
+  }
+  throw ultimo
+}
+
 async function main() {
-  const db = new Client({
-    host: exigir('DB_POSTGRESDB_HOST'), port: +(env.DB_POSTGRESDB_PORT || 5432),
-    database: exigir('DB_POSTGRESDB_DATABASE'), user: exigir('DB_POSTGRESDB_USER'),
-    password: exigir('DB_POSTGRESDB_PASSWORD'), ssl,
-  })
-  await db.connect()
+  const db = await conectar()
 
   // modo --ativar: depois do import, publica os workflows (igual ao "Publish" do editor)
   if (process.argv.includes('--ativar')) {
