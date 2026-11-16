@@ -361,6 +361,22 @@ BEGIN
         UPDATE nucleo.sistemas SET publico = (d->>'publico')::boolean WHERE id = (d->>'id')::int;
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
 
+    ELSIF p_acao = 'admin_sistema_ativo' THEN     -- tirar do alerta (pausar) / voltar a monitorar
+        -- Render/Vercel: deploy e site do mesmo projeto andam juntos
+        WITH alvo AS (
+            SELECT s.id FROM nucleo.sistemas s, (SELECT externo_id FROM nucleo.sistemas WHERE id = (d->>'id')::int) b
+             WHERE s.id = (d->>'id')::int
+                OR (b.externo_id IS NOT NULL AND s.externo_id IS NOT NULL
+                    AND regexp_replace(s.externo_id, ':site$', '') = regexp_replace(b.externo_id, ':site$', ''))
+        ), mudou AS (
+            UPDATE nucleo.sistemas s SET ativo = (d->>'ativo')::boolean, oculto_auto = false,
+                   estado = CASE WHEN (d->>'ativo')::boolean THEN s.estado ELSE 'desconhecido' END
+              FROM alvo WHERE s.id = alvo.id RETURNING s.id
+        )
+        UPDATE nucleo.incidentes i SET fim = now() FROM mudou
+         WHERE i.sistema_id = mudou.id AND i.fim IS NULL AND NOT (d->>'ativo')::boolean;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
+
     ELSIF p_acao = 'admin_fila_rejeitar' THEN
         UPDATE nucleo.atendimento_fila SET status = 'rejeitada', revisado_por = u.id, revisado_em = now()
          WHERE id = (d->>'id')::int AND status = 'pendente';

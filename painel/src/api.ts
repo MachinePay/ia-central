@@ -170,6 +170,7 @@ export const api = {
   baseApagar: (id: number) => chamar('admin_base_apagar', { id }),
   chamadoResolver: (id: number) => chamar('admin_chamado_resolver', { id }),
   sistemaPublico: (id: number, publico: boolean) => chamar('admin_sistema_publico', { id, publico }),
+  sistemaAtivo: (id: number, ativo: boolean) => chamar('admin_sistema_ativo', { id, ativo: String(ativo) }),
   filaRejeitar: (id: number) => chamar('admin_fila_rejeitar', { id }),
   filaAprovar: (id: number, texto: string, area: Area) => chamar<{ ok: boolean; enviado: boolean; motivo?: string }>('admin_fila_aprovar', { id, texto, area }),
   atendimentoTeste: (mensagem: string, sessao: string, agente: AgenteAtend | 'gabriel') => chamar<{ resposta: string }>('admin_atendimento_teste', { mensagem, sessao, agente }),

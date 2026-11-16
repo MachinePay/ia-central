@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Activity, Bell, Brain, Shield, Trash2, UserPlus, Users, Radio, RefreshCw, ExternalLink } from 'lucide-react'
+import { BellOff, Activity, Bell, Brain, Shield, Trash2, UserPlus, Users, Radio, RefreshCw, ExternalLink } from 'lucide-react'
 import { api, type Resumo } from '../api'
+import { avisar, confirmar } from '../alerta'
 import { PainelWhatsapp } from './Whatsapp'
 
 const fmtHora = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -35,6 +36,8 @@ export function PainelSistemas({ r, aoMudar }: { r: Resumo; aoMudar?: () => void
   const falha = r.sistemas.filter(s => s.ativo && s.estado === 'falha').length
   const tempos = r.sistemas.filter(s => s.ativo && s.tipo === 'http' && s.tempo_ms != null).map(s => s.tempo_ms!)
   const media = tempos.length ? Math.round(tempos.reduce((a, b) => a + b, 0) / tempos.length) : null
+  const pausados = r.sistemas.filter(s => !s.ativo)
+  const admin = r.usuario.papel === 'admin'
 
   async function verificar() {
     setVerificando(true)
@@ -54,7 +57,7 @@ export function PainelSistemas({ r, aoMudar }: { r: Resumo; aoMudar?: () => void
           <div><b style={{ fontSize: 18 }}>{media ?? '—'}</b><span className="etiqueta">MS MÉDIO</span></div>
         </div>
         {r.sistemas.length === 0 && <div className="vazio">Nenhum sistema. Peça: "monitora https://…"</div>}
-        {r.sistemas.map(s => (
+        {r.sistemas.filter(s => s.ativo).map(s => (
           <div className="sistema" key={s.id ?? s.nome}>
             <span className={`luz ${s.ativo ? s.estado : 'pausado'}`} />
             <div>
@@ -72,8 +75,30 @@ export function PainelSistemas({ r, aoMudar }: { r: Resumo; aoMudar?: () => void
                 <ExternalLink size={13} />
               </a>
             )}
+            {admin && s.id != null && (
+              <button className="botao-icone" style={{ width: 24, height: 24 }} title="Tirar do alerta (para de monitorar)" aria-label={`Tirar ${s.nome} do alerta`}
+                onClick={async () => {
+                  if (!(await confirmar({ titulo: 'Tirar do alerta?', texto: `<b>${s.nome}</b> para de ser verificado e não avisa mais. Dá para voltar quando quiser em “Pausados”.`, botao: 'Tirar do alerta' }))) return
+                  await api.sistemaAtivo(s.id!, false); avisar('Fora do alerta ✓'); aoMudar?.()
+                }}><BellOff size={13} /></button>
+            )}
           </div>
         ))}
+        {pausados.length > 0 && (
+          <details className="grupo" style={{ marginTop: 8 }}>
+            <summary>Pausados (fora do alerta) <span className="contagem">{pausados.length}</span></summary>
+            {pausados.map(s => (
+              <div className="sistema" key={s.id ?? s.nome}>
+                <span className="luz pausado" />
+                <div><div className="sistema-nome">{s.nome.replace(/^(Render|Vercel) · /, '')}</div><div className="sistema-info">não é verificado</div></div>
+                {admin && s.id != null && (
+                  <button className="botao-icone" style={{ width: 24, height: 24 }} title="Voltar a monitorar" aria-label={`Voltar a monitorar ${s.nome}`}
+                    onClick={async () => { await api.sistemaAtivo(s.id!, true); avisar('Voltou para o alerta ✓'); aoMudar?.() }}><Bell size={13} /></button>
+                )}
+              </div>
+            ))}
+          </details>
+        )}
       </Hud>
       <Hud titulo="Incidentes" icone={<Radio size={14} />}>
         {r.incidentes.length === 0 && <div className="vazio">Nenhuma queda registrada.</div>}
