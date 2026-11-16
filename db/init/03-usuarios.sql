@@ -312,6 +312,16 @@ BEGIN
                 CASE WHEN d->>'agente' IN ('joao','suporte') THEN jsonb_build_object('agente', d->>'agente') ELSE '{}'::jsonb END);
         RETURN jsonb_build_object('saida',0,'status',200,'corpo','{}'::jsonb);
 
+    ELSIF p_acao = 'admin_gastos' THEN            -- quanto estamos gastando com IA
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_gastos());
+
+    ELSIF p_acao = 'admin_gastos_limite' THEN     -- teto diario (USD); 0 = sem teto
+        IF (d->>'limite') ~ '^\d+(\.\d+)?$' THEN
+            INSERT INTO nucleo.config VALUES ('limite_gasto_dia', to_jsonb((d->>'limite')::numeric))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_gastos());
+
     ELSIF p_acao = 'admin_perfil_salvar' THEN     -- voce corrige quem e a pessoa (vale mais que o aprendiz)
         IF d->>'agente' NOT IN ('leo','gabriel','joao','suporte') OR coalesce(d->>'numero','') = '' THEN
             RETURN jsonb_build_object('saida',0,'status',400,'corpo',jsonb_build_object('erro','Informe agente e numero'));

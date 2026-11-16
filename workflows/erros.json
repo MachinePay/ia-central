@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000001",
+      "id": "c0000000-0000-4000-8000-000000000004",
       "name": "Quando algo quebrar",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
@@ -15,7 +15,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000002",
+      "id": "c0000000-0000-4000-8000-000000000005",
       "name": "Registrar erro",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

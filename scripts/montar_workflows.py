@@ -36,7 +36,7 @@ if RESERVA and not _CHAVES[RESERVA]:
     RESERVA = None
 MODELOS = {
     #            cerebro (IA pessoal)      especialistas (mais barato/rapido)
-    "openai":    {"orquestrador": "gpt-5", "especialista": "gpt-5-mini", "atendente": "gpt-5-mini"},
+    "openai":    {"orquestrador": "gpt-5-mini", "especialista": "gpt-5-mini", "atendente": "gpt-5-mini"},   # gpt-5 custava ~5x mais
     "anthropic": {"orquestrador": "claude-sonnet-5-5", "especialista": "claude-haiku-5-5", "atendente": "claude-haiku-5-5"},
 }
 NOME_PROVEDOR = {"openai": "OpenAI", "anthropic": "Claude"}
@@ -848,6 +848,7 @@ return [{ json: {
   numero: jid.split('@')[0], nome: d.pushName || '', texto,
   tipo: m.audioMessage ? 'audio' : 'texto', audio_b64: audio,
   de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null, erro_audio: erroAudio,
+  segundos: m.audioMessage ? (+m.audioMessage.seconds || 0) : 0,
   instancia: b.instance || $env.EVOLUTION_INSTANCIA || 'nucleo', dono,
 } }];
 """
@@ -1018,8 +1019,11 @@ def canal_whatsapp():
         }, credentials={"openAiApi": {"id": "openai01", "name": "OpenAI"}}, onError="continueRegularOutput"),
         node("Transcrito", "n8n-nodes-base.postgres", 2.6, [1000, 300], {
             "operation": "executeQuery",
-            "query": "SELECT nucleo.audio_desmarcar(nullif($1, '')::bigint) AS ok",
-            "options": {"queryReplacement": "={{ [String(($('Transcrevendo').first().json || {}).marca || '')] }}"},
+            "query": "SELECT nucleo.audio_desmarcar(nullif($1, '')::bigint) AS ok,\n"
+                     "  nucleo.uso_registrar('transcricao', nucleo.papel_instancia($2), $3, 0, 0, $4::numeric) AS uso",
+            "options": {"queryReplacement": "={{ [String(($('Transcrevendo').first().json || {}).marca || ''), $('Ler mensagem').first().json.instancia, "
+                                            "$('Transcrever (reserva)').isExecuted ? 'whisper-1' : 'gpt-4o-mini-transcribe', "
+                                            "String($('Ler mensagem').first().json.segundos || Math.round((($('Ler mensagem').first().json.audio_b64 || '').length * 0.75) / 2000))] }}"},
         }, credentials=PG, alwaysOutputData=True, onError="continueRegularOutput"),
         node("Preparar", "n8n-nodes-base.code", 2, [1540, 140], {
             "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_PREPARAR,
@@ -1949,7 +1953,9 @@ for (const p of pendentes) {
     const res = JSON.parse(r.choices[0].message.content);
     const itens = res.itens || [];
     const perfil = String(p.chave).startsWith('dono:') ? '' : JSON.stringify(res.contato || {});
-    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil } });
+    const u = r.usage || {};
+    saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil,
+      entrada: u.prompt_tokens || 0, saida_tokens: u.completion_tokens || 0, modelo: '__MODELO__' } });
   } catch (e) {
     saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: '[]', total: 0, erro: String(e.message || e).slice(0, 200) } });
   }
@@ -1961,7 +1967,7 @@ return saida.length ? saida : [{ json: { tipo: '', chave: '', itens: '[]', total
 def aprendiz():
     nodes = [
         node("A cada 15 minutos", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
-            "rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}),
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 60}]}}),   # de hora em hora (economia)
         node("Testar agora", "n8n-nodes-base.manualTrigger", 1, [0, 180], {}),
         gatilho_subworkflow(["origem"], pos=(0, 360)),
         node("Base atual", "n8n-nodes-base.postgres", 2.6, [240, 180], {
@@ -1970,9 +1976,9 @@ def aprendiz():
         node("Conversas novas", "n8n-nodes-base.postgres", 2.6, [460, 180], {
             "operation": "executeQuery",
             "query": "SELECT tipo, chave, dono_id, transcricao,\n"
-                     "  CASE tipo WHEN 'leo' THEN nucleo.memoria_resumo(dono_id) WHEN 'gabriel' THEN nucleo.memoria_gabriel(80)\n"
+                     "  CASE tipo WHEN 'leo' THEN nucleo.memoria_resumo(dono_id) WHEN 'gabriel' THEN nucleo.memoria_gabriel(30)\n"
                      "       ELSE nucleo.base_resumo_agente(tipo) END AS contexto\n"
-                     "FROM nucleo.aprendiz_pendentes_todos(25)", "options": {},
+                     "FROM nucleo.aprendiz_pendentes_todos(25) WHERE nucleo.aprendiz_pode_rodar()   -- passou do teto do dia: pausa", "options": {},
         }, credentials=PG, alwaysOutputData=True),
         node("Extrair conhecimento", "n8n-nodes-base.code", 2, [680, 180], {
             "mode": "runOnceForAllItems",
@@ -1988,8 +1994,9 @@ def aprendiz():
                      "  ELSE 0 END AS salvos,\n"
                      "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte', 'gabriel') THEN $3 ELSE 'aprendiz' END,\n"
                      "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento,\n"
-                     "  CASE WHEN $6 <> '' THEN nucleo.perfil_salvar($3, $1, $6::jsonb) END AS perfil",
-            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || '', $json.perfil || ''] }}"},
+                     "  CASE WHEN $6 <> '' THEN nucleo.perfil_salvar($3, $1, $6::jsonb) END AS perfil,\n"
+                     "  CASE WHEN $7::int + $8::int > 0 THEN nucleo.uso_registrar('aprendiz', $3, $9, $7::int, $8::int, 0) END AS uso",
+            "options": {"queryReplacement": "={{ [String($json.chave || ''), $json.itens || '[]', $json.tipo || '', String($json.dono_id || ''), $json.erro || '', $json.perfil || '', String($json.entrada || 0), String($json.saida_tokens || 0), $json.modelo || ''] }}"},
         }, credentials=PG),
         node("Resultado", "n8n-nodes-base.code", 2, [1120, 180], {
             "mode": "runOnceForAllItems",
@@ -2019,7 +2026,47 @@ def erros():
     return workflow("errosGerais001", "Erros (registra falhas)", nodes, ligar(("Quando algo quebrar", "Registrar erro")))
 
 
+JS_GASTOS = r"""
+// Gasto REAL da OpenAI por dia e por item (API de custos; precisa de uma chave ADMIN: OPENAI_ADMIN_KEY).
+if (!$env.OPENAI_ADMIN_KEY) return [];
+const desde = Math.floor(Date.now() / 1000) - 31 * 86400;
+const itens = [];
+let pagina = null;
+try {
+  for (let i = 0; i < 6; i++) {
+    const r = await this.helpers.httpRequest({ method: 'GET', json: true, timeout: 30000,
+      url: `https://api.openai.com/v1/organization/costs?start_time=${desde}&bucket_width=1d&limit=31&group_by=line_item` + (pagina ? `&page=${pagina}` : ''),
+      headers: { Authorization: `Bearer ${$env.OPENAI_ADMIN_KEY}` } });
+    for (const b of r.data || []) {
+      const dia = new Date(b.start_time * 1000).toISOString().slice(0, 10);
+      for (const x of b.results || []) itens.push({ dia, item: x.line_item || 'outros', valor: +(x.amount && x.amount.value) || 0 });
+    }
+    if (!r.has_more || !r.next_page) break;
+    pagina = r.next_page;
+  }
+} catch (e) { return []; }   // chave errada ou API fora: tenta na proxima rodada (sem gerar alarme)
+return [{ json: { itens: JSON.stringify(itens) } }];
+"""
+
+
+def gastos():
+    nodes = [
+        node("A cada 30 minutos", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 30}]}}),
+        node("Buscar gasto na OpenAI", "n8n-nodes-base.code", 2, [240, 0], {"mode": "runOnceForAllItems", "jsCode": JS_GASTOS}),
+        node("Guardar gasto", "n8n-nodes-base.postgres", 2.6, [480, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.gastos_salvar($1::jsonb) AS dias",
+            "options": {"queryReplacement": "={{ [$json.itens || '[]'] }}"},
+        }, credentials=PG),
+    ]
+    wf = workflow("gastosOpenAI01", "Gastos da OpenAI", nodes, ligar(("A cada 30 minutos", "Buscar gasto na OpenAI"), ("Buscar gasto na OpenAI", "Guardar gasto")))
+    wf["settings"]["saveDataSuccessExecution"] = "none"
+    return wf
+
+
 WORKFLOWS = [
+    ("gastos.json", gastos),
     ("erros.json", erros),
     ("suporte24hrs.json", suporte24),
     ("gabriel.json", gabriel),

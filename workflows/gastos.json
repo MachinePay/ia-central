@@ -1,0 +1,95 @@
+{
+  "id": "gastosOpenAI01",
+  "name": "Gastos da OpenAI",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "name": "A cada 30 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000002",
+      "name": "Buscar gasto na OpenAI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\n// Gasto REAL da OpenAI por dia e por item (API de custos; precisa de uma chave ADMIN: OPENAI_ADMIN_KEY).\nif (!$env.OPENAI_ADMIN_KEY) return [];\nconst desde = Math.floor(Date.now() / 1000) - 31 * 86400;\nconst itens = [];\nlet pagina = null;\ntry {\n  for (let i = 0; i < 6; i++) {\n    const r = await this.helpers.httpRequest({ method: 'GET', json: true, timeout: 30000,\n      url: `https://api.openai.com/v1/organization/costs?start_time=${desde}&bucket_width=1d&limit=31&group_by=line_item` + (pagina ? `&page=${pagina}` : ''),\n      headers: { Authorization: `Bearer ${$env.OPENAI_ADMIN_KEY}` } });\n    for (const b of r.data || []) {\n      const dia = new Date(b.start_time * 1000).toISOString().slice(0, 10);\n      for (const x of b.results || []) itens.push({ dia, item: x.line_item || 'outros', valor: +(x.amount && x.amount.value) || 0 });\n    }\n    if (!r.has_more || !r.next_page) break;\n    pagina = r.next_page;\n  }\n} catch (e) { return []; }   // chave errada ou API fora: tenta na proxima rodada (sem gerar alarme)\nreturn [{ json: { itens: JSON.stringify(itens) } }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "name": "Guardar gasto",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.gastos_salvar($1::jsonb) AS dias",
+        "options": {
+          "queryReplacement": "={{ [$json.itens || '[]'] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "A cada 30 minutos": {
+      "main": [
+        [
+          {
+            "node": "Buscar gasto na OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar gasto na OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Guardar gasto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "errorWorkflow": "errosGerais001"
+  },
+  "pinData": {}
+}

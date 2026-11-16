@@ -92,6 +92,12 @@ export interface ConversaLida {
 export interface ItemAprendido { id: number; titulo: string | null; conteudo: string; area: string | null; aprovado: boolean; origem: string; em: string; de?: string | null; copiado_de?: string | null }
 export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[]; eventos: Evento[] }
 
+export interface Gastos {
+  fonte: 'openai' | 'estimativa'; atualizado_em: string | null; limite: number; hoje: number; aprendiz_pausado: boolean
+  dias: { dia: string; real: number | null; estimado: number; aprendiz: number; audio: number }[]
+  por_item: { item: string; valor: number }[]; mes: number; mes_estimado: number
+}
+
 export class ErroApi extends Error {
   constructor(public status: number, mensagem: string) { super(mensagem) }
 }
@@ -129,6 +135,8 @@ export const api = {
   saude: () => chamar<Saude>('admin_saude'),
   feed: (agente: AgenteId) => chamar<Feed>('admin_agente_feed', { agente }),
   eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
+  gastos: () => chamar<Gastos>('admin_gastos'),
+  gastosLimite: (limite: number) => chamar<Gastos>('admin_gastos_limite', { limite: String(limite) }),
   perfilSalvar: (agente: AgenteId, numero: string, d: { relacao?: Relacao; genero?: string; cuidados?: string }) =>
     chamar('admin_perfil_salvar', { agente, numero, ...d }),
   atendimento: (agente: AgenteAtend) => chamar<AtendimentoPainel>('admin_atendimento', { agente }),
