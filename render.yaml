@@ -109,10 +109,10 @@ services:
         value: evolution
       - key: DATABASE_SAVE_DATA_INSTANCE
         value: "true"
-      - key: DATABASE_SAVE_DATA_NEW_MESSAGE      # guarda as mensagens: o botao "Puxar mensagens novas" busca daqui
-        value: "true"
-      - key: DATABASE_SAVE_DATA_HISTORIC         # guarda o historico recente que o WhatsApp manda ao conectar
-        value: "true"
+      - key: DATABASE_SAVE_DATA_NEW_MESSAGE      # nao guarda mensagens: as IAs leem as novas na hora (webhook)
+        value: "false"
+      - key: DATABASE_SAVE_DATA_HISTORIC         # nem o historico (pesava no banco pequeno)
+        value: "false"
       - key: DATABASE_SAVE_MESSAGE_UPDATE
         value: "false"
       - key: DATABASE_SAVE_DATA_CONTACTS
