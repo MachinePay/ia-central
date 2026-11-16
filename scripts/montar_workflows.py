@@ -755,6 +755,13 @@ async function apagarSessao() {   // desconecta e, se nao der, apaga a sessao in
     try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ja apagada */ }
     await espera(2000);
   }
+  if ((await estado()) === 'open') {   // zumbi teimoso: reinicia para a Evolution perceber, e apaga
+    for (const m of ['POST', 'PUT']) { try { await evo(m, `/instance/restart/${I}`); break; } catch (e) { /* tenta o outro */ } }
+    await espera(6000);
+    try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* ok */ }
+    try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ok */ }
+    await espera(2000);
+  }
 }
 async function pedirQr(num) {
   for (let i = 0; i < 3; i++) {   // logo apos criar, a Evolution as vezes ainda nao tem o QR pronto
@@ -813,11 +820,23 @@ if (corpo.op === 'conectar') {
     try { const q = await evo('GET', `/instance/connect/${I}`); saida.qr = q.base64 || null; } catch (e) { /* tenta de novo */ }
   }
 } else if (corpo.op === 'desconectar') {
-  try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
-  await espera(1000);
-  try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* ja apagada */ }
-  await espera(1500);
-  saida.desconectado = (await estado()) !== 'open';
+  const tentar = async () => {
+    try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
+    await espera(1000);
+    try { await evo('DELETE', `/instance/delete/${I}`); } catch (e) { /* recusou ou ja apagada */ }
+    await espera(1500);
+  };
+  await tentar();
+  if ((await estado()) === 'open') {
+    // sessao zumbi (o celular ja removeu o aparelho): reiniciar faz a Evolution perceber que caiu
+    for (const m of ['POST', 'PUT']) { try { await evo(m, `/instance/restart/${I}`); break; } catch (e) { /* tenta o outro */ } }
+    await espera(6000);
+    await tentar();
+  }
+  const st = await estado();
+  // ainda "open" mas sem responder = morta de qualquer jeito: conta como desconectada
+  saida.desconectado = st !== 'open' || !(await respondendo());
+  if (st === 'open' && saida.desconectado) saida.zumbi = true;
 }
 saida.estado = await estado();
 // status: "open" so vale se a conexao responde (senao mostra como caida, com explicacao)

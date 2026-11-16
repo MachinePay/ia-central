@@ -87,7 +87,7 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
         <button className="botao secundario" disabled={carregando} onClick={async () => {
           if (!(await confirmar({ titulo: `Desconectar ${titulo}?`, texto: 'Esta IA para de ler e responder por esse número até você conectar de novo. O que ela aprendeu continua.', botao: 'Desconectar', perigo: true }))) return
           const s = await chamar('desconectar')
-          if (s && s.estado !== 'open') avisar('WhatsApp desconectado ✓')
+          if (s && (s.estado !== 'open' || s.desconectado)) avisar('WhatsApp desconectado ✓', 'success', s.zumbi ? 'A sessão já estava morta (o celular tinha removido). Pode conectar de novo.' : undefined)
           else if (s) avisar('Não consegui desconectar por aqui', 'error', 'No celular: WhatsApp → Aparelhos conectados → Nucleo IA → Desconectar.')
         }}>
           <Unplug size={14} /> {carregando ? 'Desconectando…' : 'Desconectar'}
