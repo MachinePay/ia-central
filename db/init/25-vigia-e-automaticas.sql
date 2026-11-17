@@ -107,15 +107,16 @@ LANGUAGE sql STABLE AS $$
     por AS (
         SELECT i.inst,
                (SELECT max(criado_em) FROM nucleo.conversas WHERE conversas.instancia = i.inst AND papel <> 'ia') AS ultima,
-               (SELECT count(*) / 7.0 FROM nucleo.conversas WHERE conversas.instancia = i.inst AND papel = 'usuario'
-                  AND criado_em > now() - interval '7 days') AS media
+               -- media por dia EM QUE RECEBEU (dias travados nao puxam a media para baixo)
+               (SELECT count(*)::numeric / greatest(count(DISTINCT criado_em::date), 1) FROM nucleo.conversas
+                 WHERE conversas.instancia = i.inst AND papel <> 'ia' AND criado_em > now() - interval '14 days') AS media
           FROM unnest(ARRAY['nucleo', 'joao', 'suporte', 'gabriel']) AS i(inst)
     )
     SELECT p.inst, nucleo.papel_instancia(p.inst), p.ultima, round(p.media, 1)
       FROM por p, agora a
-     WHERE extract(isodow FROM a.t) <= 6 AND extract(hour FROM a.t) BETWEEN 9 AND 19   -- seg a sab, 9h-20h
-       AND p.media >= 15                                                              -- costuma receber bastante
-       AND p.ultima < now() - interval '90 minutes'                                   -- mudo ha 1h30
+     WHERE p.media >= 5                                                               -- costuma receber
+       AND ((extract(hour FROM a.t) BETWEEN 8 AND 21 AND p.ultima < now() - interval '90 minutes')  -- de dia: mudo ha 1h30
+            OR p.ultima < now() - interval '6 hours')                                 -- qualquer hora: mudo ha 6h
        AND EXISTS (SELECT 1 FROM nucleo.conversas o WHERE o.instancia <> p.inst AND o.papel <> 'ia'
                     AND o.criado_em > now() - interval '30 minutes')                  -- os outros estao recebendo
        AND NOT EXISTS (SELECT 1 FROM nucleo.vigia_reinicios v WHERE v.instancia = p.inst

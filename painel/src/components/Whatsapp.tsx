@@ -17,7 +17,7 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
   const [numero, setNumero] = useState('')
   const [qrEm, setQrEm] = useState('')   // hora do QR na tela (para ver que ele esta mudando)
 
-  const chamar = useCallback(async (op: 'status' | 'conectar' | 'desconectar' | 'puxar', num?: string) => {
+  const chamar = useCallback(async (op: 'status' | 'conectar' | 'desconectar' | 'puxar' | 'reiniciar', num?: string) => {
     setCarregando(true); setErro('')
     try {
       const s = await api.whatsapp(op, { instancia, numero: num })
@@ -82,6 +82,15 @@ export function Conexao({ instancia, titulo, dica }: { instancia: Instancia; tit
               onClick={() => chamar('conectar', numero)} title="Gera um código para digitar no celular (se o painel está no próprio celular)"><Smartphone size={14} /></button>
           </div>
         </>
+      )}
+      {conectado && (
+        <button className="botao secundario" style={{ marginBottom: 8 }} disabled={carregando} title="Use se aparece conectado mas não chega mensagem nova" onClick={async () => {
+          const s = await chamar('reiniciar')
+          if (s && s.estado === 'open') avisar('Conexão reiniciada ✓', 'success', 'Se em alguns minutos ainda não chegar mensagem nova, desconecte e leia o QR de novo.')
+          else if (s) avisar('Reiniciei, mas não voltou conectado', 'warning', 'Clique em “Conectar com QR code” e leia de novo no celular.')
+        }}>
+          <RefreshCw size={14} /> {carregando ? 'Reiniciando…' : 'Reiniciar conexão (não chega mensagem)'}
+        </button>
       )}
       {conectado && (
         <button className="botao secundario" disabled={carregando} onClick={async () => {

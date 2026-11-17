@@ -881,6 +881,13 @@ if (corpo.op === 'conectar') {
   saida.encontradas = achadas.length;
   saida.desde = desde;
   saida.mais = pagina <= paginas || enviadas < achadas.filter(x => ((x.key && x.key.remoteJid) || '').match(/@(s\.whatsapp\.net|lid)$/)).length;
+} else if (corpo.op === 'reiniciar') {
+  // conexao "aberta" mas sem receber nada (sessao travada): religa sem desconectar o celular e regrava o webhook
+  try { await evo('POST', `/webhook/set/${I}`, { webhook: cfgWebhook }); } catch (e) { /* segue */ }
+  let ok = false;
+  for (const m of ['POST', 'PUT']) { try { await evo(m, `/instance/restart/${I}`); ok = true; break; } catch (e) { /* tenta o outro */ } }
+  saida.reiniciado = ok;
+  for (let i = 0; i < 5 && temTempo(9000); i++) { await espera(2500); if ((await estado()) === 'open') break; }
 } else if (corpo.op === 'desconectar') {
   const tentar = async () => {
     try { await evo('DELETE', `/instance/logout/${I}`); } catch (e) { /* zumbi nao aceita logout */ }
@@ -2332,6 +2339,9 @@ for (const it of $input.all()) {
   const v = it.json;
   if (!v.instancia) continue;
   let ok = false, erro = '';
+  const url = comHttp($env.WHATSAPP_WEBHOOK_BASE || 'n8n:5678') + '/webhook/whatsapp';
+  try { await evo('POST', `/webhook/set/${v.instancia}`, { webhook: { enabled: true, url, byEvents: false, base64: true,
+    events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'] } }); } catch (e) { /* segue */ }
   for (const m of ['POST', 'PUT']) {
     try { await evo(m, `/instance/restart/${v.instancia}`); ok = true; break; } catch (e) { erro = String(e.message || e).slice(0, 150); }
   }
