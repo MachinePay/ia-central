@@ -118,7 +118,7 @@ LANGUAGE sql STABLE AS $$
        AND ((extract(hour FROM a.t) BETWEEN 8 AND 21 AND p.ultima < now() - interval '90 minutes')  -- de dia: mudo ha 1h30
             OR p.ultima < now() - interval '6 hours')                                 -- qualquer hora: mudo ha 6h
        AND EXISTS (SELECT 1 FROM nucleo.conversas o WHERE o.instancia <> p.inst AND o.papel <> 'ia'
-                    AND o.criado_em > now() - interval '30 minutes')                  -- os outros estao recebendo
+                    AND o.criado_em > now() - interval '3 hours')                     -- algum outro numero recebeu (nao e so silencio geral)
        AND NOT EXISTS (SELECT 1 FROM nucleo.vigia_reinicios v WHERE v.instancia = p.inst
                         AND v.em > now() - interval '3 hours')                        -- no maximo 1 vez a cada 3h
 $$;
