@@ -147,8 +147,10 @@ function NucleoLeo({ estado, selecionado, aoClicar, s }: { estado: Estado; selec
 
 // ------------------------------------------------------------------ servidores (sistemas monitorados)
 function Servidores({ r, selecionado, aoClicar }: { r: Resumo | null; selecionado: boolean; aoClicar: () => void }) {
-  const sist = (r?.sistemas || []).filter(x => x.ativo).slice(0, 8)
-  const fora = sist.filter(x => x.estado === 'falha').length
+  // conta TODOS os ativos; desenha no maximo 8 racks (os com falha primeiro, a lista ja vem nessa ordem)
+  const todos = (r?.sistemas || []).filter(x => x.ativo)
+  const fora = todos.filter(x => x.estado === 'falha').length
+  const sist = todos.slice(0, 8)
   const cor = fora ? VERMELHO : '#9b8cff'
   const racks = Math.max(3, sist.length)
   return (
@@ -175,7 +177,7 @@ function Servidores({ r, selecionado, aoClicar }: { r: Resumo | null; selecionad
       <Html position={[0, 3.8, 0]} center distanceFactor={14} zIndexRange={[20, 0]}>
         <button className={`rotulo-3d ${fora ? 'erro' : 'ok'} ${selecionado ? 'sel' : ''}`} style={{ ['--ciano' as string]: '#9b8cff' }} onClick={aoClicar}>
           <b>Sistemas</b>
-          <span className="rotulo-papel">{sist.length ? `${sist.length - fora} de ${sist.length} no ar` : 'nenhum monitorado'}</span>
+          <span className="rotulo-papel">{!todos.length ? 'nenhum monitorado' : fora ? `${fora} fora do ar · ${todos.length - fora} ok` : `todos os ${todos.length} no ar`}</span>
         </button>
       </Html>
     </group>

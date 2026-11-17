@@ -182,7 +182,7 @@ async function whatsappConectado(inst = INST) {
 }
 async function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {
   let t = paraWhatsapp(texto);
-  t = t.replace(/^\s*🤖\s*/, '');                       // nunca mostrar o robo
+  t = t.replace(/^[\s\u2063]*(?:[🤖🎤🎙]\uFE0F?\s*)+/u, '').replace(/🎤\s*/gu, '');   // nunca robo nem 🎤 (marca interna de audio)
   if (marcar && !t.startsWith('\u2063')) t = '\u2063' + t;   // marca INVISIVEL da IA: o sistema nunca responde a si mesmo
   return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\D/g, ''), text: t });
 }
@@ -366,6 +366,7 @@ Como trabalhar:
   (ex.: latencia, checagem de varios locais, PDF). Se nenhuma ferramenta resolve, diga o que falta.
 - Respostas curtas. Quando fizer sentido, sugira no maximo UMA proxima acao.
 - Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
+  O "🎤" e so uma marca interna do sistema: NUNCA escreva 🎤 (nem outro emoji de microfone) na resposta.
   Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - No WhatsApp a pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia TODAS e responda tudo
   de uma vez, numa resposta so, como uma pessoa faria.
@@ -1659,12 +1660,18 @@ REGRAS_CLIENTE = """Regras com o cliente (sempre, sem excecao):
   NAO responda nada: devolva exatamente [NAO_RESPONDER] e mais nada. O dono responde pessoalmente.
   (Nao vale para a conversa interna com o chefe/dono.)
 - Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
+  O "🎤" e so uma marca interna do sistema: NUNCA escreva 🎤 (nem outro emoji de microfone) na resposta.
   Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - O cliente pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
 - Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Use para acertar o tom:
-  pessoa nova = mais educado e apresente-se; cliente antigo = mais direto e caloroso.
+  pessoa nova = educado, pode dizer o nome so na primeira vez; cliente antigo = mais direto e caloroso (sem se apresentar).
 - Escreva como uma pessoa do time escreve no WhatsApp: natural, curto (no maximo 4 frases), sem listas formais,
   sem titulos, *negrito* so em 1 ou 2 palavras. Nada de "como assistente virtual", "sou uma IA" ou frases de robo.
+  Imite o jeito de responder da equipe que esta na base ("Jeito de responder"): vocabulario, tamanho, emojis.
+- NADA de frase de robo/telemarketing: nunca "Como posso ajudar?", "Em que posso ajudar hoje?", "Fico a disposicao",
+  "Estou a disposicao", "Qualquer duvida estou aqui", "Obrigado pelo contato", "Agradeco a mensagem", nem fechar com
+  "Obrigado." solto. Nao repita o que a pessoa disse, nao resuma, nao faca lista. Responda direto o que foi dito,
+  como uma pessoa real responderia no celular (pode ser so "show", "fechou", "boa", se for isso que cabe).
 - Nao se apresente como IA. Mas se o cliente perguntar DIRETAMENTE se fala com robo, IA ou pessoa, nunca minta:
   diga com naturalidade que e o assistente digital da equipe e ofereca passar para uma pessoa (abrir chamado area humano).
 - SO afirme o que esta escrito na base de conhecimento ou veio das ferramentas. Isso vale para servicos oferecidos,
@@ -1883,9 +1890,14 @@ Regras (sempre):
   NAO responda nada: devolva exatamente [NAO_RESPONDER] e mais nada. O dono responde pessoalmente.
   (Nao vale para a conversa interna com o chefe/dono.)
 - Mensagem que comeca com "🎤" e um AUDIO ja transcrito: trate como texto normal (mesmo se for longo) e responda em texto.
+  O "🎤" e so uma marca interna do sistema: NUNCA escreva 🎤 (nem outro emoji de microfone) na resposta.
   Se pedirem para resumir/analisar um audio, analise o conteudo transcrito com cuidado.
 - A pessoa pode ter mandado varias mensagens seguidas (uma por linha): leia todas e responda tudo numa vez so.
 - Nunca comece a mensagem com emoji de robo nem nada que mostre que e IA.
+- NADA de frase de robo/telemarketing: nunca "Como posso ajudar?", "Em que posso ajudar hoje?", "Fico a disposicao",
+  "Estou a disposicao", "Qualquer duvida estou aqui", "Obrigado pelo contato", "Agradeco a mensagem", nem fechar com
+  "Obrigado." solto. Nao repita o que a pessoa disse, nao resuma, nao faca lista. Responda direto o que foi dito,
+  como uma pessoa real responderia no celular (pode ser so "show", "fechou", "boa", se for isso que cabe).
 - Antes da mensagem pode vir [Sobre quem esta falando com voce...]: e so para voce (nunca comente). Siga o tom e os cuidados dele:
   pessoa nova = educado; amigo = solto; familia/intimo = carinhoso, sem prometer nada e sem assunto delicado.
 - Escreva exatamente como ele: tamanho das mensagens, girias, pontuacao, risadas, emojis. Mensagem curta de WhatsApp.
@@ -2067,11 +2079,12 @@ Alem dos itens, descreva o CONTATO desta conversa em "contato" (quem ele e para 
 - resumo: 1 frase de quem e (sem dados sensiveis). cuidados: o que evitar com essa pessoa (ou vazio).
 Na conversa interna do dono com a IA (nao ha contato), devolva contato com relacao "outro" e o resto vazio.`;
 const PROMPT_JOAO = `Voce observa conversas de WhatsApp entre CLIENTES e o ATENDENTE HUMANO de uma empresa para aprender a atender.
-Extraia SO conhecimento reutilizavel que o atendente humano informou ou praticou (mensagens com "🎤" eram audios transcritos): precos, prazos, condicoes, politicas,
+Extraia SO conhecimento reutilizavel que o atendente humano informou ou praticou (mensagens com "🎤" eram audios transcritos; O "🎤" e marca do sistema (era audio): NUNCA crie item sobre 🎤, microfone ou "manda audios" como jeito de falar.): precos, prazos, condicoes, politicas,
 horarios, procedimentos, como resolve problemas comuns, respostas para duvidas frequentes, e o jeito de escrever
 (SEMPRE que der para perceber, num item com titulo comecando por "Jeito de responder", na area do agente: __AREA__).
 Regras:
 - Use so o que o ATENDENTE HUMANO disse. Ignore o que o cliente afirmou e o que a IA escreveu.
+- Mensagem padrao/automatica (saudacao automatica, "horario de funcionamento", ausencia) NAO e jeito de responder: ignore.
 - Precos de tabela de produtos/servicos SAO conhecimento: inclua com o valor exato (ex.: kit X custa R$ Y).
 - NUNCA inclua dados pessoais ou do caso: nomes, telefones, enderecos, numero de pedido, total da compra daquele cliente.
 - Cada item: area (suporte | comercial | geral), titulo curto, conteudo autoexplicativo (1 a 3 frases).
@@ -2089,7 +2102,7 @@ Regras:
 - Aprenda do que o DONO escreveu; o CONTATO serve so de contexto.
 - NUNCA guarde senhas, codigos, dados bancarios/cartao, documentos, saude, vida intima ou segredos de terceiros.
 - Cada item: tipo, titulo curto, conteudo autoexplicativo (1 a 3 frases). Sempre que houver mensagens do DONO,
-  inclua pelo menos um item "jeito_de_falar".
+  inclua pelo menos um item "jeito_de_falar". O "🎤" e marca do sistema (era audio): NUNCA crie item sobre 🎤, microfone ou "manda audios" como jeito de falar.
 - Aprenda MUITO: ate 10 itens por conversa (cada expressao tipica, forma de negociar, decisao, pessoa e seu papel,
   compromisso recorrente). Nao repita a memoria atual. Se nao houver nada novo e util, devolva itens vazio.
 Memoria atual do dono:
@@ -2103,7 +2116,7 @@ Regras:
 - Aprenda do que o DONO escreveu; o CONTATO serve so de contexto.
 - NUNCA guarde senhas, codigos, dados bancarios/cartao, documentos, saude, vida intima ou segredos de terceiros.
 - Cada item: tipo, titulo curto, conteudo autoexplicativo (1 a 3 frases). Sempre que houver mensagens do DONO,
-  inclua pelo menos um item "jeito_de_falar". Mensagens com "🎤" eram audios transcritos: aprenda com elas tambem.
+  inclua pelo menos um item "jeito_de_falar". Mensagens com "🎤" eram audios transcritos: aprenda com o conteudo delas. O "🎤" e marca do sistema (era audio): NUNCA crie item sobre 🎤, microfone ou "manda audios" como jeito de falar.
 - Aprenda MUITO: ate 10 itens por conversa. Nao repita o que o Gabriel ja sabe. Se nao houver nada novo, itens vazio.
 O que o Gabriel ja sabe:
 `;
@@ -2114,7 +2127,7 @@ fatos, precos, regras, procedimentos, pessoas e seus papeis, preferencias, como 
 Regras:
 - Aprenda SO do que o DONO disse. O que a IA respondeu e so contexto (nunca aprenda das respostas da IA).
 - Se o dono corrigiu a IA, guarde a versao certa.
-- Ignore conversa sem conteudo (oi, testes, "ta ai?"). Mensagens com "🎤" eram audios transcritos.
+- Ignore conversa sem conteudo (oi, testes, "ta ai?"). Mensagens com "🎤" eram audios transcritos. O "🎤" e marca do sistema (era audio): NUNCA crie item sobre 🎤, microfone ou "manda audios" como jeito de falar.
 - NUNCA guarde senhas, codigos, dados bancarios/cartao ou documentos.
 - Cada item autoexplicativo (1 a 3 frases). Nao repita o que a IA ja sabe. Se nao houver nada novo, itens vazio.
 O que a IA ja sabe:
@@ -2136,7 +2149,8 @@ async function aprender(p) {
                                                + (p.contexto || '(vazia)') + SOBRE_CONTATO },
                    { role: 'user', content: p.transcricao }] } });
     const res = JSON.parse(r.choices[0].message.content);
-    const itens = res.itens || [];
+    const MIC = /🎤|🎙|microfone|[aá]udios? transcrit/i;   // marca interna de audio nunca vira "jeito de falar"
+    const itens = (res.itens || []).filter(x => !MIC.test(String(x.titulo || '') + ' ' + String(x.conteudo || '')));
     const perfil = String(p.chave).startsWith('dono:') ? '' : JSON.stringify(res.contato || {});
     const u = r.usage || {};
     saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil,
@@ -2307,6 +2321,65 @@ def gastos():
                 ("Pedido do painel", "So admin"), ("So admin", "Pode?"), ("Buscar agora", "Guardar e mostrar"))
     con["Pode?"] = {"main": [[{"node": "Buscar agora", "type": "main", "index": 0}], []]}
     wf = workflow("gastosOpenAI01", "Gastos da OpenAI", nodes, con)
+    wf["settings"]["saveDataSuccessExecution"] = "none"
+    return wf
+
+
+JS_VIGIA = r"""
+// Numero que costuma receber e esta mudo (enquanto os outros recebem): conexao travada. Reinicia e avisa.
+const saida = [];
+for (const it of $input.all()) {
+  const v = it.json;
+  if (!v.instancia) continue;
+  let ok = false, erro = '';
+  for (const m of ['POST', 'PUT']) {
+    try { await evo(m, `/instance/restart/${v.instancia}`); ok = true; break; } catch (e) { erro = String(e.message || e).slice(0, 150); }
+  }
+  saida.push({ json: { instancia: v.instancia, agente: v.agente || '', ultima: String(v.ultima || ''), ok, erro } });
+}
+return saida;
+"""
+
+JS_VIGIA_AVISAR = r"""
+const NOMES = { leo: 'Leo 2.0', gabriel: 'Gabriel', joao: 'João', suporte: 'Suporte24hrs' };
+const ev = $('Reiniciar conexao').all().map(i => i.json);
+for (const [i, it] of $input.all().entries()) {
+  const v = ev[i] || {}, r = it.json.r || {};
+  const quando = v.ultima ? new Date(v.ultima).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '?';
+  const txt = `⚠️ O WhatsApp do ${NOMES[v.agente] || v.instancia} parou de receber mensagens (última: ${quando}). `
+            + (v.ok ? 'Reiniciei a conexão.' : 'Tentei reiniciar e não deu.')
+            + ' Se continuar, desconecte e conecte de novo em Configurar.';
+  for (const n of r.avisar || []) {
+    for (const inst of [INST, 'gabriel', INST_JOAO, 'suporte']) {
+      if (inst === v.instancia) continue;   // nao avisa pelo numero travado
+      try { if (await whatsappConectado(inst)) { await enviarWhatsapp(n, txt, true, inst); break; } } catch (e) { /* tenta outro */ }
+    }
+  }
+}
+return $input.all();
+"""
+
+
+def vigia():
+    nodes = [
+        node("A cada 15 minutos", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 15}]}}),
+        node("Quem esta mudo", "n8n-nodes-base.postgres", 2.6, [240, 0], {
+            "operation": "executeQuery", "query": "SELECT * FROM nucleo.vigia_whatsapp()", "options": {},
+        }, credentials=PG),
+        node("Reiniciar conexao", "n8n-nodes-base.code", 2, [480, 0], {
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_VIGIA}),
+        node("Registrar", "n8n-nodes-base.postgres", 2.6, [720, 0], {
+            "operation": "executeQuery",
+            "query": "SELECT nucleo.vigia_registrar($1, nullif($2, ''), $3 || CASE WHEN $4 = 'true' THEN '' ELSE ' (reinicio falhou: ' || $5 || ')' END) AS r",
+            "options": {"queryReplacement": "={{ [$json.instancia, $json.agente || '', $json.ultima || '', String($json.ok), $json.erro || ''] }}"},
+        }, credentials=PG),
+        node("Avisar o dono", "n8n-nodes-base.code", 2, [960, 0], {
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_VIGIA_AVISAR}),
+    ]
+    con = ligar(("A cada 15 minutos", "Quem esta mudo"), ("Quem esta mudo", "Reiniciar conexao"),
+                ("Reiniciar conexao", "Registrar"), ("Registrar", "Avisar o dono"))
+    wf = workflow("vigiaWhatsapp01", "Vigia do WhatsApp", nodes, con)
     wf["settings"]["saveDataSuccessExecution"] = "none"
     return wf
 
@@ -2797,6 +2870,7 @@ WORKFLOWS = [
     ("correio.json", correio_leitura),
     ("correio-acoes.json", correio_acoes),
     ("correio-oauth.json", correio_oauth),
+    ("vigia-whatsapp.json", vigia),
 ]
 
 if __name__ == "__main__":

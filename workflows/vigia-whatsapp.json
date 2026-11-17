@@ -1,0 +1,152 @@
+{
+  "id": "vigiaWhatsapp01",
+  "name": "Vigia do WhatsApp",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000206",
+      "name": "A cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000207",
+      "name": "Quem esta mudo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM nucleo.vigia_whatsapp()",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000208",
+      "name": "Reiniciar conexao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  t = t.replace(/^[\\s\\u2063]*(?:[🤖🎤🎙]\\uFE0F?\\s*)+/u, '').replace(/🎤\\s*/gu, '');   // nunca robo nem 🎤 (marca interna de audio)\n  if (marcar && !t.startsWith('\\u2063')) t = '\\u2063' + t;   // marca INVISIVEL da IA: o sistema nunca responde a si mesmo\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\n// Numero que costuma receber e esta mudo (enquanto os outros recebem): conexao travada. Reinicia e avisa.\nconst saida = [];\nfor (const it of $input.all()) {\n  const v = it.json;\n  if (!v.instancia) continue;\n  let ok = false, erro = '';\n  for (const m of ['POST', 'PUT']) {\n    try { await evo(m, `/instance/restart/${v.instancia}`); ok = true; break; } catch (e) { erro = String(e.message || e).slice(0, 150); }\n  }\n  saida.push({ json: { instancia: v.instancia, agente: v.agente || '', ultima: String(v.ultima || ''), ok, erro } });\n}\nreturn saida;\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000209",
+      "name": "Registrar",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.vigia_registrar($1, nullif($2, ''), $3 || CASE WHEN $4 = 'true' THEN '' ELSE ' (reinicio falhou: ' || $5 || ')' END) AS r",
+        "options": {
+          "queryReplacement": "={{ [$json.instancia, $json.agente || '', $json.ultima || '', String($json.ok), $json.erro || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000210",
+      "name": "Avisar o dono",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  t = t.replace(/^[\\s\\u2063]*(?:[🤖🎤🎙]\\uFE0F?\\s*)+/u, '').replace(/🎤\\s*/gu, '');   // nunca robo nem 🎤 (marca interna de audio)\n  if (marcar && !t.startsWith('\\u2063')) t = '\\u2063' + t;   // marca INVISIVEL da IA: o sistema nunca responde a si mesmo\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst NOMES = { leo: 'Leo 2.0', gabriel: 'Gabriel', joao: 'João', suporte: 'Suporte24hrs' };\nconst ev = $('Reiniciar conexao').all().map(i => i.json);\nfor (const [i, it] of $input.all().entries()) {\n  const v = ev[i] || {}, r = it.json.r || {};\n  const quando = v.ultima ? new Date(v.ultima).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '?';\n  const txt = `⚠️ O WhatsApp do ${NOMES[v.agente] || v.instancia} parou de receber mensagens (última: ${quando}). `\n            + (v.ok ? 'Reiniciei a conexão.' : 'Tentei reiniciar e não deu.')\n            + ' Se continuar, desconecte e conecte de novo em Configurar.';\n  for (const n of r.avisar || []) {\n    for (const inst of [INST, 'gabriel', INST_JOAO, 'suporte']) {\n      if (inst === v.instancia) continue;   // nao avisa pelo numero travado\n      try { if (await whatsappConectado(inst)) { await enviarWhatsapp(n, txt, true, inst); break; } } catch (e) { /* tenta outro */ }\n    }\n  }\n}\nreturn $input.all();\n"
+      }
+    }
+  ],
+  "connections": {
+    "A cada 15 minutos": {
+      "main": [
+        [
+          {
+            "node": "Quem esta mudo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quem esta mudo": {
+      "main": [
+        [
+          {
+            "node": "Reiniciar conexao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reiniciar conexao": {
+      "main": [
+        [
+          {
+            "node": "Registrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar": {
+      "main": [
+        [
+          {
+            "node": "Avisar o dono",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "errorWorkflow": "errosGerais001"
+  },
+  "pinData": {}
+}

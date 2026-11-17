@@ -284,7 +284,7 @@ function OQueLeu({ a, feed, resp, setResp }: { a: AgenteId; feed: Feed | null; r
   const lista = useMemo(() => (feed?.conversas || []).filter(c => !busca || `${c.nome} ${c.numero} ${c.historico.map(h => h.texto).join(' ')}`.toLowerCase().includes(busca.toLowerCase())), [feed, busca])
   const atual = lista.find(c => c.numero === sel) || lista[0]
   const outro = a === 'joao' || a === 'suporte' ? 'CLIENTE' : 'CONTATO'
-  const rotulo = { usuario: outro, humano: a === 'joao' || a === 'suporte' ? 'EQUIPE (humano)' : 'VOCÊ', ia: AGENTES[a].nome.toUpperCase() }
+  const rotulo = { usuario: outro, humano: a === 'joao' || a === 'suporte' ? 'EQUIPE (humano)' : 'VOCÊ', ia: AGENTES[a].nome.toUpperCase(), automatica: 'MENSAGEM AUTOMÁTICA (não ensina)' }
   if (!feed) return <div className="vazio">Carregando…</div>
   return (
     <div className="leitor">
