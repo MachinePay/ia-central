@@ -984,7 +984,8 @@ return [{ json: {
   tipo: m.audioMessage ? 'audio' : 'texto', audio_b64: audio,
   de_mim: deMim, conversa_propria: conversaPropria, msg_id: d.key.id || null, erro_audio: erroAudio,
   segundos: m.audioMessage ? (+m.audioMessage.seconds || 0) : 0,
-  historico: !!b.historico,
+  // reenviada pela Evolution depois de uma queda (ou atrasada): so le e aprende, a IA nao responde horas depois
+  historico: !!b.historico || (+d.messageTimestamp > 0 && Date.now() / 1000 - +d.messageTimestamp > 900),
   instancia: b.instance || $env.EVOLUTION_INSTANCIA || 'nucleo', dono,
 } }];
 """
@@ -3135,6 +3136,8 @@ WORKFLOWS = [
     ("atendimento-multi.json", atendimento_multi),
 ]
 
+SO_FALHAS = {"monitorSistemas01", "lembretes00001", "vigiaWhatsapp01", "canalWhatsapp01", "apiPainel00001", "apiPainelAudio1"}
+
 if __name__ == "__main__":
     for nome, fn in WORKFLOWS:
         wf = fn()
@@ -3143,5 +3146,9 @@ if __name__ == "__main__":
         sub = any(n["type"] == "n8n-nodes-base.executeWorkflowTrigger" for n in wf["nodes"])
         if wf["id"] != "errosGerais001" and (not sub or wf["id"] in ("aprendiz000001", "monitorSistemas01")):
             wf["settings"]["errorWorkflow"] = "errosGerais001"
+        # rodam o tempo todo (cada minuto, cada mensagem, cada atualizacao do painel): guardar toda execucao
+        # que deu certo enchia o banco pequeno do Render. Falhas continuam guardadas (para investigar).
+        if wf["id"] in SO_FALHAS:
+            wf["settings"]["saveDataSuccessExecution"] = "none"
         (SAIDA / nome).write_text(json.dumps(wf, ensure_ascii=False, indent=2), encoding="utf-8")
         print("gerado", nome)

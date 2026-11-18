@@ -91,9 +91,11 @@ export interface PerfilContato {
 }
 export interface ConversaLida {
   numero: string; nome: string | null; mensagens: number; ultima: string; primeira?: string; ultimo_papel: string; ultima_mensagem: string
-  historico: { papel: 'usuario' | 'humano' | 'ia'; texto: string; em: string }[]
+  da_ia: number; humanas: number; ultima_ia: string | null
   perfil?: PerfilContato | null
 }
+export type MsgLida = { papel: 'usuario' | 'humano' | 'ia' | 'automatica'; texto: string; em: string }
+export interface HistoricoLido { numero: string; total: number; historico: MsgLida[] }
 export interface ItemAprendido { id: number; titulo: string | null; conteudo: string; area: string | null; aprovado: boolean; origem: string; em: string; de?: string | null; copiado_de?: string | null }
 export interface Feed { conversas: ConversaLida[]; aprendizado: ItemAprendido[]; eventos: Evento[] }
 
@@ -177,9 +179,12 @@ export interface ConversaMulti {
   id: number; instancia: string; contato: string; nome: string | null; estado: EstadoConversa; motivo: string | null
   resumo: string | null; atualizado_em: string; ultima_cliente_em: string | null; empresa: string | null
   conduzido_por: string | null; ultima_mensagem: string | null; pendentes: number
+  liberado: boolean   // contato na lista de quem a IA responde
 }
+export type AlcanceMulti = 'selecionados' | 'todos'
 export interface Multi {
   modo: ModoIA; janela_horas: number; dono: string; instancias: string[]
+  alcance: AlcanceMulti; liberados: number
   empresas: EmpresaMulti[]
   atendimentos: ConversaMulti[]
   fila: { id: number; atendimento_id: number; pergunta: string | null; texto: string | null; criado_em: string; nome: string | null; contato: string; empresa: string | null }[]
@@ -209,6 +214,7 @@ export const api = {
   verificar: () => chamar<{ ok: boolean }>('verificar'),
   saude: () => chamar<Saude>('admin_saude'),
   feed: (agente: AgenteId) => chamar<Feed>('admin_agente_feed', { agente }),
+  conversaLida: (agente: AgenteId, numero: string, limite = 150) => chamar<HistoricoLido>('admin_agente_conversa', { agente, numero, limite }),
   eventosVistos: (agente: string) => chamar('admin_eventos_vistos', { agente }),
   gastos: () => chamar<Gastos>('admin_gastos'),
   rodadas: (agente: AgenteId) => chamar<Rodadas>('admin_rodadas', { agente }),
@@ -240,7 +246,9 @@ export const api = {
   perfilSalvar: (agente: AgenteId, numero: string, d: { relacao?: Relacao; genero?: string; cuidados?: string }) =>
     chamar('admin_perfil_salvar', { agente, numero, ...d }),
   multi: () => chamar<Multi>('admin_multi'),
-  multiConfig: (d: { modo?: ModoIA; instancia?: string; dono?: string }) => chamar<Multi>('admin_multi_config', d),
+  multiConfig: (d: { modo?: ModoIA; instancia?: string; dono?: string; alcance?: AlcanceMulti }) => chamar<Multi>('admin_multi_config', d),
+  multiLiberar: (contato: string, nome: string | null, liberar: boolean) =>
+    chamar<Multi>('admin_multi_liberar', { contato, nome: nome ?? '', liberar }),
   multiConversa: (id: number) => chamar<ConversaMultiDetalhe>('admin_multi_conversa', { id }),
   multiEstado: (id: number, acao: 'assumir' | 'devolver' | 'encerrar') => chamar<ConversaMultiDetalhe>('admin_multi_estado', { id, acao }),
   multiEmpresa: (d: Partial<Omit<EmpresaMulti, 'base' | 'atualizado_em'>>) => chamar<Multi>('admin_multi_empresa', d),

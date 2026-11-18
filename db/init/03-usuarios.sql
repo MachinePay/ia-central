@@ -277,6 +277,11 @@ BEGIN
     ELSIF p_acao = 'admin_saude' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_saude(u.id));
 
+    ELSIF p_acao = 'admin_agente_conversa' THEN   -- 27-feed-leve.sql
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_conversa(
+            CASE WHEN d->>'agente' IN ('leo','joao','suporte','gabriel') THEN d->>'agente' ELSE 'leo' END,
+            nucleo.so_digitos(d->>'numero'), coalesce((d->>'limite')::int, 150)));
+
     ELSIF p_acao = 'admin_agente_feed' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_feed(
             CASE WHEN d->>'agente' IN ('leo','joao','suporte','gabriel') THEN d->>'agente' ELSE 'leo' END, u.id));

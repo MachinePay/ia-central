@@ -1,9 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, BookOpen, Brain, Check, CheckCircle2, ChevronRight, Eye, Inbox, MessageSquare,
   Box, LayoutList, MessagesSquare, Plus, RefreshCw, Search, Settings2, ShieldAlert, Sparkles, Trash2, UserRound, Wrench,
 } from 'lucide-react'
-import { api, ErroApi, type AgenteId, type Correio, type AgenteAtend, type Evento, type Feed, type ConversaLida, type GabrielPainel, type Rodadas, type Responder, type ModoIA, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
+import { api, ErroApi, type AgenteId, type Correio, type AgenteAtend, type Evento, type Feed, type ConversaLida, type HistoricoLido, type GabrielPainel, type Rodadas, type Responder, type ModoIA, type Instancia, type ItemAprendido, type Relacao, type Resumo, type Saude, type WhatsappStatus } from '../api'
 import { AGENTES, Avatar, BotaoMini, Hud, MODO, Numero, ORDEM, Pilula, comoResolver, corDe, estadoDe, fmt, haQuanto } from './ui'
 import { Simulador } from './Atendimento'
 import { avisar, confirmar } from '../alerta'
@@ -126,6 +126,16 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
     void carregarFeed(); void carregarGab(); void carregarResp(); void carregarCor()
     const t = setInterval(() => { void carregarFeed(); void carregarGab(); void carregarResp(); void carregarCor() }, 20000); return () => clearInterval(t)
   }, [carregarFeed, carregarGab, carregarResp, carregarCor])
+  // "O que leu" aberto: as conversas (e o que a IA respondeu sozinha) atualizam a cada 5s, e na hora em que
+  // voce volta para a aba do navegador (em segundo plano o navegador atrasa os intervalos)
+  useEffect(() => {
+    if (aba !== 'leu') return
+    const t = setInterval(() => { if (!document.hidden) void carregarFeed() }, 5000)
+    const voltou = () => { if (!document.hidden) void carregarFeed() }
+    document.addEventListener('visibilitychange', voltou)
+    window.addEventListener('focus', voltou)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', voltou); window.removeEventListener('focus', voltou) }
+  }, [aba, carregarFeed])
   // voltou do login do Google/Microsoft: mostra o resultado e abre o Configurar
   useEffect(() => { if (voltaDoLogin()) setAba('configurar') }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -281,8 +291,33 @@ function Visao({ a, s, estado, wa, feed, modo, revisar, pendentes, irPara, extra
 function OQueLeu({ a, feed, resp, setResp }: { a: AgenteId; feed: Feed | null; resp: Responder | null; setResp: (r: Responder) => void }) {
   const [sel, setSel] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
-  const lista = useMemo(() => (feed?.conversas || []).filter(c => !busca || `${c.nome} ${c.numero} ${c.historico.map(h => h.texto).join(' ')}`.toLowerCase().includes(busca.toLowerCase())), [feed, busca])
+  const lista = useMemo(() => (feed?.conversas || []).filter(c => !busca || `${c.nome} ${c.numero} ${c.perfil?.nome || ''} ${c.ultima_mensagem}`.toLowerCase().includes(busca.toLowerCase())), [feed, busca])
   const atual = lista.find(c => c.numero === sel) || lista[0]
+  // historico so da conversa aberta (a lista traz so o resumo: abrir nao trava mais o painel)
+  const [hist, setHist] = useState<HistoricoLido | null>(null)
+  const [limite, setLimite] = useState(150)
+  const numeroAtual = atual?.numero
+  const ultimaAtual = atual?.ultima
+  useEffect(() => { setLimite(150) }, [numeroAtual])
+  useEffect(() => {
+    if (!numeroAtual) { setHist(null); return }
+    let vivo = true
+    api.conversaLida(a, numeroAtual, limite).then(h => { if (vivo) setHist(h) }).catch(() => { /* tenta na proxima atualizacao */ })
+    return () => { vivo = false }
+  }, [a, numeroAtual, ultimaAtual, limite])
+  const msgs = hist && hist.numero === numeroAtual ? hist.historico : null
+  // conversa aberta: vai para a mensagem mais nova; chegou mensagem nova e voce estava no fim -> acompanha
+  const caixa = useRef<HTMLDivElement>(null)
+  const visto = useRef<{ numero?: string; total: number }>({ total: 0 })
+  useLayoutEffect(() => {
+    const el = caixa.current
+    if (!el || !atual || !msgs) return
+    const total = msgs.length
+    const trocou = visto.current.numero !== atual.numero
+    const noFim = el.scrollHeight - el.scrollTop - el.clientHeight < 140
+    if (trocou || (total > visto.current.total && noFim)) el.scrollTop = el.scrollHeight
+    visto.current = { numero: atual.numero, total }
+  })
   const outro = a === 'joao' || a === 'suporte' ? 'CLIENTE' : 'CONTATO'
   const rotulo = { usuario: outro, humano: a === 'joao' || a === 'suporte' ? 'EQUIPE (humano)' : 'VOCÊ', ia: AGENTES[a].nome.toUpperCase(), automatica: 'MENSAGEM AUTOMÁTICA (não ensina)' }
   if (!feed) return <div className="vazio">Carregando…</div>
@@ -293,13 +328,19 @@ function OQueLeu({ a, feed, resp, setResp }: { a: AgenteId; feed: Feed | null; r
         <div className="etiqueta" style={{ padding: '0 12px 6px' }}>{feed.conversas.length} conversas nos últimos 14 dias</div>
         <div className="leitor-itens">
           {lista.length === 0 && <div className="vazio" style={{ padding: 12 }}>Nada encontrado.</div>}
-          {lista.map(c => (
-            <button key={c.numero} className={`conversa-linha ${atual?.numero === c.numero ? 'ativa' : ''}`} onClick={() => setSel(c.numero)}>
-              <span className="conversa-nome">{c.nome || `+${c.numero}`}</span>
-              <span className="conversa-prev">{c.ultima_mensagem}</span>
-              <span className="conversa-quando">{c.mensagens} msgs · {haQuanto(c.ultima)}</span>
-            </button>
-          ))}
+          {lista.map(c => {
+            // o que a IA mandou so aparece aqui (no WhatsApp nada mostra que foi a IA)
+            const daIa = c.da_ia
+            return (
+              <button key={c.numero} className={`conversa-linha ${atual?.numero === c.numero ? 'ativa' : ''}`} onClick={() => setSel(c.numero)}>
+                <span className="conversa-nome">{c.nome || `+${c.numero}`}</span>
+                <span className={`conversa-prev ${c.ultimo_papel === 'ia' ? 'da-ia' : ''}`}>
+                  {c.ultimo_papel === 'ia' ? `${AGENTES[a].nome} respondeu: ` : c.ultimo_papel === 'humano' ? `${rotulo.humano === 'VOCÊ' ? 'Você' : 'Equipe'}: ` : ''}{c.ultima_mensagem}
+                </span>
+                <span className="conversa-quando">{daIa > 0 && <b className="conversa-ia" title={`${AGENTES[a].nome} respondeu sozinha ${daIa}x nesta conversa`}>IA {daIa}</b>}{c.mensagens} msgs · {haQuanto(c.ultima)}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
       <div className="leitor-conversa hud">
@@ -308,10 +349,15 @@ function OQueLeu({ a, feed, resp, setResp }: { a: AgenteId; feed: Feed | null; r
             <div className="hud-titulo"><span>{atual.nome || atual.perfil?.nome || 'sem nome'} · +{atual.numero}</span><span className="contagem">{atual.mensagens} msgs</span></div>
             <PerfilPessoa key={atual.numero} a={a} c={atual} />
             <ResponderEsta a={a} c={atual} resp={resp} setResp={setResp} />
-            <div className="leitor-msgs">
-              {atual.historico.map((m, i) => (
+            <div className="leitor-msgs" ref={caixa}>
+              {!msgs && <div className="vazio">Carregando…</div>}
+              {msgs && hist && hist.total > msgs.length && (
+                <button className="botao-mini" style={{ alignSelf: 'center' }} onClick={() => setLimite(l => l + 200)}>
+                  ver mais antigas ({hist.total - msgs.length})</button>
+              )}
+              {msgs?.map((m, i) => (
                 <div key={i} className={`sim-msg ${m.papel === 'usuario' ? 'cliente-de-la' : m.papel === 'humano' ? 'voce' : 'ia'}`}>
-                  <span className="via">{rotulo[m.papel] ?? m.papel} · {fmt(m.em)}</span>{m.texto}
+                  <span className="via">{rotulo[m.papel] ?? m.papel}{m.papel === 'ia' ? ' · respondeu sozinha (no WhatsApp não aparece que foi a IA)' : ''} · {fmt(m.em)}</span>{m.texto}
                 </div>
               ))}
             </div>
@@ -440,7 +486,7 @@ function Aprendizado({ a, feed, recarregar, manual }: { a: AgenteId; feed: Feed 
   }, [])
   const grupos = todos.reduce<Record<string, ItemAprendido[]>>((g, i) => { (g[grupoDe(a, i)] ||= []).push(i); return g }, {})
   const hoje = feed.aprendizado.filter(i => diaDe(i.em) === 'Hoje').length
-  const suas = feed.conversas.reduce((n, c) => n + c.historico.filter(h => h.papel === 'humano').length, 0)
+  const suas = feed.conversas.reduce((n, c) => n + (c.humanas || 0), 0)
   return (
     <div className="duas-colunas">
       <div className="coluna-pilha">

@@ -44,9 +44,10 @@ ENV N8N_DIAGNOSTICS_ENABLED=false \
     N8N_PERSONALIZATION_ENABLED=false \
     N8N_NATIVE_PYTHON_RUNNER=false
 
-# Historico de execucoes: guarda 7 dias
+# Historico de execucoes: 3 dias e no maximo 5 mil (o banco do Render e pequeno: execucao demais pesava no banco)
 ENV EXECUTIONS_DATA_PRUNE=true \
-    EXECUTIONS_DATA_MAX_AGE=168
+    EXECUTIONS_DATA_MAX_AGE=72 \
+    EXECUTIONS_DATA_PRUNE_MAX_COUNT=5000
 
 EXPOSE 5678
 ENTRYPOINT ["tini", "--", "/opt/ia/iniciar.sh"]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Building2, Check, ChevronDown, Hand, MessagesSquare, Plus, RefreshCw, RotateCcw, Save, Send, Trash2, X, XCircle } from 'lucide-react'
-import { api, type ConversaMulti, type ConversaMultiDetalhe, type EmpresaMulti, type EstadoConversa, type ItemBaseEmpresa, type ModoIA, type Multi, type TipoBase } from '../api'
+import { Bot, BotOff, Building2, Check, ChevronDown, Hand, MessagesSquare, Plus, RefreshCw, RotateCcw, Save, Send, Trash2, X, XCircle } from 'lucide-react'
+import { api, type AlcanceMulti, type ConversaMulti, type ConversaMultiDetalhe, type EmpresaMulti, type EstadoConversa, type ItemBaseEmpresa, type ModoIA, type Multi, type TipoBase } from '../api'
 import { Hud, MODO, fmt, haQuanto } from './ui'
 import { avisar, confirmar } from '../alerta'
 
@@ -71,7 +71,7 @@ function Controle({ m, aoMudar }: { m: Multi; aoMudar: (m: Multi) => void }) {
   const [dono, setDono] = useState(m.dono)
   const [ocupado, setOcupado] = useState(false)
   const instancia = m.instancias[0] ?? ''
-  async function salvar(d: { modo?: ModoIA; instancia?: string; dono?: string }) {
+  async function salvar(d: { modo?: ModoIA; instancia?: string; dono?: string; alcance?: AlcanceMulti }) {
     setOcupado(true)
     try { aoMudar(await api.multiConfig(d)); avisar('Salvo') } catch (e) { avisar('Não salvou', 'error', erroDe(e)) } finally { setOcupado(false) }
   }
@@ -88,6 +88,23 @@ function Controle({ m, aoMudar }: { m: Multi; aoMudar: (m: Multi) => void }) {
         ))}
       </div>
       <div className="etiqueta" style={{ marginTop: 6 }}>{m.modo === 'observando' ? 'Guarda as conversas e mostra aqui. Não responde ninguém.' : MODO[m.modo]?.texto}</div>
+      <div className="campo" style={{ margin: '12px 0 0' }}>
+        <label>Quem a IA responde</label>
+        <div className="modos">
+          <button className={m.alcance === 'selecionados' ? 'ativo' : ''} disabled={ocupado}
+            onClick={() => salvar({ alcance: 'selecionados' })}>Só os escolhidos ({m.liberados})</button>
+          <button className={m.alcance === 'todos' ? 'ativo' : ''} disabled={ocupado}
+            onClick={async () => {
+              if (!(await confirmar({ titulo: 'Responder todos os contatos?', botao: 'Responder todos', perigo: true,
+                texto: 'A IA passa a responder <b>qualquer pessoa</b> que mandar mensagem neste número, não só os escolhidos.' }))) return
+              salvar({ alcance: 'todos' })
+            }}>Todos</button>
+        </div>
+        <div className="etiqueta" style={{ marginTop: 6 }}>
+          {m.alcance === 'todos' ? 'Responde qualquer contato.'
+            : 'Escolha em cada conversa abaixo (“IA responde este contato”). Os outros ficam guardados aqui, mas a IA não responde.'}
+        </div>
+      </div>
       <div className="linha-2" style={{ marginTop: 12 }}>
         <div className="campo" style={{ margin: 0 }}>
           <label htmlFor="multi-inst">Número que atende</label>
@@ -132,6 +149,11 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
     setOcupado(true)
     try { setDet(await api.multiEstado(a.id, acao)); setAberto(true); aoMudar() } catch (e) { avisar('Não mudou', 'error', erroDe(e)) } finally { setOcupado(false) }
   }
+  async function liberar(sim: boolean) {
+    setOcupado(true)
+    try { await api.multiLiberar(a.contato, a.nome, sim); avisar(sim ? 'A IA vai responder este contato' : 'A IA não responde mais este contato'); aoMudar() }
+    catch (e) { avisar('Não salvou', 'error', erroDe(e)) } finally { setOcupado(false) }
+  }
   const e = ESTADO[a.estado]
   return (
     <div className="fila-item">
@@ -139,7 +161,8 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="item-titulo">{a.nome || 'Sem nome'}{a.empresa ? ` · ${a.empresa}` : ''}{teste ? ' · teste' : ''}</div>
           <div className="etiqueta">{teste ? 'conversa de teste do painel' : `+${a.contato}`} · {haQuanto(a.atualizado_em)}
-            {a.conduzido_por ? ` · com ${a.conduzido_por}` : ''}{a.pendentes > 0 ? ` · ${a.pendentes} p/ aprovar` : ''}</div>
+            {a.conduzido_por ? ` · com ${a.conduzido_por}` : ''}{a.pendentes > 0 ? ` · ${a.pendentes} p/ aprovar` : ''}
+            {!teste && !a.liberado ? ' · IA não responde' : ''}</div>
         </div>
         <span className={`pilula ${e.classe}`}><i />{e.rotulo}</span>
       </div>
@@ -148,6 +171,9 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
       {a.resumo && a.estado === 'aguardando_humano' && <div className="aviso" style={{ marginTop: 6 }}>Resumo: {a.resumo}</div>}
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
         <button className="botao-mini" onClick={abrir}><ChevronDown size={12} style={{ transform: aberto ? 'rotate(180deg)' : undefined }} /> histórico</button>
+        {!teste && (a.liberado
+          ? <button className="botao-mini" disabled={ocupado} onClick={() => liberar(false)}><BotOff size={12} /> IA para de responder</button>
+          : <button className="botao-mini" disabled={ocupado} onClick={() => liberar(true)}><Bot size={12} /> IA responde este contato</button>)}
         {(a.estado === 'automatico' || a.estado === 'aguardando_humano') &&
           <button className="botao-mini" disabled={ocupado} onClick={() => mudar('assumir')}><Hand size={12} /> assumir</button>}
         {a.estado !== 'automatico' &&

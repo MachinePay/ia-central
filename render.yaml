@@ -110,6 +110,12 @@ services:
         value: evolution
       - key: DATABASE_SAVE_DATA_INSTANCE
         value: "true"
+      # n8n fora do ar (ex.: banco reiniciando): a Evolution reenvia a mensagem por ~3h em vez de ~20 min
+      # (padrao: 10 tentativas). Mensagem que chega atrasada e so lida/aprendida, a IA nao responde.
+      - key: WEBHOOK_RETRY_MAX_ATTEMPTS
+        value: "40"
+      - key: WEBHOOK_RETRY_MAX_DELAY_SECONDS
+        value: "300"
       - key: DATABASE_SAVE_DATA_NEW_MESSAGE      # nao guarda mensagens: as IAs leem as novas na hora (webhook)
         value: "false"
       - key: DATABASE_SAVE_DATA_HISTORIC         # nem o historico (pesava no banco pequeno)

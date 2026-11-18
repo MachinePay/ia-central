@@ -165,9 +165,12 @@ Quando precisa, passa para uma pessoa. Tudo em `db/init/26-multiempresa.sql` + w
 - **Chave geral:** desligado · só observando · com aprovação · automático (começa desligado).
 - **Número que atende:** a instância escolhida ganha o papel `multi` em `whatsapp_instancias`
   (a conversa "Você" continua com o Leo).
+- **Quem a IA responde:** só os contatos escolhidos (padrão; botão "IA responde este contato" em cada conversa,
+  lista `responde_para` com agente `multi`) ou todos. Os outros ficam guardados no painel, sem resposta.
 - **Estado de cada conversa:** `automatico` → `aguardando_humano` (a IA encaminhou) → `humano` (alguém assumiu) → `encerrado`.
   No painel: assumir, devolver para a IA, encerrar.
-- **Responder pelo celular assume a conversa**: a IA para nela até alguém devolver.
+- **Responder pelo celular assume a conversa**: a IA para nela até alguém devolver — ou até a equipe ficar
+  30 min sem escrever nela (`multi_humano_minutos`); aí a próxima mensagem do cliente volta para a IA.
 - **Conferência antes de cada envio (no banco):** a conversa ainda está com a IA? o estado mudou durante a geração?
   o cliente mandou algo mais novo? alguém da equipe respondeu? ainda está na janela de 24h? Se qualquer resposta for não, nada sai.
 - **Empresas e informações aprovadas:** cada informação tem tipo, responsável e data. Sem informação, a IA não afirma nada e oferece a equipe.

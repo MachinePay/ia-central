@@ -21,6 +21,12 @@
 INSERT INTO nucleo.config VALUES ('multi_modo', '"desligado"') ON CONFLICT DO NOTHING;
 INSERT INTO nucleo.config VALUES ('multi_janela_horas', '24') ON CONFLICT DO NOTHING;
 INSERT INTO nucleo.config VALUES ('multi_dono_nome', '"Leonardo"') ON CONFLICT DO NOTHING;
+-- conversa com uma pessoa volta para a IA quando a equipe fica este tempo sem escrever nela
+-- e o cliente manda mensagem nova
+INSERT INTO nucleo.config VALUES ('multi_humano_minutos', '30') ON CONFLICT DO NOTHING;
+-- quem a IA responde: 'selecionados' (so os contatos escolhidos no painel, lista nucleo.responde_para agente 'multi') | 'todos'
+-- os outros continuam aparecendo no painel (a conversa fica guardada), so a IA nao responde
+INSERT INTO nucleo.config VALUES ('multi_alcance', '"selecionados"') ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------- empresas
 CREATE TABLE IF NOT EXISTS nucleo.empresas (
@@ -102,6 +108,9 @@ CREATE TABLE IF NOT EXISTS nucleo.atendimentos (
     atualizado_em      timestamptz NOT NULL DEFAULT now(),
     UNIQUE (instancia, contato)
 );
+-- quando entrou no estado atual (para devolver a IA depois de X horas sem a equipe escrever)
+ALTER TABLE nucleo.atendimentos ADD COLUMN IF NOT EXISTS estado_desde timestamptz;
+UPDATE nucleo.atendimentos SET estado_desde = atualizado_em WHERE estado_desde IS NULL;
 
 CREATE TABLE IF NOT EXISTS nucleo.atendimento_respostas (
     id             bigserial PRIMARY KEY,
@@ -123,6 +132,13 @@ CREATE INDEX IF NOT EXISTS conversas_multi ON nucleo.conversas (instancia, conta
 CREATE OR REPLACE FUNCTION nucleo.multi_modo() RETURNS text
 LANGUAGE sql STABLE AS $$ SELECT nucleo.cfg('multi_modo', 'desligado') $$;
 
+-- este contato esta na lista de quem a IA responde?
+CREATE OR REPLACE FUNCTION nucleo.multi_liberado(p_numero text) RETURNS boolean
+LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (SELECT 1 FROM nucleo.responde_para r WHERE r.agente = 'multi'
+                    AND nucleo.variantes_numero(r.numero) && nucleo.variantes_numero(p_numero))
+$$;
+
 CREATE OR REPLACE FUNCTION nucleo.multi_avisar() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     SELECT coalesce((SELECT jsonb_agg(whatsapp) FROM nucleo.usuarios WHERE papel = 'admin' AND ativo AND whatsapp IS NOT NULL), '[]')
@@ -137,7 +153,7 @@ BEGIN
         RAISE EXCEPTION 'estado invalido: %', p_estado;
     END IF;
     UPDATE nucleo.atendimentos
-       SET estado = p_estado, versao = versao + 1, motivo = p_motivo, atualizado_em = now(),
+       SET estado = p_estado, versao = versao + 1, motivo = p_motivo, atualizado_em = now(), estado_desde = now(),
            conduzido_por = CASE WHEN p_estado = 'humano' THEN p_usuario WHEN p_estado = 'automatico' THEN NULL ELSE conduzido_por END,
            encaminhado_em = CASE WHEN p_estado = 'aguardando_humano' THEN now() WHEN p_estado = 'automatico' THEN NULL ELSE encaminhado_em END
      WHERE id = p_at RETURNING * INTO a;
@@ -212,6 +228,15 @@ BEGIN
     IF a.estado = 'encerrado' THEN   -- cliente voltou: novo atendimento automatico
         a := nucleo.multi_mudar_estado(a.id, 'automatico', NULL, 'cliente voltou a escrever');
     END IF;
+    -- com uma pessoa, mas a equipe nao escreve nesta conversa ha X minutos (desde que assumiu): volta para a IA
+    IF a.estado = 'humano' AND greatest(
+           coalesce(a.estado_desde, a.atualizado_em),
+           coalesce((SELECT max(criado_em) FROM nucleo.conversas WHERE agente = 'multi' AND instancia = p_instancia
+                      AND contato = num AND papel = 'humano'), '-infinity'::timestamptz))
+       < now() - make_interval(mins => coalesce(nullif(nucleo.cfg('multi_humano_minutos', '30'), '')::int, 30)) THEN
+        a := nucleo.multi_mudar_estado(a.id, 'automatico', NULL,
+                 'equipe sem responder ha ' || nucleo.cfg('multi_humano_minutos', '30') || ' min: voltou para a IA');
+    END IF;
     IF a.estado = 'humano' THEN
         RETURN jsonb_build_object('saida', 0, 'motivo', 'uma pessoa esta conduzindo esta conversa');
     END IF;
@@ -220,6 +245,10 @@ BEGIN
     END IF;
     IF modo = 'observando' THEN
         RETURN jsonb_build_object('saida', 0, 'motivo', 'observando (nao responde)');
+    END IF;
+    -- so os contatos escolhidos (o teste do painel sempre passa)
+    IF NOT teste AND nucleo.cfg('multi_alcance', 'selecionados') <> 'todos' AND NOT nucleo.multi_liberado(num) THEN
+        RETURN jsonb_build_object('saida', 0, 'motivo', 'contato nao esta na lista da IA (so guarda)');
     END IF;
     RETURN jsonb_build_object('saida', 3, 'agente', 'multi', 'atendimento_id', a.id, 'cliente_id', a.cliente_id,
         'nome', coalesce(a.nome, nullif(p_nome, ''), 'cliente'), 'numero', num, 'texto', p_texto,
@@ -426,6 +455,8 @@ LANGUAGE sql STABLE AS $$
         'modo', nucleo.multi_modo(),
         'janela_horas', nucleo.cfg('multi_janela_horas', '24')::int,
         'dono', nucleo.cfg('multi_dono_nome', 'Leonardo'),
+        'alcance', nucleo.cfg('multi_alcance', 'selecionados'),
+        'liberados', (SELECT count(*) FROM nucleo.responde_para WHERE agente = 'multi'),
         'instancias', coalesce((SELECT jsonb_agg(k ORDER BY k) FROM nucleo.config, jsonb_each_text(valor) e(k, v)
                                  WHERE chave = 'whatsapp_instancias' AND v = 'multi'), '[]'),
         'empresas', coalesce((SELECT jsonb_agg(jsonb_build_object(
@@ -439,6 +470,7 @@ LANGUAGE sql STABLE AS $$
         'atendimentos', coalesce((SELECT jsonb_agg(x ORDER BY x.ordem, x.atualizado_em DESC) FROM (
             SELECT a.id, a.instancia, a.contato, a.nome, a.estado, a.motivo, a.resumo, a.atualizado_em,
                    a.ultima_cliente_em, em.nome AS empresa, u.nome AS conduzido_por,
+                   (a.instancia = 'simulador' OR nucleo.multi_liberado(a.contato)) AS liberado,
                    CASE a.estado WHEN 'aguardando_humano' THEN 0 WHEN 'humano' THEN 1 WHEN 'automatico' THEN 2 ELSE 3 END AS ordem,
                    (SELECT left(v.mensagem, 140) FROM nucleo.conversas v WHERE v.agente = 'multi' AND v.instancia = a.instancia
                        AND v.contato = a.contato ORDER BY v.id DESC LIMIT 1) AS ultima_mensagem,
@@ -490,6 +522,10 @@ BEGIN
             INSERT INTO nucleo.config VALUES ('multi_modo', to_jsonb(d->>'modo'))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
+        IF d->>'alcance' IN ('selecionados', 'todos') THEN
+            INSERT INTO nucleo.config VALUES ('multi_alcance', to_jsonb(d->>'alcance'))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
         IF coalesce(d->>'dono', '') <> '' THEN
             INSERT INTO nucleo.config VALUES ('multi_dono_nome', to_jsonb(left(d->>'dono', 60)))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
@@ -502,6 +538,20 @@ BEGIN
             IF coalesce(d->>'instancia', '') <> '' THEN
                 UPDATE nucleo.config SET valor = valor || jsonb_build_object(d->>'instancia', 'multi') WHERE chave = 'whatsapp_instancias';
             END IF;
+        END IF;
+        RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_painel());
+
+    ELSIF p_acao = 'admin_multi_liberar' THEN   -- poe/tira o contato da lista de quem a IA responde
+        IF coalesce(d->>'contato', '') = '' OR d->>'contato' LIKE 'teste%' THEN
+            RETURN jsonb_build_object('saida', 0, 'status', 400, 'corpo', jsonb_build_object('erro', 'Contato invalido'));
+        END IF;
+        IF coalesce((d->>'liberar')::boolean, false) THEN
+            INSERT INTO nucleo.responde_para (agente, numero, nome)
+            VALUES ('multi', nucleo.so_digitos(d->>'contato'), nullif(d->>'nome', ''))
+            ON CONFLICT (agente, numero) DO UPDATE SET nome = coalesce(EXCLUDED.nome, nucleo.responde_para.nome);
+        ELSE
+            DELETE FROM nucleo.responde_para WHERE agente = 'multi'
+               AND nucleo.variantes_numero(numero) && nucleo.variantes_numero(d->>'contato');
         END IF;
         RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_painel());
 

@@ -1053,7 +1053,8 @@
   "settings": {
     "executionOrder": "v1",
     "callerPolicy": "workflowsFromSameOwner",
-    "errorWorkflow": "errosGerais001"
+    "errorWorkflow": "errosGerais001",
+    "saveDataSuccessExecution": "none"
   },
   "pinData": {}
 }
