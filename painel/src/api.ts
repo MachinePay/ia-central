@@ -164,6 +164,32 @@ export interface DadosImap {
   imap_host: string; imap_porta?: string; smtp_host?: string; smtp_porta?: string; caldav_url?: string
 }
 
+// ------------------------------------------------------------------ atendimento multiempresa (26-multiempresa.sql)
+export type EstadoConversa = 'automatico' | 'aguardando_humano' | 'humano' | 'encerrado'
+export type TipoBase = 'produto' | 'politica' | 'faq' | 'procedimento' | 'contato'
+export interface ItemBaseEmpresa { id: number; tipo: TipoBase; titulo: string; conteudo: string; responsavel: string | null; atualizado_em: string }
+export interface EmpresaMulti {
+  id: number; slug: string; nome: string; descricao: string; assuntos: string; site: string | null
+  catalogo_url: string | null; catalogo_env: string | null; tom: string | null; responsavel: string | null
+  ativo: boolean; atualizado_em: string; base: ItemBaseEmpresa[]
+}
+export interface ConversaMulti {
+  id: number; instancia: string; contato: string; nome: string | null; estado: EstadoConversa; motivo: string | null
+  resumo: string | null; atualizado_em: string; ultima_cliente_em: string | null; empresa: string | null
+  conduzido_por: string | null; ultima_mensagem: string | null; pendentes: number
+}
+export interface Multi {
+  modo: ModoIA; janela_horas: number; dono: string; instancias: string[]
+  empresas: EmpresaMulti[]
+  atendimentos: ConversaMulti[]
+  fila: { id: number; atendimento_id: number; pergunta: string | null; texto: string | null; criado_em: string; nome: string | null; contato: string; empresa: string | null }[]
+}
+export interface ConversaMultiDetalhe {
+  atendimento: (Omit<ConversaMulti, 'conduzido_por' | 'ultima_mensagem' | 'pendentes'> & { conduzido_por_nome: string | null; versao: number }) | null
+  mensagens: { papel: 'usuario' | 'ia' | 'humano' | 'automatica'; texto: string; em: string }[]
+  respostas: { id: number; status: string; texto: string | null; motivo: string | null; em: string }[]
+}
+
 async function chamar<T>(acao: string, dados: Record<string, unknown> = {}): Promise<T> {
   const r = await fetch(`${BASE}/webhook/painel`, {
     method: 'POST',
@@ -213,6 +239,17 @@ export const api = {
   },
   perfilSalvar: (agente: AgenteId, numero: string, d: { relacao?: Relacao; genero?: string; cuidados?: string }) =>
     chamar('admin_perfil_salvar', { agente, numero, ...d }),
+  multi: () => chamar<Multi>('admin_multi'),
+  multiConfig: (d: { modo?: ModoIA; instancia?: string; dono?: string }) => chamar<Multi>('admin_multi_config', d),
+  multiConversa: (id: number) => chamar<ConversaMultiDetalhe>('admin_multi_conversa', { id }),
+  multiEstado: (id: number, acao: 'assumir' | 'devolver' | 'encerrar') => chamar<ConversaMultiDetalhe>('admin_multi_estado', { id, acao }),
+  multiEmpresa: (d: Partial<Omit<EmpresaMulti, 'base' | 'atualizado_em'>>) => chamar<Multi>('admin_multi_empresa', d),
+  multiBase: (d: { id?: number; empresa_id?: number; tipo?: TipoBase; titulo?: string; conteudo?: string; responsavel?: string; apagar?: boolean }) =>
+    chamar<Multi>('admin_multi_base', d),
+  multiAprovar: (id: number, texto: string) => chamar<{ ok: boolean; enviado: boolean; motivo?: string }>('admin_multi_aprovar', { id, texto }),
+  multiRejeitar: (id: number) => chamar<Multi>('admin_multi_rejeitar', { id }),
+  multiSimular: (mensagem: string, reiniciar = false) =>
+    chamar<{ resposta?: string | null; motivo?: string; erro?: string }>('admin_multi_simular', { mensagem, reiniciar }),
   atendimento: (agente: AgenteAtend) => chamar<AtendimentoPainel>('admin_atendimento', { agente }),
   gabriel: () => chamar<GabrielPainel>('admin_gabriel'),
   gabrielConfig: (modo: string) => chamar<GabrielPainel>('admin_gabriel_config', { modo }),

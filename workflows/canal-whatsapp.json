@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000151",
+      "id": "c0000000-0000-4000-8000-000000000152",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -21,7 +21,7 @@
       "webhookId": "9b1f6c2e-1a00-4000-8000-000000000004"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000152",
+      "id": "c0000000-0000-4000-8000-000000000153",
       "name": "Ler mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -35,7 +35,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000153",
+      "id": "c0000000-0000-4000-8000-000000000154",
       "name": "Vai ler?",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -45,7 +45,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.whatsapp_vai_ler($1, $2, $3::boolean, $4::boolean) AS ler, nucleo.msg_nova($5) AS nova",
+        "query": "SELECT nucleo.canal_vai_ler($1, $2, $3::boolean, $4::boolean) AS ler, nucleo.msg_nova($5) AS nova",
         "options": {
           "queryReplacement": "={{ [$json.instancia, $json.numero, $json.de_mim, $json.conversa_propria, $json.msg_id || ''] }}"
         }
@@ -59,7 +59,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000154",
+      "id": "c0000000-0000-4000-8000-000000000155",
       "name": "Ouvir?",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -74,7 +74,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000155",
+      "id": "c0000000-0000-4000-8000-000000000156",
       "name": "Mensagem",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -88,7 +88,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000156",
+      "id": "c0000000-0000-4000-8000-000000000157",
       "name": "Quem e",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -98,7 +98,7 @@
       ],
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT nucleo.whatsapp_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7, $8, $9) AS r,\n  CASE WHEN $10 <> '' THEN nucleo.registrar_evento(nucleo.papel_instancia($8), 'aviso',\n    'Nao consegui transcrever um audio: ' || nucleo.motivo_erro($10), $10, jsonb_build_object('numero', $1)) END AS evento",
+        "query": "SELECT nucleo.canal_entrada($1, $2, $3, $4, $5::boolean, $6::boolean, $7, $8, $9) AS r,\n  CASE WHEN $10 <> '' THEN nucleo.registrar_evento(nucleo.papel_instancia($8), 'aviso',\n    'Nao consegui transcrever um audio: ' || nucleo.motivo_erro($10), $10, jsonb_build_object('numero', $1)) END AS evento",
         "options": {
           "queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, $json.de_mim, $json.conversa_propria, $json.msg_id, $json.instancia, $json.dono, $json.falha_audio || ''] }}"
         }
@@ -111,7 +111,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000157",
+      "id": "c0000000-0000-4000-8000-000000000158",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -126,7 +126,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000158",
+      "id": "c0000000-0000-4000-8000-000000000159",
       "name": "Transcrevendo",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -150,7 +150,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000159",
+      "id": "c0000000-0000-4000-8000-000000000160",
       "name": "Dados do audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,7 +164,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000160",
+      "id": "c0000000-0000-4000-8000-000000000161",
       "name": "Audio em arquivo",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.2,
@@ -184,7 +184,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000161",
+      "id": "c0000000-0000-4000-8000-000000000162",
       "name": "Transcrever (Groq)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -234,7 +234,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000162",
+      "id": "c0000000-0000-4000-8000-000000000163",
       "name": "Audio de novo",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -248,7 +248,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000163",
+      "id": "c0000000-0000-4000-8000-000000000164",
       "name": "Audio de novo (reserva)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -262,7 +262,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000164",
+      "id": "c0000000-0000-4000-8000-000000000165",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -307,7 +307,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000165",
+      "id": "c0000000-0000-4000-8000-000000000166",
       "name": "Transcrever (reserva)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -352,7 +352,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000166",
+      "id": "c0000000-0000-4000-8000-000000000167",
       "name": "Transcrito",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -377,7 +377,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000167",
+      "id": "c0000000-0000-4000-8000-000000000168",
       "name": "Preparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -391,7 +391,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000168",
+      "id": "c0000000-0000-4000-8000-000000000169",
       "name": "Guardar no lote",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -414,7 +414,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000169",
+      "id": "c0000000-0000-4000-8000-000000000170",
       "name": "Esperar a pessoa terminar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -428,7 +428,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000170",
+      "id": "c0000000-0000-4000-8000-000000000171",
       "name": "Fechar lote",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -452,7 +452,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000171",
+      "id": "c0000000-0000-4000-8000-000000000172",
       "name": "Lote pronto",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -466,7 +466,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000172",
+      "id": "c0000000-0000-4000-8000-000000000173",
       "name": "Quem responde",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -476,12 +476,99 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.saida === 2 ? 1 : 0 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.saida === 3 ? 2 : ($json.saida === 2 ? 1 : 0) }}"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000173",
+      "id": "c0000000-0000-4000-8000-000000000174",
+      "name": "Multiempresa",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1860,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "atendMulti00001",
+          "cachedResultName": "Atendimento multiempresa"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "atendimento_id": "={{ String($('Lote pronto').first().json.atendimento_id) }}",
+            "nome": "={{ $('Lote pronto').first().json.nome }}",
+            "chatInput": "={{ $('Lote pronto').first().json.chatInput }}",
+            "sessionId": "={{ $('Lote pronto').first().json.sessionId }}",
+            "numero": "={{ $('Lote pronto').first().json.numero || '' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "atendimento_id",
+              "displayName": "atendimento_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nome",
+              "displayName": "nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "chatInput",
+              "displayName": "chatInput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "numero",
+              "displayName": "numero",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000175",
       "name": "Perfil do contato",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -506,7 +593,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000174",
+      "id": "c0000000-0000-4000-8000-000000000176",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -604,7 +691,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000175",
+      "id": "c0000000-0000-4000-8000-000000000177",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -627,7 +714,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000176",
+      "id": "c0000000-0000-4000-8000-000000000178",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -641,7 +728,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000177",
+      "id": "c0000000-0000-4000-8000-000000000179",
       "name": "Guardar ids",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -665,7 +752,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000178",
+      "id": "c0000000-0000-4000-8000-000000000180",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -763,7 +850,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000179",
+      "id": "c0000000-0000-4000-8000-000000000181",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -777,7 +864,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000180",
+      "id": "c0000000-0000-4000-8000-000000000182",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -1033,6 +1120,13 @@
         [
           {
             "node": "Perfil do contato",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Multiempresa",
             "type": "main",
             "index": 0
           }

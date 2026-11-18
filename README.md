@@ -155,6 +155,26 @@ Cliente ──► ATENDENTE (recepção) ──┬── Suporte    → base de 
   clientes (leads) e quais serviços os clientes podem saber se estão fora.
 - Testes: `testar_atendente.py`, `testar_observacao.py` (João) e `testar_leo.py` (Leo) — números que não existem no WhatsApp.
 
+## Atendimento multiempresa (Gira Kids, MachinePay, Self Machine...)
+
+Um número atende várias empresas. A IA entende o assunto pelo contexto, marca a empresa da conversa,
+consulta **só** as informações aprovadas daquela empresa (ou o catálogo da loja, na hora) e responde curto.
+Quando precisa, passa para uma pessoa. Tudo em `db/init/26-multiempresa.sql` + workflows
+`atendimento-multi` e `ferramenta-catalogo`. Painel → **Multiempresa**.
+
+- **Chave geral:** desligado · só observando · com aprovação · automático (começa desligado).
+- **Número que atende:** a instância escolhida ganha o papel `multi` em `whatsapp_instancias`
+  (a conversa "Você" continua com o Leo).
+- **Estado de cada conversa:** `automatico` → `aguardando_humano` (a IA encaminhou) → `humano` (alguém assumiu) → `encerrado`.
+  No painel: assumir, devolver para a IA, encerrar.
+- **Responder pelo celular assume a conversa**: a IA para nela até alguém devolver.
+- **Conferência antes de cada envio (no banco):** a conversa ainda está com a IA? o estado mudou durante a geração?
+  o cliente mandou algo mais novo? alguém da equipe respondeu? ainda está na janela de 24h? Se qualquer resposta for não, nada sai.
+- **Empresas e informações aprovadas:** cada informação tem tipo, responsável e data. Sem informação, a IA não afirma nada e oferece a equipe.
+- **Catálogo da loja:** API somente leitura cadastrada por empresa; o token fica numa variável de ambiente do n8n
+  (só o nome dela vai no painel). Especificação para a Gira Kids: [docs/api-catalogo-girakids.md](docs/api-catalogo-girakids.md).
+- **Testar como cliente** (painel) passa pela mesma entrada, estado e conferência, sem enviar nada.
+
 ## E-mail e agenda (cada IA)
 
 No painel, em cada IA: **Configurar → 4 · E-mail e agenda**. Cada IA pode ter várias contas:

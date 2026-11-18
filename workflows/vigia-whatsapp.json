@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000206",
+      "id": "c0000000-0000-4000-8000-000000000208",
       "name": "A cada 15 minutos",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000207",
+      "id": "c0000000-0000-4000-8000-000000000209",
       "name": "Quem esta mudo",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -45,7 +45,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000208",
+      "id": "c0000000-0000-4000-8000-000000000210",
       "name": "Reiniciar conexao",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -59,7 +59,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000209",
+      "id": "c0000000-0000-4000-8000-000000000211",
       "name": "Registrar",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -82,7 +82,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000210",
+      "id": "c0000000-0000-4000-8000-000000000212",
       "name": "Avisar o dono",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,

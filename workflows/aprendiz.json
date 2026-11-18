@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000030",
+      "id": "c0000000-0000-4000-8000-000000000031",
       "name": "A cada 15 minutos",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000031",
+      "id": "c0000000-0000-4000-8000-000000000032",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000032",
+      "id": "c0000000-0000-4000-8000-000000000033",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -56,7 +56,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000033",
+      "id": "c0000000-0000-4000-8000-000000000034",
       "name": "Base atual",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -77,7 +77,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000034",
+      "id": "c0000000-0000-4000-8000-000000000035",
       "name": "Conversas novas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -99,7 +99,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000035",
+      "id": "c0000000-0000-4000-8000-000000000036",
       "name": "Extrair conhecimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -113,7 +113,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000036",
+      "id": "c0000000-0000-4000-8000-000000000037",
       "name": "Salvar sugestoes",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -136,7 +136,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000037",
+      "id": "c0000000-0000-4000-8000-000000000038",
       "name": "Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -150,7 +150,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000038",
+      "id": "c0000000-0000-4000-8000-000000000039",
       "name": "Registrar rodada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

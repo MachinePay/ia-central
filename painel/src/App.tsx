@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogOut, MessageSquare, LayoutGrid, Gauge, Server, Settings, DollarSign } from 'lucide-react'
+import { LogOut, MessageSquare, LayoutGrid, Gauge, Server, Settings, DollarSign, Building2 } from 'lucide-react'
 import { api, ErroApi, token, type AgenteId, type Resumo, type Saude, type Usuario } from './api'
 import { Login } from './components/Login'
 import { Orbe, type EstadoOrbe } from './components/Orbe'
@@ -8,6 +8,7 @@ import { PainelControle, PainelPessoal, PainelSistemas } from './components/Pain
 import { Inicio, PaginaAgente, CartaoEvento, type Aba, type StatusWa } from './components/Agentes'
 import { AGENTES, ORDEM, Avatar, Hud, corDe, estadoDe } from './components/ui'
 import { Gastos } from './components/Gastos'
+import { Multiempresa } from './components/Multiempresa'
 
 function Fundo() {
   return <div className="fundo" aria-hidden="true"><div className="estrelas" /><div className="grade" /><div className="scan" /></div>
@@ -19,7 +20,7 @@ function useLargura() {
   return l
 }
 
-type Pagina = 'inicio' | AgenteId | 'sistemas' | 'config' | 'gastos'
+type Pagina = 'inicio' | AgenteId | 'sistemas' | 'config' | 'gastos' | 'multi'
 const lerPagina = (): Pagina => { try { return (localStorage.getItem('nucleo.pagina') as Pagina) || 'inicio' } catch { return 'inicio' } }
 
 export default function App() {
@@ -152,6 +153,8 @@ export default function App() {
                 </button>
               )
             })}
+            <div className="menu-secao">Atendimento</div>
+            <button className={`menu-item ${pagina === 'multi' ? 'ativo' : ''}`} onClick={() => setPagina('multi')}><Building2 size={18} /><span>Multiempresa</span></button>
             <div className="menu-secao">Geral</div>
             <button className={`menu-item ${pagina === 'sistemas' ? 'ativo' : ''}`} onClick={() => setPagina('sistemas')}>
               <Server size={18} /><span>Sistemas</span>{!!saude?.sistemas_fora && <em className="menu-badge erro">{saude.sistemas_fora}</em>}
@@ -185,6 +188,7 @@ export default function App() {
             </div>
           )}
           {pagina === 'gastos' && <Gastos />}
+          {pagina === 'multi' && <Multiempresa />}
           {pagina === 'config' && resumo && (
             <div className="pagina">
               <h1 className="titulo-pagina"><Settings size={22} /> Usuários e memória</h1>
@@ -206,6 +210,7 @@ export default function App() {
               </button>
             )
           })}
+          <button className={pagina === 'multi' ? 'ativo' : ''} onClick={() => setPagina('multi')} aria-label="Multiempresa"><Building2 size={18} /><span>Atender</span></button>
           <button className={pagina === 'sistemas' || pagina === 'config' || pagina === 'gastos' ? 'ativo' : ''} onClick={() => setPagina(pagina === 'sistemas' ? 'gastos' : pagina === 'gastos' ? 'config' : 'sistemas')} aria-label="Sistemas e usuários"><Server size={18} /><span>Mais</span></button>
         </nav>
       </div>

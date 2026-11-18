@@ -265,6 +265,11 @@ BEGIN
         RETURN nucleo.api_correio(u.id, p_acao, d);
     END IF;
 
+    -- ---------------------------------------------------------------- ATENDIMENTO MULTIEMPRESA (26-multiempresa.sql)
+    IF p_acao LIKE 'admin_multi%' THEN
+        RETURN nucleo.api_multi(u.id, p_acao, d);
+    END IF;
+
     -- ---------------------------------------------------------------- ATENDIMENTO (admin)
     IF p_acao = 'admin_atendimento' THEN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_painel((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END)));

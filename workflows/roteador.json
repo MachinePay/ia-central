@@ -39,6 +39,10 @@
             {
               "name": "numero",
               "type": "string"
+            },
+            {
+              "name": "atendimento_id",
+              "type": "string"
             }
           ]
         }
@@ -55,8 +59,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 3,
-        "output": "={{ $json.agente === 'suporte' ? 1 : (($json.agente === 'gabriel' || $json.agente === 'leo') ? 2 : 0) }}"
+        "numberOutputs": 4,
+        "output": "={{ $json.agente === 'multi' ? 3 : ($json.agente === 'suporte' ? 1 : (($json.agente === 'gabriel' || $json.agente === 'leo') ? 2 : 0)) }}"
       }
     },
     {
@@ -330,6 +334,93 @@
         "options": {}
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000030",
+      "name": "Multiempresa",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        460,
+        320
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "atendMulti00001",
+          "cachedResultName": "Atendimento multiempresa"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "atendimento_id": "={{ $('Quando chamado').first().json.atendimento_id }}",
+            "nome": "={{ $('Quando chamado').first().json.nome }}",
+            "chatInput": "={{ $('Quando chamado').first().json.chatInput }}",
+            "sessionId": "={{ $('Quando chamado').first().json.sessionId }}",
+            "numero": "={{ $('Quando chamado').first().json.numero }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "atendimento_id",
+              "displayName": "atendimento_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "nome",
+              "displayName": "nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "chatInput",
+              "displayName": "chatInput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "numero",
+              "displayName": "numero",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -363,6 +454,13 @@
         [
           {
             "node": "Gabriel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Multiempresa",
             "type": "main",
             "index": 0
           }
