@@ -83,7 +83,7 @@ export interface SaudeAgente {
   lidas_24h: number; respostas_24h: number; pendentes: number; sugestoes: number; aprendidos: number; aprendeu_24h?: number
   ultima_atividade: string | null; erros_24h: number; ultimo_erro: Evento | null
 }
-export interface Saude { agentes: SaudeAgente[]; outros_erros: Evento[]; sistemas_fora: number; chamados_abertos: number }
+export interface Saude { agentes: SaudeAgente[]; outros_erros: Evento[]; sistemas_fora: number; chamados_abertos: number; multi_atencao?: number }
 export type Relacao = 'novo' | 'conhecido' | 'cliente' | 'cliente_antigo' | 'amigo' | 'familia' | 'namorada_conjuge' | 'trabalho' | 'outro'
 export interface PerfilContato {
   numero: string; nome: string | null; relacao: Relacao; genero: 'homem' | 'mulher' | 'nao_sei'
@@ -186,6 +186,7 @@ export type AlcanceMulti = 'selecionados' | 'todos'
 export interface Multi {
   modo: ModoIA; janela_horas: number; dono: string; instancias: string[]
   alcance: AlcanceMulti; liberados: number
+  aprendidos_24h?: number; respostas_ia_24h?: number
   empresas: EmpresaMulti[]
   atendimentos: ConversaMulti[]
   fila: { id: number; atendimento_id: number; pergunta: string | null; texto: string | null; criado_em: string; nome: string | null; contato: string; empresa: string | null }[]
@@ -256,6 +257,7 @@ export const api = {
   multiBase: (d: { id?: number; empresa_id?: number; tipo?: TipoBase; titulo?: string; conteudo?: string; responsavel?: string; apagar?: boolean }) =>
     chamar<Multi>('admin_multi_base', d),
   multiAprovar: (id: number, texto: string) => chamar<{ ok: boolean; enviado: boolean; motivo?: string }>('admin_multi_aprovar', { id, texto }),
+  multiResponder: (id: number, texto: string) => chamar<{ ok: boolean; enviado: boolean; motivo?: string }>('admin_multi_responder', { id, texto }),
   multiRejeitar: (id: number) => chamar<Multi>('admin_multi_rejeitar', { id }),
   multiSimular: (mensagem: string, reiniciar = false) =>
     chamar<{ resposta?: string | null; motivo?: string; erro?: string }>('admin_multi_simular', { mensagem, reiniciar }),

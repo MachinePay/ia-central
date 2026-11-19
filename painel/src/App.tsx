@@ -154,7 +154,7 @@ export default function App() {
               )
             })}
             <div className="menu-secao">Atendimento</div>
-            <button className={`menu-item ${pagina === 'multi' ? 'ativo' : ''}`} onClick={() => setPagina('multi')}><Building2 size={18} /><span>Multiempresa</span></button>
+            <button className={`menu-item ${pagina === 'multi' ? 'ativo' : ''}`} onClick={() => setPagina('multi')}><Building2 size={18} /><span>Multiempresa</span>{!!saude?.multi_atencao && <em className="menu-badge">{saude.multi_atencao}</em>}</button>
             <div className="menu-secao">Geral</div>
             <button className={`menu-item ${pagina === 'sistemas' ? 'ativo' : ''}`} onClick={() => setPagina('sistemas')}>
               <Server size={18} /><span>Sistemas</span>{!!saude?.sistemas_fora && <em className="menu-badge erro">{saude.sistemas_fora}</em>}
@@ -210,7 +210,7 @@ export default function App() {
               </button>
             )
           })}
-          <button className={pagina === 'multi' ? 'ativo' : ''} onClick={() => setPagina('multi')} aria-label="Multiempresa"><Building2 size={18} /><span>Atender</span></button>
+          <button className={pagina === 'multi' ? 'ativo' : ''} onClick={() => setPagina('multi')} aria-label="Multiempresa"><Building2 size={18} /><span>Atender</span>{!!saude?.multi_atencao && <i className="menu-luz erro" />}</button>
           <button className={pagina === 'sistemas' || pagina === 'config' || pagina === 'gastos' ? 'ativo' : ''} onClick={() => setPagina(pagina === 'sistemas' ? 'gastos' : pagina === 'gastos' ? 'config' : 'sistemas')} aria-label="Sistemas e usuários"><Server size={18} /><span>Mais</span></button>
         </nav>
       </div>

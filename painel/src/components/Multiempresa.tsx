@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Bot, BotOff, Building2, Check, ChevronDown, Hand, MessagesSquare, Plus, RefreshCw, RotateCcw, Save, Send, Trash2, X, XCircle } from 'lucide-react'
+import { Bot, BotOff, Brain, Building2, Check, ChevronDown, Hand, MessagesSquare, Plus, RefreshCw, RotateCcw, Save, Search, Send, Trash2, X, XCircle } from 'lucide-react'
 import { api, type AlcanceMulti, type ConversaMulti, type ConversaMultiDetalhe, type EmpresaMulti, type EstadoConversa, type ItemBaseEmpresa, type ModoIA, type Multi, type TipoBase } from '../api'
-import { Hud, MODO, fmt, haQuanto } from './ui'
+import { Hud, MODO, Numero, fmt, haQuanto } from './ui'
 import { avisar, confirmar } from '../alerta'
 
 const ESTADO: Record<EstadoConversa, { rotulo: string; classe: string }> = {
@@ -37,6 +37,13 @@ export function Multiempresa() {
       {!m && !erro && <div className="vazio">Carregando…</div>}
       {m && <>
         <Controle m={m} aoMudar={setM} />
+        <div className="numeros" style={{ margin: '18px 0' }}>
+          <Numero valor={m.respostas_ia_24h ?? 0} rotulo="respostas da IA (24h)" />
+          <Numero valor={m.atendimentos.filter(a => a.estado === 'aguardando_humano').length + m.fila.length} rotulo="precisam de você"
+            destaque={m.atendimentos.some(a => a.estado === 'aguardando_humano') || m.fila.length ? 'alerta' : undefined} />
+          <Numero valor={m.atendimentos.filter(a => a.sem_resposta).length} rotulo="sem resposta da IA" />
+          <Numero valor={m.aprendidos_24h ?? 0} rotulo="aprendidos (24h)" />
+        </div>
         <div className="duas-colunas">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             {m.fila.length > 0 && (
@@ -44,19 +51,16 @@ export function Multiempresa() {
                 {m.fila.map(f => <ItemAprovar key={f.id} f={f} aoMudar={carregar} />)}
               </Hud>
             )}
-            <Hud titulo="Conversas" icone={<MessagesSquare size={14} />}
-              extra={<button className="botao-mini" onClick={carregar} aria-label="Atualizar"><RefreshCw size={12} /></button>}>
-              {m.atendimentos.length === 0 && <div className="vazio">Nenhuma conversa ainda.</div>}
-              {m.atendimentos.map(a => <ItemConversa key={a.id} a={a} aoMudar={carregar} />)}
-            </Hud>
+            <ListaConversas m={m} carregar={carregar} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             <SimuladorMulti modo={m.modo} aoMudar={carregar} />
-            <Hud titulo="Empresas e informações aprovadas" icone={<Building2 size={14} />}>
+            <Hud titulo="Empresas e informações aprovadas" icone={<Building2 size={14} />} extra={<AprenderAgora aoMudar={carregar} />}>
               <div className="etiqueta" style={{ marginBottom: 8 }}>
-                A IA só afirma o que está aqui (ou no catálogo da loja). Cada informação guarda quem é o responsável e quando foi atualizada.
+                A IA só afirma o que está aqui (ou no catálogo da loja). Ela também aprende sozinha com o que a equipe responde
+                (marcado com <Brain size={11} style={{ verticalAlign: -1 }} /> aprendido): confira, corrija ou apague.
               </div>
-              {m.empresas.map(e => <CartaoEmpresa key={e.id} e={e} aoMudar={setM} />)}
+              {m.empresas.map(e => <CartaoEmpresa key={e.id} e={e} aoMudar={setM} dono={m.dono} />)}
               <NovaEmpresa aoMudar={setM} />
             </Hud>
           </div>
@@ -145,6 +149,59 @@ function Controle({ m, aoMudar }: { m: Multi; aoMudar: (m: Multi) => void }) {
   )
 }
 
+// ------------------------------------------------------------------ lista de conversas com filtro e busca
+type Filtro = 'todas' | 'voce' | 'ia' | 'pessoa' | 'sem_resposta'
+const FILTROS: { id: Filtro; nome: string; ok: (a: ConversaMulti) => boolean }[] = [
+  { id: 'todas', nome: 'Todas', ok: () => true },
+  { id: 'voce', nome: 'Precisam de você', ok: a => a.estado === 'aguardando_humano' || a.pendentes > 0 },
+  { id: 'ia', nome: 'Com a IA', ok: a => a.estado === 'automatico' },
+  { id: 'pessoa', nome: 'Com uma pessoa', ok: a => a.estado === 'humano' },
+  { id: 'sem_resposta', nome: 'IA não respondeu', ok: a => !!a.sem_resposta },
+]
+const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+function ListaConversas({ m, carregar }: { m: Multi; carregar: () => void }) {
+  const [filtro, setFiltro] = useState<Filtro>('todas')
+  const [busca, setBusca] = useState('')
+  const f = FILTROS.find(x => x.id === filtro)!
+  const q = semAcento(busca.trim())
+  const lista = m.atendimentos.filter(a => f.ok(a) && (!q || semAcento(`${a.nome ?? ''} ${a.contato} ${a.empresa ?? ''} ${a.ultima_mensagem ?? ''}`).includes(q)))
+  return (
+    <Hud titulo="Conversas" icone={<MessagesSquare size={14} />}
+      extra={<button className="botao-mini" onClick={carregar} aria-label="Atualizar"><RefreshCw size={12} /></button>}>
+      <div className="modos" style={{ marginBottom: 8 }}>
+        {FILTROS.map(x => {
+          const n = m.atendimentos.filter(x.ok).length
+          return <button key={x.id} className={filtro === x.id ? 'ativo' : ''} onClick={() => setFiltro(x.id)}>{x.nome}{x.id !== 'todas' && n ? ` (${n})` : ''}</button>
+        })}
+      </div>
+      <label className="busca" style={{ margin: '0 0 8px' }}>
+        <Search size={14} />
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar nome, número, empresa ou mensagem" aria-label="Buscar conversa" />
+        {busca && <button type="button" className="botao-mini" onClick={() => setBusca('')} aria-label="Limpar busca"><X size={12} /></button>}
+      </label>
+      {m.atendimentos.length === 0 && <div className="vazio">Nenhuma conversa ainda.</div>}
+      {m.atendimentos.length > 0 && lista.length === 0 && <div className="vazio">Nenhuma conversa neste filtro.</div>}
+      {lista.map(a => <ItemConversa key={a.id} a={a} aoMudar={carregar} />)}
+    </Hud>
+  )
+}
+
+function AprenderAgora({ aoMudar }: { aoMudar: () => void }) {
+  const [rodando, setRodando] = useState(false)
+  return (
+    <button className="botao-mini" disabled={rodando} title="Lê agora as respostas novas da equipe e aprende (normalmente roda de hora em hora)"
+      onClick={async () => {
+        setRodando(true)
+        try {
+          const r = await api.aprenderAgora()
+          avisar(r.sugestoes ? `Aprendeu ${r.sugestoes} coisa${r.sugestoes > 1 ? 's' : ''}` : 'Nada novo para aprender agora')
+          aoMudar()
+        } catch (e) { avisar('Não rodou', 'error', erroDe(e)) } finally { setRodando(false) }
+      }}><Brain size={12} className={rodando ? 'girando' : ''} /> {rodando ? 'aprendendo…' : 'aprender agora'}</button>
+  )
+}
+
 // ------------------------------------------------------------------ conversa (assumir / devolver / encerrar)
 function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void }) {
   const [aberto, setAberto] = useState(false)
@@ -202,6 +259,7 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
               <span className="via">{PAPEL[x.papel]} · {fmt(x.em)}</span>{x.texto}
             </div>
           ))}
+          {det && <ResponderCliente id={a.id} aoEnviar={async () => { setDet(await api.multiConversa(a.id)); aoMudar() }} />}
           {det && det.respostas.some(r => r.status === 'descartada' || r.status === 'falhou') && (
             <details style={{ marginTop: 6 }}>
               <summary className="etiqueta">Respostas que não saíram</summary>
@@ -213,6 +271,31 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
         </div>
       )}
     </div>
+  )
+}
+
+// a equipe responde o cliente pelo painel: assume a conversa e a IA aprende com a resposta
+function ResponderCliente({ id, aoEnviar }: { id: number; aoEnviar: () => Promise<void> }) {
+  const [texto, setTexto] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  async function enviar(ev: FormEvent) {
+    ev.preventDefault()
+    if (!texto.trim()) return
+    setOcupado(true)
+    try {
+      const r = await api.multiResponder(id, texto.trim())
+      if (r.enviado) { avisar('Enviado ✓'); setTexto('') }
+      else if (r.motivo === 'conversa de teste') { avisar('Registrado (conversa de teste, nada sai)'); setTexto('') }
+      else avisar('Não enviado', 'error', r.motivo || 'Falhou')
+      await aoEnviar()
+    } catch (e) { avisar('Não enviado', 'error', erroDe(e)) } finally { setOcupado(false) }
+  }
+  return (
+    <form onSubmit={enviar} className="campo" style={{ display: 'flex', gap: 6, margin: '8px 0 0' }}>
+      <input style={{ flex: 1, minWidth: 0 }} value={texto} onChange={e => setTexto(e.target.value)}
+        placeholder="Responder o cliente (você assume a conversa)" aria-label="Responder o cliente" disabled={ocupado} />
+      <button className="botao" style={{ width: 'auto' }} disabled={ocupado || !texto.trim()} aria-label="Enviar"><Send size={14} /></button>
+    </form>
   )
 }
 
@@ -285,8 +368,10 @@ function SimuladorMulti({ modo, aoMudar }: { modo: ModoIA; aoMudar: () => void }
 }
 
 // ------------------------------------------------------------------ empresas
-function CartaoEmpresa({ e, aoMudar }: { e: EmpresaMulti; aoMudar: (m: Multi) => void }) {
+function CartaoEmpresa({ e, aoMudar, dono }: { e: EmpresaMulti; aoMudar: (m: Multi) => void; dono: string }) {
   const [aberto, setAberto] = useState(false)
+  const [buscaBase, setBuscaBase] = useState('')
+  const aprendidos = e.base.filter(b => (b.responsavel ?? '').startsWith('Aprendiz')).length
   const [f, setF] = useState({ nome: e.nome, descricao: e.descricao, assuntos: e.assuntos, site: e.site ?? '', tom: e.tom ?? '',
     responsavel: e.responsavel ?? '', catalogo_url: e.catalogo_url ?? '', catalogo_env: e.catalogo_env ?? '' })
   const [ocupado, setOcupado] = useState(false)
@@ -299,7 +384,7 @@ function CartaoEmpresa({ e, aoMudar }: { e: EmpresaMulti; aoMudar: (m: Multi) =>
   return (
     <div className="fila-item" style={{ opacity: e.ativo ? 1 : 0.6 }}>
       <button className="botao-mini" style={{ width: '100%', justifyContent: 'space-between', display: 'flex' }} onClick={() => setAberto(a => !a)}>
-        <span><b>{e.nome}</b> · {e.base.length} informações{e.catalogo_url ? ' · catálogo conectado' : ''}{!e.ativo ? ' · desativada' : ''}{revisar ? ' · revisar descrição' : ''}</span>
+        <span><b>{e.nome}</b> · {e.base.length} informações{aprendidos ? ` (${aprendidos} aprendidas pela IA)` : ''}{e.catalogo_url ? ' · catálogo conectado' : ''}{!e.ativo ? ' · desativada' : ''}{revisar ? ' · revisar descrição' : ''}</span>
         <ChevronDown size={12} style={{ transform: aberto ? 'rotate(180deg)' : undefined }} />
       </button>
       {aberto && (
@@ -325,7 +410,13 @@ function CartaoEmpresa({ e, aoMudar }: { e: EmpresaMulti; aoMudar: (m: Multi) =>
           </div>
           <div className="menu-secao" style={{ marginTop: 14 }}>Informações aprovadas</div>
           {e.base.length === 0 && <div className="vazio">Nada ainda. Sem informação aqui, a IA não afirma nada desta empresa e oferece passar para a equipe.</div>}
-          {e.base.map(b => <ItemBase key={b.id} b={b} aoMudar={aoMudar} />)}
+          {e.base.length > 6 && (
+            <label className="busca" style={{ margin: '0 0 6px' }}>
+              <Search size={14} /><input value={buscaBase} onChange={ev => setBuscaBase(ev.target.value)} placeholder="Buscar nesta empresa" aria-label="Buscar informação" />
+            </label>
+          )}
+          {e.base.filter(b => !buscaBase.trim() || semAcento(`${b.titulo} ${b.conteudo}`).includes(semAcento(buscaBase.trim())))
+            .map(b => <ItemBase key={b.id} b={b} aoMudar={aoMudar} dono={e.responsavel || dono} />)}
           <NovoItemBase empresaId={e.id} responsavel={e.responsavel ?? ''} aoMudar={aoMudar} />
         </div>
       )}
@@ -333,13 +424,18 @@ function CartaoEmpresa({ e, aoMudar }: { e: EmpresaMulti; aoMudar: (m: Multi) =>
   )
 }
 
-function ItemBase({ b, aoMudar }: { b: ItemBaseEmpresa; aoMudar: (m: Multi) => void }) {
+function ItemBase({ b, aoMudar, dono }: { b: ItemBaseEmpresa; aoMudar: (m: Multi) => void; dono: string }) {
   const [editando, setEditando] = useState(false)
+  const daIa = (b.responsavel ?? '').startsWith('Aprendiz')
   const [f, setF] = useState({ tipo: b.tipo, titulo: b.titulo, conteudo: b.conteudo, responsavel: b.responsavel ?? '' })
   if (!editando) return (
     <div className="item-base" style={{ padding: '6px 0', borderBottom: '1px solid var(--linha)' }}>
       <div className="item-titulo" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span className="origem">{TIPOS.find(t => t.id === b.tipo)?.nome}</span><span style={{ flex: 1 }}>{b.titulo}</span>
+        <span className="origem">{TIPOS.find(t => t.id === b.tipo)?.nome}</span>
+        {daIa && <span className="origem" title="A IA aprendeu isto com uma resposta da equipe"><Brain size={11} style={{ verticalAlign: -1 }} /> aprendido</span>}
+        <span style={{ flex: 1 }}>{b.titulo}</span>
+        {daIa && <button className="botao-mini" title="Está certo: passa a ser seu (o aprendiz não muda mais)"
+          onClick={async () => { aoMudar(await api.multiBase({ id: b.id, responsavel: dono })); avisar('Confirmado') }}><Check size={12} /> confirmar</button>}
         <button className="botao-mini" onClick={() => setEditando(true)}>editar</button>
         <button className="botao-mini" aria-label="Apagar" onClick={async () => {
           if (await confirmar({ titulo: 'Apagar esta informação?', texto: 'A IA deixa de usar isto nas respostas.', botao: 'Apagar', perigo: true }))

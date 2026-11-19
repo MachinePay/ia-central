@@ -202,7 +202,9 @@ BEGIN
     END IF;
 
     IF p_de_mim AND EXISTS (SELECT 1 FROM nucleo.conversas
-         WHERE agente = 'multi' AND instancia = p_instancia AND contato = num AND papel = 'ia'
+         WHERE agente = 'multi' AND instancia = p_instancia AND contato = num
+           -- 'humano' recente = enviada pelo painel ("responder"): o eco do WhatsApp nao duplica
+           AND (papel = 'ia' OR (papel = 'humano' AND criado_em > now() - interval '2 minutes'))
            AND criado_em > now() - interval '10 minutes'
            AND regexp_replace(mensagem, '[*_~\s⁣]', '', 'g') = regexp_replace(msg, '[*_~\s⁣]', '', 'g')) THEN
         RETURN jsonb_build_object('saida', 0, 'motivo', 'mensagem da propria IA');
@@ -468,6 +470,10 @@ LANGUAGE sql STABLE AS $$
         'dono', nucleo.cfg('multi_dono_nome', 'Leonardo'),
         'alcance', nucleo.cfg('multi_alcance', 'selecionados'),
         'liberados', (SELECT count(*) FROM nucleo.responde_para WHERE agente = 'multi'),
+        'aprendidos_24h', (SELECT count(*) FROM nucleo.empresa_base WHERE ativo AND responsavel LIKE 'Aprendiz%'
+                              AND atualizado_em > now() - interval '24 hours'),
+        'respostas_ia_24h', (SELECT count(*) FROM nucleo.atendimento_respostas WHERE status = 'enviada'
+                                AND decidido_em > now() - interval '24 hours'),
         'instancias', coalesce((SELECT jsonb_agg(k ORDER BY k) FROM nucleo.config, jsonb_each_text(valor) e(k, v)
                                  WHERE chave = 'whatsapp_instancias' AND v = 'multi'), '[]'),
         'empresas', coalesce((SELECT jsonb_agg(jsonb_build_object(
@@ -611,6 +617,25 @@ BEGIN
              WHERE id = (d->>'id')::int;
         END IF;
         RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_painel());
+
+    ELSIF p_acao = 'admin_multi_responder' THEN
+        -- a equipe responde pelo painel: vale como resposta pelo celular (assume a conversa e ensina o aprendiz)
+        SELECT * INTO a FROM nucleo.atendimentos WHERE id = (d->>'id')::int;
+        IF NOT FOUND OR coalesce(trim(d->>'texto'), '') = '' THEN
+            RETURN jsonb_build_object('saida', 0, 'status', 400, 'corpo', jsonb_build_object('erro', 'Escreva a mensagem'));
+        END IF;
+        INSERT INTO nucleo.conversas (canal, contato, agente, papel, mensagem, cliente_id, instancia)
+        VALUES ('whatsapp', a.contato, 'multi', 'humano', trim(d->>'texto'), a.cliente_id, a.instancia);
+        IF a.estado IN ('automatico', 'aguardando_humano') THEN
+            PERFORM nucleo.multi_mudar_estado(a.id, 'humano', p_usuario, 'respondeu pelo painel');
+        END IF;
+        UPDATE nucleo.atendimentos SET sem_resposta = NULL, atualizado_em = now() WHERE id = a.id;
+        IF a.instancia = 'simulador' OR a.contato LIKE 'teste%' THEN
+            RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', jsonb_build_object('ok', true, 'enviado', false, 'motivo', 'conversa de teste'));
+        END IF;
+        -- 5 = o n8n envia pelo numero do atendimento (o id enviado e guardado: o eco do WhatsApp nao duplica)
+        RETURN jsonb_build_object('saida', 5, 'status', 200, 'corpo', jsonb_build_object(
+            'numero', a.contato, 'texto', trim(d->>'texto'), 'instancia', a.instancia, 'so_instancia', true));
 
     ELSIF p_acao = 'admin_multi_rejeitar' THEN
         UPDATE nucleo.atendimento_respostas SET status = 'descartada', motivo = 'rejeitada no painel', revisado_por = p_usuario, decidido_em = now()

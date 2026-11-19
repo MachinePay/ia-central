@@ -275,7 +275,11 @@ BEGIN
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_painel((CASE WHEN d->>'agente' IN ('suporte','gabriel') THEN d->>'agente' ELSE 'joao' END)));
 
     ELSIF p_acao = 'admin_saude' THEN
-        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_saude(u.id));
+        RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.painel_saude(u.id)
+            -- multiempresa: conversas esperando uma pessoa + respostas esperando aprovacao (contador do menu)
+            || jsonb_build_object('multi_atencao', CASE WHEN to_regclass('nucleo.atendimentos') IS NULL THEN 0 ELSE
+                   (SELECT count(*) FROM nucleo.atendimentos WHERE estado = 'aguardando_humano' AND instancia <> 'simulador')
+                 + (SELECT count(*) FROM nucleo.atendimento_respostas WHERE status = 'pendente') END));
 
     ELSIF p_acao = 'admin_agente_conversa' THEN   -- 27-feed-leve.sql
         RETURN jsonb_build_object('saida',0,'status',200,'corpo', nucleo.agente_conversa(
