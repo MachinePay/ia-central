@@ -111,6 +111,8 @@ CREATE TABLE IF NOT EXISTS nucleo.atendimentos (
 -- quando entrou no estado atual (para devolver a IA depois de X horas sem a equipe escrever)
 ALTER TABLE nucleo.atendimentos ADD COLUMN IF NOT EXISTS estado_desde timestamptz;
 UPDATE nucleo.atendimentos SET estado_desde = atualizado_em WHERE estado_desde IS NULL;
+-- por que a IA NAO respondeu a ultima mensagem do cliente (vazio = respondeu/foi gerar). Aparece no painel.
+ALTER TABLE nucleo.atendimentos ADD COLUMN IF NOT EXISTS sem_resposta text;
 
 CREATE TABLE IF NOT EXISTS nucleo.atendimento_respostas (
     id             bigserial PRIMARY KEY,
@@ -260,10 +262,16 @@ CREATE OR REPLACE FUNCTION nucleo.canal_entrada(
     p_numero text, p_nome text, p_texto text, p_tipo text,
     p_de_mim boolean, p_conversa_propria boolean, p_msg_id text, p_instancia text, p_dono text)
 RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE r jsonb;
 BEGIN
     IF nucleo.papel_instancia(p_instancia) = 'multi' AND NOT coalesce(p_conversa_propria, false) THEN
-        RETURN nucleo.multi_entrada(p_numero, p_nome, p_texto, p_tipo, p_de_mim, p_msg_id, p_instancia)
-               || jsonb_build_object('instancia', p_instancia);
+        r := nucleo.multi_entrada(p_numero, p_nome, p_texto, p_tipo, p_de_mim, p_msg_id, p_instancia);
+        -- mensagem do cliente: guarda por que a IA nao respondeu (o painel mostra; some quando ela responde)
+        IF NOT p_de_mim THEN
+            UPDATE nucleo.atendimentos SET sem_resposta = CASE WHEN (r->>'saida')::int = 0 THEN r->>'motivo' END
+             WHERE instancia = p_instancia AND contato = nucleo.so_digitos(p_numero);
+        END IF;
+        RETURN r || jsonb_build_object('instancia', p_instancia);
     END IF;
     RETURN nucleo.whatsapp_entrada(p_numero, p_nome, p_texto, p_tipo, p_de_mim, p_conversa_propria, p_msg_id, p_instancia, p_dono);
 END $$;
@@ -271,7 +279,10 @@ END $$;
 CREATE OR REPLACE FUNCTION nucleo.canal_vai_ler(p_instancia text, p_numero text, p_de_mim boolean, p_propria boolean)
 RETURNS boolean LANGUAGE sql STABLE AS $$
     SELECT CASE WHEN nucleo.papel_instancia(p_instancia) = 'multi' AND NOT coalesce(p_propria, false)
-                THEN nucleo.multi_modo() <> 'desligado' AND NOT p_de_mim
+                -- audio da equipe numa conversa que a IA atende tambem e transcrito: e com ele que a IA aprende
+                THEN nucleo.multi_modo() <> 'desligado'
+                     AND (NOT p_de_mim OR EXISTS (SELECT 1 FROM nucleo.atendimentos
+                                                   WHERE instancia = p_instancia AND contato = nucleo.so_digitos(p_numero)))
                 ELSE nucleo.whatsapp_vai_ler(p_instancia, p_numero, p_de_mim, p_propria) END
 $$;
 
@@ -468,7 +479,7 @@ LANGUAGE sql STABLE AS $$
                           ORDER BY b.tipo, b.titulo) FROM nucleo.empresa_base b WHERE b.empresa_id = e.id AND b.ativo), '[]'))
                 ORDER BY e.nome) FROM nucleo.empresas e), '[]'),
         'atendimentos', coalesce((SELECT jsonb_agg(x ORDER BY x.ordem, x.atualizado_em DESC) FROM (
-            SELECT a.id, a.instancia, a.contato, a.nome, a.estado, a.motivo, a.resumo, a.atualizado_em,
+            SELECT a.id, a.instancia, a.contato, a.nome, a.estado, a.motivo, a.resumo, a.atualizado_em, a.sem_resposta,
                    a.ultima_cliente_em, em.nome AS empresa, u.nome AS conduzido_por,
                    (a.instancia = 'simulador' OR nucleo.multi_liberado(a.contato)) AS liberado,
                    CASE a.estado WHEN 'aguardando_humano' THEN 0 WHEN 'humano' THEN 1 WHEN 'automatico' THEN 2 ELSE 3 END AS ordem,

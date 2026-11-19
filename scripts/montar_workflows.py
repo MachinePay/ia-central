@@ -2328,6 +2328,27 @@ const schema = { type: 'object', additionalProperties: false, required: ['itens'
 const itemLeo = { type: 'object', additionalProperties: false, required: ['tipo', 'titulo', 'conteudo'], properties: {
   tipo: { type: 'string', enum: ['jeito_de_falar', 'como_resolve', 'fato'] }, titulo: { type: 'string' }, conteudo: { type: 'string' } } };
 const schemaLeo = { type: 'object', additionalProperties: false, required: ['itens', 'contato'], properties: { itens: { type: 'array', items: itemLeo }, contato } };
+// atendimento multiempresa: cada item diz de qual empresa e (vai para a base daquela empresa)
+const itemMulti = { type: 'object', additionalProperties: false, required: ['empresa', 'tipo', 'titulo', 'conteudo'], properties: {
+  empresa: { type: 'string' }, tipo: { type: 'string', enum: ['produto', 'politica', 'faq', 'procedimento', 'contato'] },
+  titulo: { type: 'string' }, conteudo: { type: 'string' } } };
+const schemaMulti = { type: 'object', additionalProperties: false, required: ['itens'], properties: { itens: { type: 'array', items: itemMulti } } };
+const PROMPT_MULTI = `Voce observa conversas de WhatsApp entre CLIENTES e a EQUIPE de um numero que atende varias empresas.
+Aprenda com o que o ATENDENTE HUMANO respondeu, para a IA responder igual da proxima vez:
+precos de servicos/planos, prazos, condicoes, politicas (troca, garantia, frete, pagamento), horarios, procedimentos,
+como resolve problemas comuns, respostas para duvidas frequentes, contatos/canais oficiais.
+Regras:
+- Use SO o que o ATENDENTE HUMANO disse. Ignore o que o cliente afirmou e o que a IA escreveu.
+- "empresa": o slug da empresa do assunto (o da linha EMPRESA DA CONVERSA, ou outro slug da base abaixo se o assunto for
+  de outra empresa). Se nao der para saber a empresa, nao crie o item.
+- tipo: produto | politica | faq | procedimento | contato. Titulo curto e estavel (ex.: "Prazo de entrega", "Formas de pagamento").
+- NAO guarde estoque/disponibilidade nem preco de um produto da loja (isso muda e vem do catalogo na hora).
+- NUNCA inclua dados do cliente ou do caso: nomes, telefones, enderecos, numero de pedido, valores daquela compra.
+- O "🎤" e marca do sistema (era audio transcrito): aprenda com o conteudo, nunca crie item sobre audio ou microfone.
+- Ate 8 itens, cada um autoexplicativo (1 a 3 frases). O que ja esta igual na base, nao repita; se a equipe CORRIGIU algo
+  da base, use o MESMO titulo com o conteudo certo. Se nao houver nada novo, itens vazio.
+Base atual (slug/tipo):
+`;
 const SOBRE_CONTATO = `
 Alem dos itens, descreva o CONTATO desta conversa em "contato" (quem ele e para o dono/empresa), para a IA saber como falar com ele:
 - relacao: novo (primeiras conversas) | conhecido | cliente | cliente_antigo (ja compra/fala faz tempo) | amigo | familia |
@@ -2402,14 +2423,14 @@ async function aprender(p) {
     const r = await this.helpers.httpRequest({ method: 'POST', url: 'https://api.openai.com/v1/chat/completions', json: true, timeout: 90000,
       headers: { Authorization: `Bearer ${$env.OPENAI_API_KEY}` },
       body: { model: '__MODELO__', reasoning_effort: 'low',
-        response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: (p.tipo === 'leo' || p.tipo === 'gabriel') ? schemaLeo : schema } },
-        messages: [{ role: 'system', content: (String(p.chave).startsWith('dono:') ? PROMPT_DONO.replace('__IA__', NOME_IA[p.tipo] || p.tipo) : p.tipo === 'leo' ? PROMPT_LEO : p.tipo === 'gabriel' ? PROMPT_GABRIEL : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
+        response_format: { type: 'json_schema', json_schema: { name: 'conhecimento', strict: true, schema: p.tipo === 'multi' ? schemaMulti : (p.tipo === 'leo' || p.tipo === 'gabriel') ? schemaLeo : schema } },
+        messages: [{ role: 'system', content: p.tipo === 'multi' ? PROMPT_MULTI + (p.contexto || '(vazia)') : (String(p.chave).startsWith('dono:') ? PROMPT_DONO.replace('__IA__', NOME_IA[p.tipo] || p.tipo) : p.tipo === 'leo' ? PROMPT_LEO : p.tipo === 'gabriel' ? PROMPT_GABRIEL : PROMPT_JOAO.replace('__AREA__', p.tipo === 'suporte' ? 'suporte' : 'comercial'))
                                                + (p.contexto || '(vazia)') + SOBRE_CONTATO },
                    { role: 'user', content: p.transcricao }] } });
     const res = JSON.parse(r.choices[0].message.content);
     const MIC = /🎤|🎙|microfone|[aá]udios? transcrit/i;   // marca interna de audio nunca vira "jeito de falar"
     const itens = (res.itens || []).filter(x => !MIC.test(String(x.titulo || '') + ' ' + String(x.conteudo || '')));
-    const perfil = String(p.chave).startsWith('dono:') ? '' : JSON.stringify(res.contato || {});
+    const perfil = (String(p.chave).startsWith('dono:') || p.tipo === 'multi') ? '' : JSON.stringify(res.contato || {});
     const u = r.usage || {};
     saida.push({ json: { tipo: p.tipo, chave: p.chave, dono_id: p.dono_id, itens: JSON.stringify(itens), total: itens.length, perfil,
       entrada: u.prompt_tokens || 0, saida_tokens: u.completion_tokens || 0, modelo: '__MODELO__', mensagens } });
@@ -2441,8 +2462,11 @@ def aprendiz():
             "operation": "executeQuery",
             "query": "SELECT tipo, chave, dono_id, transcricao,\n"
                      "  CASE tipo WHEN 'leo' THEN nucleo.memoria_resumo(dono_id) WHEN 'gabriel' THEN nucleo.memoria_gabriel(30)\n"
+                     "       WHEN 'multi' THEN nucleo.multi_base_resumo()\n"
                      "       ELSE nucleo.base_resumo_agente(tipo) END AS contexto\n"
-                     "FROM nucleo.aprendiz_pendentes_todos(25) WHERE nucleo.aprendiz_pode_rodar()   -- passou do teto do dia: pausa", "options": {},
+                     "FROM (SELECT * FROM nucleo.aprendiz_pendentes_todos(25)\n"
+                     "      UNION ALL SELECT * FROM nucleo.aprendiz_pendentes_multi(25)) p\n"
+                     "WHERE nucleo.aprendiz_pode_rodar()   -- passou do teto do dia: pausa", "options": {},
         }, credentials=PG, alwaysOutputData=True),
         node("Extrair conhecimento", "n8n-nodes-base.code", 2, [680, 180], {
             "mode": "runOnceForAllItems",
@@ -2456,6 +2480,7 @@ def aprendiz():
                      "  WHEN $3 = 'leo' THEN nucleo.aprendiz_leo_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 = 'gabriel' THEN nucleo.aprendiz_gabriel_salvar(nullif($4, '')::int, $1, $2::jsonb)\n"
                      "  WHEN $3 IN ('joao', 'suporte') THEN nucleo.aprendiz_salvar_agente(nullif($1, '')::int, $2::jsonb, $3)\n"
+                     "  WHEN $3 = 'multi' THEN nucleo.aprendiz_multi_salvar($1, $2::jsonb)\n"
                      "  ELSE 0 END AS salvos,\n"
                      "  CASE WHEN $5 <> '' THEN nucleo.registrar_evento(CASE WHEN $3 IN ('leo', 'joao', 'suporte', 'gabriel') THEN $3 ELSE 'aprendiz' END,\n"
                      "    'aviso', 'Nao consegui aprender de uma conversa: ' || nucleo.motivo_erro($5), $5, jsonb_build_object('conversa', $1)) END AS evento,\n"

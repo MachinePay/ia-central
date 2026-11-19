@@ -66,6 +66,16 @@ export function Multiempresa() {
   )
 }
 
+// o que impede a IA de responder sozinha (null = nada impede)
+function porQueNaoResponde(m: Multi): string | null {
+  if (m.instancias.length === 0) return 'nenhum número foi escolhido para atender (“Número que atende”, abaixo).'
+  if (m.modo === 'desligado') return 'a chave geral está desligada.'
+  if (m.modo === 'observando') return 'está em “só observando”: ela só lê e aprende.'
+  if (m.modo === 'aprovacao') return 'está em “com aprovação”: cada resposta espera você aprovar aqui.'
+  if (m.alcance === 'selecionados' && m.liberados === 0) return 'está em “só os escolhidos” e ninguém foi escolhido. Libere contatos nas conversas ou escolha “Todos”.'
+  return null
+}
+
 // ------------------------------------------------------------------ chave geral + numero
 function Controle({ m, aoMudar }: { m: Multi; aoMudar: (m: Multi) => void }) {
   const [dono, setDono] = useState(m.dono)
@@ -88,6 +98,7 @@ function Controle({ m, aoMudar }: { m: Multi; aoMudar: (m: Multi) => void }) {
         ))}
       </div>
       <div className="etiqueta" style={{ marginTop: 6 }}>{m.modo === 'observando' ? 'Guarda as conversas e mostra aqui. Não responde ninguém.' : MODO[m.modo]?.texto}</div>
+      {porQueNaoResponde(m) && <div className="aviso" style={{ marginTop: 8 }}>Por que a IA não responde sozinha: {porQueNaoResponde(m)}</div>}
       <div className="campo" style={{ margin: '12px 0 0' }}>
         <label>Quem a IA responde</label>
         <div className="modos">
@@ -168,6 +179,7 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
       </div>
       {a.ultima_mensagem && <div className="item-texto" style={{ marginTop: 4 }}>“{a.ultima_mensagem}”</div>}
       {a.motivo && a.estado !== 'automatico' && <div className="etiqueta" style={{ marginTop: 4 }}>Motivo: {a.motivo}</div>}
+      {a.sem_resposta && <div className="aviso" style={{ marginTop: 6 }}>A IA não respondeu a última mensagem: {a.sem_resposta}</div>}
       {a.resumo && a.estado === 'aguardando_humano' && <div className="aviso" style={{ marginTop: 6 }}>Resumo: {a.resumo}</div>}
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
         <button className="botao-mini" onClick={abrir}><ChevronDown size={12} style={{ transform: aberto ? 'rotate(180deg)' : undefined }} /> histórico</button>

@@ -180,6 +180,7 @@ export interface ConversaMulti {
   resumo: string | null; atualizado_em: string; ultima_cliente_em: string | null; empresa: string | null
   conduzido_por: string | null; ultima_mensagem: string | null; pendentes: number
   liberado: boolean   // contato na lista de quem a IA responde
+  sem_resposta?: string | null   // por que a IA nao respondeu a ultima mensagem do cliente
 }
 export type AlcanceMulti = 'selecionados' | 'todos'
 export interface Multi {

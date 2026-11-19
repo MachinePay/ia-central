@@ -176,6 +176,11 @@ Quando precisa, passa para uma pessoa. Tudo em `db/init/26-multiempresa.sql` + w
 - **Empresas e informações aprovadas:** cada informação tem tipo, responsável e data. Sem informação, a IA não afirma nada e oferece a equipe.
 - **Catálogo da loja:** API somente leitura cadastrada por empresa; o token fica numa variável de ambiente do n8n
   (só o nome dela vai no painel). Especificação para a Gira Kids: [docs/api-catalogo-girakids.md](docs/api-catalogo-girakids.md).
+- **Aprende sozinho:** de hora em hora o aprendiz lê as respostas que a **equipe** deu pelo número (texto e áudio) e grava
+  na base da empresa da conversa, já valendo (responsável "Aprendiz (automatico)"). Item escrito por uma pessoa nunca é
+  sobrescrito; apague no painel o que estiver errado. `db/init/28-aprende-direto.sql`.
+- **Por que não respondeu:** o painel mostra o que impede a IA de responder sozinha (chave geral, lista vazia...) e, em cada
+  conversa, o motivo de ela não ter respondido a última mensagem.
 - **Testar como cliente** (painel) passa pela mesma entrada, estado e conferência, sem enviar nada.
 
 ## E-mail e agenda (cada IA)
