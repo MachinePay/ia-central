@@ -1,0 +1,150 @@
+{
+  "id": "relatorioMulti1",
+  "name": "Resumo do atendimento (WhatsApp)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000231",
+      "name": "De hora em hora",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 60
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000232",
+      "name": "Testar agora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000233",
+      "name": "Hora do resumo?",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT nucleo.multi_relatorio() AS r",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000234",
+      "name": "Mandar resumo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  t = t.replace(/^[\\s\\u2063]*(?:[🤖🎤🎙]\\uFE0F?\\s*)+/u, '').replace(/🎤\\s*/gu, '');   // nunca robo nem 🎤 (marca interna de audio)\n  if (marcar && !t.startsWith('\\u2063')) t = '\\u2063' + t;   // marca INVISIVEL da IA: o sistema nunca responde a si mesmo\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst r = $input.first().json.r || {};\nif (!r.enviar) return [{ json: { ids: '' } }];\nconst ids = [];\nfor (const n of r.avisar || []) {\n  for (const inst of [INST, 'gabriel', INST_JOAO, 'suporte']) {\n    try {\n      if (await whatsappConectado(inst)) {\n        const env = await enviarWhatsapp(n, r.texto, true, inst);\n        if (env && env.key && env.key.id) ids.push(env.key.id);\n        break;\n      }\n    } catch (e) { /* tenta outro numero */ }\n  }\n}\nreturn [{ json: { ids: ids.join(',') } }];\n"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000235",
+      "name": "Guardar ids",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO nucleo.whatsapp_enviadas (id) SELECT unnest(string_to_array(nullif($1, ''), ',')) ON CONFLICT DO NOTHING",
+        "options": {
+          "queryReplacement": "={{ [$json.ids || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "De hora em hora": {
+      "main": [
+        [
+          {
+            "node": "Hora do resumo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Testar agora": {
+      "main": [
+        [
+          {
+            "node": "Hora do resumo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hora do resumo?": {
+      "main": [
+        [
+          {
+            "node": "Mandar resumo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mandar resumo": {
+      "main": [
+        [
+          {
+            "node": "Guardar ids",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "errorWorkflow": "errosGerais001"
+  },
+  "pinData": {}
+}

@@ -4,7 +4,7 @@
   "active": true,
   "nodes": [
     {
-      "id": "c0000000-0000-4000-8000-000000000188",
+      "id": "c0000000-0000-4000-8000-000000000190",
       "name": "De hora em hora",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000189",
+      "id": "c0000000-0000-4000-8000-000000000191",
       "name": "Testar agora",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       "parameters": {}
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000190",
+      "id": "c0000000-0000-4000-8000-000000000192",
       "name": "Quando chamado",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
@@ -60,7 +60,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000191",
+      "id": "c0000000-0000-4000-8000-000000000193",
       "name": "Contas",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -84,7 +84,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000192",
+      "id": "c0000000-0000-4000-8000-000000000194",
       "name": "Ler contas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -98,7 +98,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000193",
+      "id": "c0000000-0000-4000-8000-000000000195",
       "name": "Guardar",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -121,7 +121,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000194",
+      "id": "c0000000-0000-4000-8000-000000000196",
       "name": "Aprender",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -135,7 +135,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000195",
+      "id": "c0000000-0000-4000-8000-000000000197",
       "name": "Salvar aprendizado",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -158,7 +158,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000196",
+      "id": "c0000000-0000-4000-8000-000000000198",
       "name": "Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -172,7 +172,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000197",
+      "id": "c0000000-0000-4000-8000-000000000199",
       "name": "Registrar rodada",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

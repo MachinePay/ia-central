@@ -112,6 +112,45 @@
     },
     {
       "id": "c0000000-0000-4000-8000-000000000158",
+      "name": "Responder comando",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        400
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst comHttp = u => (u && !/^https?:\\/\\//.test(u) ? 'http://' + u : u || '');   // Render manda host:porta\nconst EVO = comHttp($env.EVOLUTION_URL), INST = $env.EVOLUTION_INSTANCIA || 'nucleo';   // numero do Leo\nconst INST_JOAO = $env.EVOLUTION_INSTANCIA_JOAO || 'joao';                                  // chip do Joao\nconst evo = (method, caminho, body) => this.helpers.httpRequest({\n  method, url: `${EVO}${caminho}`, headers: { apikey: $env.EVOLUTION_API_KEY }, body, json: true, timeout: 30000 });\n// markdown -> formatacao do WhatsApp (*negrito*), sem cabecalhos\nconst paraWhatsapp = t => String(t || '').replace(/\\*\\*(.+?)\\*\\*/g, '*$1*').replace(/^#{1,6}\\s*/gm, '');\nasync function whatsappConectado(inst = INST) {\n  try { const r = await evo('GET', `/instance/connectionState/${inst}`); return (r.instance || r).state === 'open'; }\n  catch { return false; }\n}\nasync function enviarWhatsapp(numero, texto, marcar = true, inst = INST) {\n  let t = paraWhatsapp(texto);\n  t = t.replace(/^[\\s\\u2063]*(?:[🤖🎤🎙]\\uFE0F?\\s*)+/u, '').replace(/🎤\\s*/gu, '');   // nunca robo nem 🎤 (marca interna de audio)\n  if (marcar && !t.startsWith('\\u2063')) t = '\\u2063' + t;   // marca INVISIVEL da IA: o sistema nunca responde a si mesmo\n  return evo('POST', `/message/sendText/${inst}`, { number: String(numero).replace(/\\D/g, ''), text: t });\n}\n// nunca marcar conversas como lidas nem atender chamadas (importante no numero pessoal)\nconst CONFIG_INSTANCIA = { rejectCall: false, msgCall: '', groupsIgnore: true, alwaysOnline: false,\n  readMessages: false, readStatus: false, syncFullHistory: false };\nasync function enviarTelegram(chatId, texto) {\n  return this.helpers.httpRequest({ method: 'POST', json: true,\n    url: `https://api.telegram.org/bot${$env.TELEGRAM_BOT_TOKEN}/sendMessage`, body: { chat_id: chatId, text: texto } });\n}\n\nconst r = $('Quem e').first().json.r;\ntry {\n  const env = await enviarWhatsapp(r.numero, r.texto, true, r.instancia);\n  return [{ json: { ids: (env && env.key && env.key.id) || '' } }];\n} catch (e) { return [{ json: { ids: '', erro: String(e.message || e) } }]; }"
+      }
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000159",
+      "name": "Guardar ids comando",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1760,
+        400
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO nucleo.whatsapp_enviadas (id) SELECT unnest(string_to_array(nullif($1, ''), ',')) ON CONFLICT DO NOTHING",
+        "options": {
+          "queryReplacement": "={{ [$json.ids || ''] }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgNucleo01",
+          "name": "Postgres Nucleo"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000160",
       "name": "Rota",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -121,12 +160,12 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.r.saida === 0 || $('Ler mensagem').first().json.historico ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.r.saida === 4 ? 2 : ($json.r.saida === 0 || $('Ler mensagem').first().json.historico ? 0 : 1) }}"
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000159",
+      "id": "c0000000-0000-4000-8000-000000000161",
       "name": "Transcrevendo",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -150,7 +189,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000160",
+      "id": "c0000000-0000-4000-8000-000000000162",
       "name": "Dados do audio",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -164,7 +203,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000161",
+      "id": "c0000000-0000-4000-8000-000000000163",
       "name": "Audio em arquivo",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.2,
@@ -184,7 +223,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000162",
+      "id": "c0000000-0000-4000-8000-000000000164",
       "name": "Transcrever (Groq)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -234,7 +273,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000163",
+      "id": "c0000000-0000-4000-8000-000000000165",
       "name": "Audio de novo",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -248,7 +287,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000164",
+      "id": "c0000000-0000-4000-8000-000000000166",
       "name": "Audio de novo (reserva)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -262,7 +301,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000165",
+      "id": "c0000000-0000-4000-8000-000000000167",
       "name": "Transcrever (OpenAI)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -307,7 +346,7 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000166",
+      "id": "c0000000-0000-4000-8000-000000000168",
       "name": "Transcrever (reserva)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -352,7 +391,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000167",
+      "id": "c0000000-0000-4000-8000-000000000169",
       "name": "Transcrito",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -377,7 +416,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000168",
+      "id": "c0000000-0000-4000-8000-000000000170",
       "name": "Preparar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -391,7 +430,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000169",
+      "id": "c0000000-0000-4000-8000-000000000171",
       "name": "Guardar no lote",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -414,7 +453,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000170",
+      "id": "c0000000-0000-4000-8000-000000000172",
       "name": "Esperar a pessoa terminar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -428,7 +467,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000171",
+      "id": "c0000000-0000-4000-8000-000000000173",
       "name": "Fechar lote",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -452,7 +491,7 @@
       "alwaysOutputData": true
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000172",
+      "id": "c0000000-0000-4000-8000-000000000174",
       "name": "Lote pronto",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -466,7 +505,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000173",
+      "id": "c0000000-0000-4000-8000-000000000175",
       "name": "Quem responde",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
@@ -481,7 +520,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000174",
+      "id": "c0000000-0000-4000-8000-000000000176",
       "name": "Multiempresa",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -568,7 +607,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000175",
+      "id": "c0000000-0000-4000-8000-000000000177",
       "name": "Perfil do contato",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -593,7 +632,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000176",
+      "id": "c0000000-0000-4000-8000-000000000178",
       "name": "Atendente",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -691,7 +730,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000177",
+      "id": "c0000000-0000-4000-8000-000000000179",
       "name": "Registrar atendimento",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -714,7 +753,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000178",
+      "id": "c0000000-0000-4000-8000-000000000180",
       "name": "Entregar atendimento",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -728,7 +767,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000179",
+      "id": "c0000000-0000-4000-8000-000000000181",
       "name": "Guardar ids",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -752,7 +791,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000180",
+      "id": "c0000000-0000-4000-8000-000000000182",
       "name": "Cerebro",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.4,
@@ -850,7 +889,7 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000181",
+      "id": "c0000000-0000-4000-8000-000000000183",
       "name": "Responder no WhatsApp",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -864,7 +903,7 @@
       }
     },
     {
-      "id": "c0000000-0000-4000-8000-000000000182",
+      "id": "c0000000-0000-4000-8000-000000000184",
       "name": "Registrar resposta",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
@@ -1150,6 +1189,24 @@
         [
           {
             "node": "Preparar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder comando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder comando": {
+      "main": [
+        [
+          {
+            "node": "Guardar ids comando",
             "type": "main",
             "index": 0
           }

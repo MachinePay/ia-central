@@ -181,6 +181,20 @@ Quando precisa, passa para uma pessoa. Tudo em `db/init/26-multiempresa.sql` + w
   sobrescrito; apague no painel o que estiver errado. `db/init/28-aprende-direto.sql`.
 - **Por que não respondeu:** o painel mostra o que impede a IA de responder sozinha (chave geral, lista vazia...) e, em cada
   conversa, o motivo de ela não ter respondido a última mensagem.
+- **Rascunho e perguntas sem resposta:** quando passa para a equipe, a IA deixa um rascunho de resposta (vem preenchido
+  em "Responder o cliente"). Se passou porque faltou informação, a pergunta vai para **Perguntas sem resposta**
+  (perguntas iguais se juntam): responda uma vez e vira informação da empresa.
+- **Responder pelo painel:** no histórico da conversa; vale como resposta pelo celular (assume a conversa e ensina a IA).
+- **Nota da equipe:** 👍/👎 em cada resposta da IA; 👎 com a resposta certa vira informação da empresa.
+- **Regras de atendimento:** horário (dias, das/até, modo dentro e fora do horário), quanto tempo até a conversa assumida
+  voltar para a IA, "devolver todas para a IA" e o **resumo do dia** no WhatsApp dos admins (workflow `relatorio-multi`,
+  hora configurável, só se houve conversa).
+- **`/ensina` pelo WhatsApp:** na conversa "Você" do número do atendimento (ou um admin escrevendo para ele):
+  `/ensina girakids: frete grátis acima de R$ 200`. Responde confirmando; com uma empresa só, o slug é opcional.
+- **Desempenho (7 dias):** por empresa, conversas, % resolvidas só pela IA, passadas para a equipe, tempo médio e notas.
+- Informação sem atualizar há 60+ dias aparece como "revisar"; títulos repetidos, como "repetida".
+- **Avisos neste aparelho:** o sininho no topo liga notificações do navegador quando uma conversa precisa de você
+  (com o painel aberto, mesmo em segundo plano) e o título da aba mostra quantas estão esperando.
 - **Testar como cliente** (painel) passa pela mesma entrada, estado e conferência, sem enviar nada.
 
 ## E-mail e agenda (cada IA)

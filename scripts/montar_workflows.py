@@ -1104,11 +1104,25 @@ def canal_whatsapp():
             "options": {"queryReplacement": "={{ [$json.numero, $json.nome, $json.texto, $json.tipo, "
                                             "$json.de_mim, $json.conversa_propria, $json.msg_id, $json.instancia, $json.dono, $json.falha_audio || ''] }}"},
         }, credentials=PG),
+        node("Responder comando", "n8n-nodes-base.code", 2, [1540, 400], {
+            "mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + r"""
+const r = $('Quem e').first().json.r;
+try {
+  const env = await enviarWhatsapp(r.numero, r.texto, true, r.instancia);
+  return [{ json: { ids: (env && env.key && env.key.id) || '' } }];
+} catch (e) { return [{ json: { ids: '', erro: String(e.message || e) } }]; }""",
+        }),
+        node("Guardar ids comando", "n8n-nodes-base.postgres", 2.6, [1760, 400], {
+            "operation": "executeQuery",
+            "query": "INSERT INTO nucleo.whatsapp_enviadas (id) SELECT unnest(string_to_array(nullif($1, ''), ',')) ON CONFLICT DO NOTHING",
+            "options": {"queryReplacement": "={{ [$json.ids || ''] }}"},
+        }, credentials=PG, onError="continueRegularOutput", alwaysOutputData=True),
         node("Rota", "n8n-nodes-base.switch", 3.2, [1440, 0], {
-            "mode": "expression", "numberOutputs": 2,
+            "mode": "expression", "numberOutputs": 3,
             # 0 = so leu / nao e com ninguem (para aqui) | 1 = alguma IA responde
             # mensagem puxada do historico: so foi lida (aprende), nunca responde
-            "output": "={{ $json.r.saida === 0 || $('Ler mensagem').first().json.historico ? 0 : 1 }}",
+            # 2 = comando do dono (/ensina): responde o texto pronto
+            "output": "={{ $json.r.saida === 4 ? 2 : ($json.r.saida === 0 || $('Ler mensagem').first().json.historico ? 0 : 1) }}",
         }),
         # enquanto transcreve, o lote espera (se a pessoa mandar texto junto, responde tudo de uma vez)
         node("Transcrevendo", "n8n-nodes-base.postgres", 2.6, [500, 300], {
@@ -1324,7 +1338,9 @@ return [{ json: { ...prep, chatInput: (prep.dono ? DONO : '') + lote.texto, mens
     con["Rota"] = {"main": [
         [],
         [{"node": "Preparar", "type": "main", "index": 0}],
+        [{"node": "Responder comando", "type": "main", "index": 0}],
     ]}
+    con["Responder comando"] = {"main": [[{"node": "Guardar ids comando", "type": "main", "index": 0}]]}
     con["Ouvir?"] = {"main": [
         [{"node": "Mensagem", "type": "main", "index": 0}],
         [{"node": "Transcrevendo", "type": "main", "index": 0}],
@@ -2029,6 +2045,8 @@ COMO TRABALHAR
    pedir desconto fora da base; reclamar, pedir estorno ou cancelamento; a consulta falhar de novo; nao houver fonte
    confiavel para responder; for suporte tecnico que precisa de avaliacao; ou pedir para agendar/visitar/marcar algo.
    Depois de encaminhar, diga em uma frase que alguem da equipe vai continuar. Nunca diga que encaminhou sem usar a ferramenta.
+   Ao encaminhar, deixe em "rascunho" a melhor resposta que conseguir montar para a equipe so revisar, e marque
+   faltou_informacao = sim quando o motivo for falta de informacao na base (com a pergunta do cliente em "pergunta").
 7. Voce nao faz pedido, pagamento, desconto nem cancelamento. Nao pede nem informa dados de outros clientes.
 8. Se perguntarem se e robo, IA ou pessoa: diga com naturalidade que e o atendimento automatico do
    {{ """ + CTX_M + """.dono }} e que pode passar para uma pessoa.
@@ -2145,11 +2163,15 @@ def atendimento_multi():
                        [ia("empresa", "slug da empresa, ex: machinepay"), ia("busca", "palavras-chave simples, ex: pix grua taxa")], [0, 0]),
         catalogo,
         ferramenta_sql("encaminhar_atendimento", "encaminhar_atendimento",
-                       "passa a conversa para uma pessoa da equipe (abre chamado e avisa). A IA para de responder esta conversa.",
-                       "SELECT nucleo.multi_encaminhar($1::int, $2, $3, $4) AS resultado",
+                       "passa a conversa para uma pessoa da equipe (abre chamado e avisa). A IA para de responder esta conversa. "
+                       "Deixe um rascunho de resposta para a equipe so ajustar e enviar, e diga se encaminhou porque faltou informacao na base.",
+                       "SELECT nucleo.multi_encaminhar($1::int, $2, $3, $4, $5, $6, $7) AS resultado",
                        [AT_M, ia("motivo", "por que precisa de uma pessoa, curto"),
                         ia("resumo", "resumo do que o cliente quer e do que ja foi dito"),
-                        ia("prioridade", "baixa | normal | alta")], [0, 0]),
+                        ia("prioridade", "baixa | normal | alta"),
+                        ia("rascunho", "sugestao de resposta ao cliente para a equipe revisar (pode ter lacunas como [confirmar prazo]); vazio se nao tiver ideia"),
+                        ia("faltou_informacao", "sim se encaminhou porque a base/catalogo nao tinha a informacao pedida; senao nao"),
+                        ia("pergunta", "a pergunta do cliente que ficou sem resposta, curta e sem dados pessoais (vazio se nao for o caso)")], [0, 0]),
     ]
     for i, t in enumerate(tools):
         t["position"] = [600 + i * 160, 260]
@@ -2644,6 +2666,48 @@ for (const [i, it] of $input.all().entries()) {
 }
 return $input.all();
 """
+
+
+JS_RELATORIO = r"""
+const r = $input.first().json.r || {};
+if (!r.enviar) return [{ json: { ids: '' } }];
+const ids = [];
+for (const n of r.avisar || []) {
+  for (const inst of [INST, 'gabriel', INST_JOAO, 'suporte']) {
+    try {
+      if (await whatsappConectado(inst)) {
+        const env = await enviarWhatsapp(n, r.texto, true, inst);
+        if (env && env.key && env.key.id) ids.push(env.key.id);
+        break;
+      }
+    } catch (e) { /* tenta outro numero */ }
+  }
+}
+return [{ json: { ids: ids.join(',') } }];
+"""
+
+
+def relatorio_multi():
+    # roda de hora em hora; o banco decide se e a hora (config multi_relatorio) e se ja mandou hoje
+    nodes = [
+        node("De hora em hora", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 0], {
+            "rule": {"interval": [{"field": "minutes", "minutesInterval": 60}]}}),
+        node("Testar agora", "n8n-nodes-base.manualTrigger", 1, [0, 180], {}),
+        node("Hora do resumo?", "n8n-nodes-base.postgres", 2.6, [240, 0], {
+            "operation": "executeQuery", "query": "SELECT nucleo.multi_relatorio() AS r", "options": {},
+        }, credentials=PG),
+        node("Mandar resumo", "n8n-nodes-base.code", 2, [480, 0], {"mode": "runOnceForAllItems", "jsCode": JS_ENVIOS + JS_RELATORIO}),
+        node("Guardar ids", "n8n-nodes-base.postgres", 2.6, [720, 0], {
+            "operation": "executeQuery",
+            "query": "INSERT INTO nucleo.whatsapp_enviadas (id) SELECT unnest(string_to_array(nullif($1, ''), ',')) ON CONFLICT DO NOTHING",
+            "options": {"queryReplacement": "={{ [$json.ids || ''] }}"},
+        }, credentials=PG, alwaysOutputData=True),
+    ]
+    con = ligar(("De hora em hora", "Hora do resumo?"), ("Testar agora", "Hora do resumo?"),
+                ("Hora do resumo?", "Mandar resumo"), ("Mandar resumo", "Guardar ids"))
+    wf = workflow("relatorioMulti1", "Resumo do atendimento (WhatsApp)", nodes, con)
+    wf["settings"]["saveDataSuccessExecution"] = "none"
+    return wf
 
 
 def vigia():
@@ -3159,6 +3223,7 @@ WORKFLOWS = [
     ("vigia-whatsapp.json", vigia),
     ("ferramenta-catalogo.json", ferramenta_catalogo),
     ("atendimento-multi.json", atendimento_multi),
+    ("relatorio-multi.json", relatorio_multi),
 ]
 
 SO_FALHAS = {"monitorSistemas01", "lembretes00001", "vigiaWhatsapp01", "canalWhatsapp01", "apiPainel00001", "apiPainelAudio1"}

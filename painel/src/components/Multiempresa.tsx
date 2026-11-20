@@ -3,6 +3,7 @@ import { Bot, BotOff, Brain, Building2, Check, ChevronDown, Hand, MessagesSquare
 import { api, type AlcanceMulti, type ConversaMulti, type ConversaMultiDetalhe, type EmpresaMulti, type EstadoConversa, type ItemBaseEmpresa, type ModoIA, type Multi, type TipoBase } from '../api'
 import { Hud, MODO, Numero, fmt, haQuanto } from './ui'
 import { avisar, confirmar } from '../alerta'
+import { AvaliarResposta, Desempenho, PerguntasSemResposta, RegrasAtendimento } from './MultiExtras'
 
 const ESTADO: Record<EstadoConversa, { rotulo: string; classe: string }> = {
   aguardando_humano: { rotulo: 'Aguardando pessoa', classe: 'erro' },
@@ -52,13 +53,17 @@ export function Multiempresa() {
               </Hud>
             )}
             <ListaConversas m={m} carregar={carregar} />
+            <PerguntasSemResposta m={m} aoMudar={setM} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <SimuladorMulti modo={m.modo} aoMudar={carregar} />
+            <SimuladorMulti modo={m.modo_agora ?? m.modo} aoMudar={carregar} />
+            <Desempenho m={m} />
+            <RegrasAtendimento m={m} aoMudar={setM} />
             <Hud titulo="Empresas e informações aprovadas" icone={<Building2 size={14} />} extra={<AprenderAgora aoMudar={carregar} />}>
               <div className="etiqueta" style={{ marginBottom: 8 }}>
                 A IA só afirma o que está aqui (ou no catálogo da loja). Ela também aprende sozinha com o que a equipe responde
                 (marcado com <Brain size={11} style={{ verticalAlign: -1 }} /> aprendido): confira, corrija ou apague.
+                Pelo WhatsApp também dá: na sua conversa “Você” do número do atendimento, mande <b>/ensina empresa: o que ela deve saber</b>.
               </div>
               {m.empresas.map(e => <CartaoEmpresa key={e.id} e={e} aoMudar={setM} dono={m.dono} />)}
               <NovaEmpresa aoMudar={setM} />
@@ -72,10 +77,12 @@ export function Multiempresa() {
 
 // o que impede a IA de responder sozinha (null = nada impede)
 function porQueNaoResponde(m: Multi): string | null {
+  const modo = m.modo_agora ?? m.modo
+  const hora = m.no_horario == null ? '' : m.no_horario ? ' (horário de atendimento)' : ' (fora do horário de atendimento)'
   if (m.instancias.length === 0) return 'nenhum número foi escolhido para atender (“Número que atende”, abaixo).'
-  if (m.modo === 'desligado') return 'a chave geral está desligada.'
-  if (m.modo === 'observando') return 'está em “só observando”: ela só lê e aprende.'
-  if (m.modo === 'aprovacao') return 'está em “com aprovação”: cada resposta espera você aprovar aqui.'
+  if (modo === 'desligado') return 'a chave geral está desligada.'
+  if (modo === 'observando') return `está em “só observando”${hora}: ela só lê e aprende.`
+  if (modo === 'aprovacao') return `está em “com aprovação”${hora}: cada resposta espera você aprovar aqui.`
   if (m.alcance === 'selecionados' && m.liberados === 0) return 'está em “só os escolhidos” e ninguém foi escolhido. Libere contatos nas conversas ou escolha “Todos”.'
   return null
 }
@@ -238,6 +245,7 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
       {a.motivo && a.estado !== 'automatico' && <div className="etiqueta" style={{ marginTop: 4 }}>Motivo: {a.motivo}</div>}
       {a.sem_resposta && <div className="aviso" style={{ marginTop: 6 }}>A IA não respondeu a última mensagem: {a.sem_resposta}</div>}
       {a.resumo && a.estado === 'aguardando_humano' && <div className="aviso" style={{ marginTop: 6 }}>Resumo: {a.resumo}</div>}
+      {a.rascunho && a.estado === 'aguardando_humano' && <div className="etiqueta" style={{ marginTop: 4 }}>✍️ A IA deixou um rascunho de resposta (abra o histórico).</div>}
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
         <button className="botao-mini" onClick={abrir}><ChevronDown size={12} style={{ transform: aberto ? 'rotate(180deg)' : undefined }} /> histórico</button>
         {!teste && (a.liberado
@@ -256,10 +264,11 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
           {det?.mensagens.length === 0 && <div className="vazio">Nenhuma mensagem.</div>}
           {det?.mensagens.map((x, i) => (
             <div key={i} className={`sim-msg ${x.papel === 'usuario' ? 'cliente-de-la' : x.papel === 'ia' ? 'ia' : 'voce'}`}>
-              <span className="via">{PAPEL[x.papel]} · {fmt(x.em)}</span>{x.texto}
+              <span className="via">{PAPEL[x.papel]} · {fmt(x.em)}
+                {x.papel === 'ia' && x.id != null && !teste && <AvaliarResposta id={x.id} nota={x.nota} aoMudar={setDet} />}</span>{x.texto}
             </div>
           ))}
-          {det && <ResponderCliente id={a.id} aoEnviar={async () => { setDet(await api.multiConversa(a.id)); aoMudar() }} />}
+          {det && <ResponderCliente id={a.id} rascunho={a.rascunho ?? ''} aoEnviar={async () => { setDet(await api.multiConversa(a.id)); aoMudar() }} />}
           {det && det.respostas.some(r => r.status === 'descartada' || r.status === 'falhou') && (
             <details style={{ marginTop: 6 }}>
               <summary className="etiqueta">Respostas que não saíram</summary>
@@ -275,8 +284,8 @@ function ItemConversa({ a, aoMudar }: { a: ConversaMulti; aoMudar: () => void })
 }
 
 // a equipe responde o cliente pelo painel: assume a conversa e a IA aprende com a resposta
-function ResponderCliente({ id, aoEnviar }: { id: number; aoEnviar: () => Promise<void> }) {
-  const [texto, setTexto] = useState('')
+function ResponderCliente({ id, rascunho, aoEnviar }: { id: number; rascunho: string; aoEnviar: () => Promise<void> }) {
+  const [texto, setTexto] = useState(rascunho)
   const [ocupado, setOcupado] = useState(false)
   async function enviar(ev: FormEvent) {
     ev.preventDefault()
@@ -291,11 +300,14 @@ function ResponderCliente({ id, aoEnviar }: { id: number; aoEnviar: () => Promis
     } catch (e) { avisar('Não enviado', 'error', erroDe(e)) } finally { setOcupado(false) }
   }
   return (
+    <>
+    {rascunho && texto === rascunho && <div className="etiqueta" style={{ marginTop: 8 }}>Rascunho da IA: revise e envie (ou apague e escreva o seu).</div>}
     <form onSubmit={enviar} className="campo" style={{ display: 'flex', gap: 6, margin: '8px 0 0' }}>
       <input style={{ flex: 1, minWidth: 0 }} value={texto} onChange={e => setTexto(e.target.value)}
         placeholder="Responder o cliente (você assume a conversa)" aria-label="Responder o cliente" disabled={ocupado} />
       <button className="botao" style={{ width: 'auto' }} disabled={ocupado || !texto.trim()} aria-label="Enviar"><Send size={14} /></button>
     </form>
+    </>
   )
 }
 
@@ -434,7 +446,9 @@ function ItemBase({ b, aoMudar, dono }: { b: ItemBaseEmpresa; aoMudar: (m: Multi
         <span className="origem">{TIPOS.find(t => t.id === b.tipo)?.nome}</span>
         {daIa && <span className="origem" title="A IA aprendeu isto com uma resposta da equipe"><Brain size={11} style={{ verticalAlign: -1 }} /> aprendido</span>}
         <span style={{ flex: 1 }}>{b.titulo}</span>
-        {daIa && <button className="botao-mini" title="Está certo: passa a ser seu (o aprendiz não muda mais)"
+        {b.revisar && <span className="origem" title="Sem atualizar há mais de 60 dias">revisar</span>}
+        {b.repetida && <span className="origem" title="Outra informação desta empresa tem o mesmo título: junte ou apague uma">repetida</span>}
+        {(daIa || b.revisar) && <button className="botao-mini" title="Está certo: confirma (e o aprendiz não muda mais)"
           onClick={async () => { aoMudar(await api.multiBase({ id: b.id, responsavel: dono })); avisar('Confirmado') }}><Check size={12} /> confirmar</button>}
         <button className="botao-mini" onClick={() => setEditando(true)}>editar</button>
         <button className="botao-mini" aria-label="Apagar" onClick={async () => {

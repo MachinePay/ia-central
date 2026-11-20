@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogOut, MessageSquare, LayoutGrid, Gauge, Server, Settings, DollarSign, Building2 } from 'lucide-react'
+import { LogOut, MessageSquare, LayoutGrid, Gauge, Server, Settings, DollarSign, Building2, Bell, BellOff } from 'lucide-react'
+import { useAvisos } from './avisos'
+import { avisar } from './alerta'
 import { api, ErroApi, token, type AgenteId, type Resumo, type Saude, type Usuario } from './api'
 import { Login } from './components/Login'
 import { Orbe, type EstadoOrbe } from './components/Orbe'
@@ -57,6 +59,7 @@ export default function App() {
       setVerificando(false)
     }
   }, [])
+  const avisos = useAvisos(saude?.multi_atencao)
   const carregarSaude = useCallback(async () => { try { setSaude(await api.saude()) } catch { /* tenta de novo */ } }, [])
   const carregarWa = useCallback(async () => {
     const r: StatusWa = {}
@@ -86,6 +89,13 @@ export default function App() {
     <div className="chip-usuario">
       <span className="nome-usuario">{usuario.nome}</span>
       <span className={`papel ${usuario.papel}`}>{usuario.papel}</span>
+      {admin && avisos.suportado && (
+        <button className="botao-icone" aria-label={avisos.ligado ? 'Desligar avisos neste aparelho' : 'Avisar neste aparelho'}
+          title={avisos.ligado ? 'Avisos ligados neste aparelho (clique para desligar)' : 'Avisar neste aparelho quando uma conversa precisar de você'}
+          onClick={async () => { const r = await avisos.alternar(); if (!r.ok) avisar('Não deu para ligar os avisos', 'error', r.motivo) }}>
+          {avisos.ligado ? <Bell size={16} /> : <BellOff size={16} />}
+        </button>
+      )}
       <button className="botao-icone" onClick={sair} aria-label="Sair" title="Sair"><LogOut size={16} /></button>
     </div>
   )

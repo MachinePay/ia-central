@@ -169,7 +169,10 @@ export interface DadosImap {
 // ------------------------------------------------------------------ atendimento multiempresa (26-multiempresa.sql)
 export type EstadoConversa = 'automatico' | 'aguardando_humano' | 'humano' | 'encerrado'
 export type TipoBase = 'produto' | 'politica' | 'faq' | 'procedimento' | 'contato'
-export interface ItemBaseEmpresa { id: number; tipo: TipoBase; titulo: string; conteudo: string; responsavel: string | null; atualizado_em: string }
+export interface ItemBaseEmpresa { id: number; tipo: TipoBase; titulo: string; conteudo: string; responsavel: string | null; atualizado_em: string
+  revisar?: boolean    // sem atualizar ha 60+ dias
+  repetida?: boolean   // outra informacao com o mesmo titulo
+}
 export interface EmpresaMulti {
   id: number; slug: string; nome: string; descricao: string; assuntos: string; site: string | null
   catalogo_url: string | null; catalogo_env: string | null; tom: string | null; responsavel: string | null
@@ -181,19 +184,29 @@ export interface ConversaMulti {
   conduzido_por: string | null; ultima_mensagem: string | null; pendentes: number
   liberado: boolean   // contato na lista de quem a IA responde
   sem_resposta?: string | null   // por que a IA nao respondeu a ultima mensagem do cliente
+  rascunho?: string | null       // resposta sugerida pela IA quando passou para a equipe
 }
 export type AlcanceMulti = 'selecionados' | 'todos'
+export interface HorarioMulti { ativo: boolean; inicio: string; fim: string; dias: number[]; modo_dentro: ModoIA; modo_fora: ModoIA }
+export interface LinhaDesempenho {
+  empresa: string; conversas: number; ia_respondeu: number; resolvidas_ia: number; encaminhadas: number
+  tempo_medio_s: number | null; positivas: number; negativas: number; sem_resposta: number
+}
 export interface Multi {
   modo: ModoIA; janela_horas: number; dono: string; instancias: string[]
   alcance: AlcanceMulti; liberados: number
   aprendidos_24h?: number; respostas_ia_24h?: number
+  modo_agora?: ModoIA; no_horario?: boolean | null; horario?: HorarioMulti; relatorio?: { ativo: boolean; hora: number }
+  humano_minutos?: number; com_pessoa?: number; resumo_hoje?: string
+  desempenho?: { dias: number; linhas: LinhaDesempenho[] }
+  lacunas?: { id: number; empresa_id: number | null; empresa: string | null; pergunta: string; vezes: number; ultima: string }[]
   empresas: EmpresaMulti[]
   atendimentos: ConversaMulti[]
   fila: { id: number; atendimento_id: number; pergunta: string | null; texto: string | null; criado_em: string; nome: string | null; contato: string; empresa: string | null }[]
 }
 export interface ConversaMultiDetalhe {
   atendimento: (Omit<ConversaMulti, 'conduzido_por' | 'ultima_mensagem' | 'pendentes'> & { conduzido_por_nome: string | null; versao: number }) | null
-  mensagens: { papel: 'usuario' | 'ia' | 'humano' | 'automatica'; texto: string; em: string }[]
+  mensagens: { id?: number; papel: 'usuario' | 'ia' | 'humano' | 'automatica'; texto: string; em: string; nota?: 1 | -1 | null }[]
   respostas: { id: number; status: string; texto: string | null; motivo: string | null; em: string }[]
 }
 
@@ -248,7 +261,11 @@ export const api = {
   perfilSalvar: (agente: AgenteId, numero: string, d: { relacao?: Relacao; genero?: string; cuidados?: string }) =>
     chamar('admin_perfil_salvar', { agente, numero, ...d }),
   multi: () => chamar<Multi>('admin_multi'),
-  multiConfig: (d: { modo?: ModoIA; instancia?: string; dono?: string; alcance?: AlcanceMulti }) => chamar<Multi>('admin_multi_config', d),
+  multiConfig: (d: { modo?: ModoIA; instancia?: string; dono?: string; alcance?: AlcanceMulti; humano_minutos?: number; horario?: HorarioMulti; relatorio?: { ativo: boolean; hora: number } }) =>
+    chamar<Multi>('admin_multi_config', d),
+  multiDevolverTodas: () => chamar<Multi>('admin_multi_devolver_todas'),
+  multiLacuna: (d: { id: number; resposta?: string; empresa_id?: number; ignorar?: boolean }) => chamar<Multi>('admin_multi_lacuna', d),
+  multiAvaliar: (conversa_id: number, nota: 1 | -1, correcao = '') => chamar<ConversaMultiDetalhe>('admin_multi_avaliar', { conversa_id, nota, correcao }),
   multiLiberar: (contato: string, nome: string | null, liberar: boolean) =>
     chamar<Multi>('admin_multi_liberar', { contato, nome: nome ?? '', liberar }),
   multiConversa: (id: number) => chamar<ConversaMultiDetalhe>('admin_multi_conversa', { id }),

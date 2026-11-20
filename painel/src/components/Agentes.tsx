@@ -212,7 +212,7 @@ export function PaginaAgente({ a, aba, setAba, saude, wa, aoSair, aoMudar, recar
             </Hud>
           </div>
         )}
-        {aba === 'configurar' && <Configurar a={a} atend={atend} resp={resp} setResp={setResp} recarregar={tudo} cor={cor} setCor={setCor} />}
+        {aba === 'configurar' && <Configurar a={a} atend={atend} resp={resp} setResp={setResp} recarregar={tudo} cor={cor} setCor={setCor} wa={wa[info.instancia]} />}
         {aba === 'erros' && <Erros a={a} feed={feed} recarregar={tudo} />}
       </div>
     </div>
@@ -608,7 +608,19 @@ function NomeResposta({ a, resp, setResp }: { a: AgenteId; resp: Responder; setR
   )
 }
 
-function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder | null; setResp: (r: Responder) => void }) {
+// o que impede esta IA de responder sozinha (null = nada impede)
+function porQueNaoRespondeIa(a: AgenteId, resp: Responder, wa?: WhatsappStatus['estado']): string | null {
+  const nome = AGENTES[a].nome
+  if (wa && wa !== 'open') return `o WhatsApp de ${nome} não está conectado (passo 1, ao lado).`
+  if (resp.modo === 'desligado') return 'está desligada.'
+  if (resp.modo === 'observando') return 'está em “só observando”: ela só lê e aprende.'
+  if (resp.modo === 'aprovacao') return 'está em “com aprovação”: cada resposta espera você aprovar na aba Aprovar.'
+  if (resp.alcance !== 'todos' && resp.contatos.length === 0)
+    return `ninguém foi escolhido. Adicione pessoas abaixo${resp.pode_todos ? ' ou escolha “Todos”' : ''}, ou ligue “Responder esta pessoa” em O que leu.`
+  return null
+}
+
+function ResponderPessoas({ a, resp, setResp, wa }: { a: AgenteId; resp: Responder | null; setResp: (r: Responder) => void; wa?: WhatsappStatus['estado'] }) {
   const [novo, setNovo] = useState({ nome: '', numero: '' })
   if (!resp) return <Hud titulo="3 · Responder pessoas por você"><div className="vazio">Carregando…</div></Hud>
   const info = AGENTES[a]
@@ -618,6 +630,7 @@ function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder |
   return (
     <Hud titulo="3 · Responder pessoas por você" icone={<UserRound size={14} />}>
       <div className="resumo-config">{resumo}</div>
+      {porQueNaoRespondeIa(a, resp, wa) && <div className="aviso" style={{ marginTop: 8 }}>Por que {info.nome} não responde sozinha: {porQueNaoRespondeIa(a, resp, wa)}</div>}
       <div className="etiqueta" style={{ margin: '10px 0 6px' }}>COMO RESPONDE</div>
       <div className="modos">
         {MODOS.map(m => (
@@ -667,9 +680,9 @@ function ResponderPessoas({ a, resp, setResp }: { a: AgenteId; resp: Responder |
 }
 
 // ------------------------------------------------------------------ configurar (mesma ordem nas 4 IAs)
-function Configurar({ a, atend, resp, setResp, recarregar, cor, setCor }: {
+function Configurar({ a, atend, resp, setResp, recarregar, cor, setCor, wa }: {
   a: AgenteId; atend: ReturnType<typeof useAtendimento>; resp: Responder | null; setResp: (r: Responder) => void; recarregar: () => void
-  cor: Correio | null; setCor: (c: Correio) => void
+  cor: Correio | null; setCor: (c: Correio) => void; wa?: WhatsappStatus['estado']
 }) {
   const info = AGENTES[a]
   const empresa = (a === 'joao' || a === 'suporte') && atend.d
@@ -688,7 +701,7 @@ function Configurar({ a, atend, resp, setResp, recarregar, cor, setCor }: {
         </Hud>
       </div>
       <div className="coluna-pilha">
-        <ResponderPessoas a={a} resp={resp} setResp={setResp} />
+        <ResponderPessoas a={a} resp={resp} setResp={setResp} wa={wa} />
         <EmailAgenda a={a} cor={cor} setCor={setCor} recarregar={recarregar} />
         {empresa && <EmpresaForm key={a} d={atend.d!} agente={a as AgenteAtend} />}
         {empresa && <VisivelClientes d={atend.d!} carregar={recarregar} />}

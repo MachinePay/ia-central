@@ -113,6 +113,36 @@ ALTER TABLE nucleo.atendimentos ADD COLUMN IF NOT EXISTS estado_desde timestampt
 UPDATE nucleo.atendimentos SET estado_desde = atualizado_em WHERE estado_desde IS NULL;
 -- por que a IA NAO respondeu a ultima mensagem do cliente (vazio = respondeu/foi gerar). Aparece no painel.
 ALTER TABLE nucleo.atendimentos ADD COLUMN IF NOT EXISTS sem_resposta text;
+-- sugestao de resposta que a IA deixa para a equipe quando encaminha (a pessoa so ajusta e envia)
+ALTER TABLE nucleo.atendimentos ADD COLUMN IF NOT EXISTS rascunho text;
+
+-- perguntas que a IA nao soube responder (faltou informacao na base): viram informacao com 1 resposta da equipe
+CREATE TABLE IF NOT EXISTS nucleo.multi_lacunas (
+    id             serial PRIMARY KEY,
+    empresa_id     int REFERENCES nucleo.empresas(id) ON DELETE CASCADE,
+    atendimento_id int REFERENCES nucleo.atendimentos(id) ON DELETE SET NULL,
+    pergunta       text NOT NULL,
+    criado_em      timestamptz NOT NULL DEFAULT now(),
+    resolvida_em   timestamptz,
+    base_id        int REFERENCES nucleo.empresa_base(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS multi_lacunas_abertas ON nucleo.multi_lacunas (criado_em DESC) WHERE resolvida_em IS NULL;
+
+-- nota da equipe em cada resposta da IA (👍 / 👎 com a resposta certa)
+CREATE TABLE IF NOT EXISTS nucleo.multi_avaliacoes (
+    conversa_id bigint PRIMARY KEY REFERENCES nucleo.conversas(id) ON DELETE CASCADE,
+    nota        smallint NOT NULL CHECK (nota IN (-1, 1)),
+    correcao    text,
+    usuario_id  int REFERENCES nucleo.usuarios(id) ON DELETE SET NULL,
+    em          timestamptz NOT NULL DEFAULT now()
+);
+
+-- horario de atendimento: dentro/fora do horario a IA usa outro modo (a chave geral desligada desliga tudo)
+INSERT INTO nucleo.config VALUES ('multi_horario',
+    '{"ativo": false, "inicio": "09:00", "fim": "18:00", "dias": [1, 2, 3, 4, 5], "modo_dentro": "aprovacao", "modo_fora": "automatico"}')
+ON CONFLICT DO NOTHING;
+-- resumo do dia no WhatsApp dos admins
+INSERT INTO nucleo.config VALUES ('multi_relatorio', '{"ativo": true, "hora": 18}') ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS nucleo.atendimento_respostas (
     id             bigserial PRIMARY KEY,
@@ -131,8 +161,27 @@ CREATE TABLE IF NOT EXISTS nucleo.atendimento_respostas (
 CREATE INDEX IF NOT EXISTS atendimento_respostas_pendentes ON nucleo.atendimento_respostas (criado_em) WHERE status = 'pendente';
 CREATE INDEX IF NOT EXISTS conversas_multi ON nucleo.conversas (instancia, contato, id) WHERE agente = 'multi';
 
+-- dentro do horario de atendimento agora? (null = horario nao configurado)
+CREATE OR REPLACE FUNCTION nucleo.multi_no_horario() RETURNS boolean
+LANGUAGE sql STABLE AS $$
+    SELECT CASE WHEN NOT coalesce((h->>'ativo')::boolean, false) THEN NULL ELSE
+             extract(isodow FROM agora)::int IN (SELECT jsonb_array_elements_text(coalesce(h->'dias', '[]'))::int)
+             AND agora::time >= coalesce(nullif(h->>'inicio', ''), '09:00')::time
+             AND agora::time <  coalesce(nullif(h->>'fim', ''), '18:00')::time END
+      FROM (SELECT (SELECT valor FROM nucleo.config WHERE chave = 'multi_horario') AS h,
+                   (now() AT TIME ZONE 'America/Sao_Paulo') AS agora) x
+$$;
+
+-- modo que vale AGORA: a chave geral; com horario ligado, o modo de dentro/fora do horario
 CREATE OR REPLACE FUNCTION nucleo.multi_modo() RETURNS text
-LANGUAGE sql STABLE AS $$ SELECT nucleo.cfg('multi_modo', 'desligado') $$;
+LANGUAGE sql STABLE AS $$
+    SELECT CASE
+        WHEN nucleo.cfg('multi_modo', 'desligado') = 'desligado' THEN 'desligado'
+        WHEN nucleo.multi_no_horario() IS NULL THEN nucleo.cfg('multi_modo', 'desligado')
+        ELSE coalesce((SELECT valor ->> CASE WHEN nucleo.multi_no_horario() THEN 'modo_dentro' ELSE 'modo_fora' END
+                         FROM nucleo.config WHERE chave = 'multi_horario'), nucleo.cfg('multi_modo', 'desligado'))
+    END
+$$;
 
 -- este contato esta na lista de quem a IA responde?
 CREATE OR REPLACE FUNCTION nucleo.multi_liberado(p_numero text) RETURNS boolean
@@ -157,7 +206,8 @@ BEGIN
     UPDATE nucleo.atendimentos
        SET estado = p_estado, versao = versao + 1, motivo = p_motivo, atualizado_em = now(), estado_desde = now(),
            conduzido_por = CASE WHEN p_estado = 'humano' THEN p_usuario WHEN p_estado = 'automatico' THEN NULL ELSE conduzido_por END,
-           encaminhado_em = CASE WHEN p_estado = 'aguardando_humano' THEN now() WHEN p_estado = 'automatico' THEN NULL ELSE encaminhado_em END
+           encaminhado_em = CASE WHEN p_estado = 'aguardando_humano' THEN now() WHEN p_estado = 'automatico' THEN NULL ELSE encaminhado_em END,
+           rascunho = CASE WHEN p_estado IN ('automatico', 'encerrado') THEN NULL ELSE rascunho END
      WHERE id = p_at RETURNING * INTO a;
     IF NOT FOUND THEN RAISE EXCEPTION 'atendimento % nao existe', p_at; END IF;
     -- pessoa assumiu ou encerrou: o que estava gerando ou esperando aprovacao nao sai mais
@@ -266,6 +316,11 @@ CREATE OR REPLACE FUNCTION nucleo.canal_entrada(
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE r jsonb;
 BEGIN
+    -- comando do dono/admin (/ensina ...) no numero do atendimento
+    IF nucleo.papel_instancia(p_instancia) = 'multi' THEN
+        r := nucleo.multi_comando(p_numero, p_texto, p_de_mim, p_conversa_propria, p_instancia);
+        IF r IS NOT NULL THEN RETURN r; END IF;
+    END IF;
     IF nucleo.papel_instancia(p_instancia) = 'multi' AND NOT coalesce(p_conversa_propria, false) THEN
         r := nucleo.multi_entrada(p_numero, p_nome, p_texto, p_tipo, p_de_mim, p_msg_id, p_instancia);
         -- mensagem do cliente: guarda por que a IA nao respondeu (o painel mostra; some quando ela responde)
@@ -360,6 +415,25 @@ BEGIN
             p_resumo, CASE WHEN p_prioridade IN ('baixa', 'normal', 'alta') THEN p_prioridade ELSE 'normal' END)
     RETURNING id INTO cid;
     RETURN 'Encaminhado para a equipe (chamado #' || cid || '). Diga ao cliente, em poucas palavras, que alguem da equipe vai continuar.';
+END $$;
+
+-- encaminhar + rascunho para a equipe + "faltou informacao" (vira pergunta sem resposta no painel)
+CREATE OR REPLACE FUNCTION nucleo.multi_encaminhar(p_at int, p_motivo text, p_resumo text, p_prioridade text,
+                                                   p_rascunho text, p_faltou text, p_pergunta text)
+RETURNS text LANGUAGE plpgsql AS $$
+DECLARE r text; a nucleo.atendimentos%ROWTYPE;
+BEGIN
+    r := nucleo.multi_encaminhar(p_at, p_motivo, p_resumo, p_prioridade);
+    SELECT * INTO a FROM nucleo.atendimentos WHERE id = p_at;
+    IF coalesce(trim(p_rascunho), '') <> '' THEN
+        UPDATE nucleo.atendimentos SET rascunho = left(trim(p_rascunho), 2000) WHERE id = p_at;
+    END IF;
+    IF lower(coalesce(p_faltou, '')) IN ('sim', 'true', 's', 'yes') AND coalesce(trim(p_pergunta), '') <> ''
+       AND a.instancia <> 'simulador' THEN
+        INSERT INTO nucleo.multi_lacunas (empresa_id, atendimento_id, pergunta)
+        VALUES (a.empresa_id, a.id, left(trim(p_pergunta), 500));
+    END IF;
+    RETURN r;
 END $$;
 
 -- ---------------------------------------------------------------- conferencia IMEDIATAMENTE antes de enviar
@@ -461,11 +535,173 @@ BEGIN
                                     jsonb_build_object('resposta_id', p_resposta));
 END $$;
 
+-- mesma pergunta escrita de jeitos diferentes (acento, maiuscula, pontuacao) vira a mesma chave
+CREATE OR REPLACE FUNCTION nucleo.pergunta_chave(p text) RETURNS text
+LANGUAGE sql STABLE AS $$ SELECT trim(lower(unaccent(regexp_replace(coalesce(p, ''), '[[:punct:][:space:]]+', ' ', 'g')))) $$;
+
+-- ---------------------------------------------------------------- desempenho (painel) e resumo do dia (WhatsApp)
+-- por empresa nos ultimos p_dias: conversas, quantas a IA respondeu, quantas resolveu sozinha (sem equipe e sem
+-- encaminhar), quantas passou para a equipe, tempo medio ate a resposta, notas da equipe e perguntas sem resposta
+CREATE OR REPLACE FUNCTION nucleo.multi_desempenho(p_dias int DEFAULT 7) RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+    WITH per AS (SELECT now() - make_interval(days => p_dias) AS desde),
+    at AS (
+        SELECT a.id, a.empresa_id,
+               EXISTS (SELECT 1 FROM nucleo.atendimento_respostas r WHERE r.atendimento_id = a.id AND r.status = 'enviada'
+                        AND r.decidido_em > per.desde) AS ia_respondeu,
+               EXISTS (SELECT 1 FROM nucleo.conversas v WHERE v.agente = 'multi' AND v.instancia = a.instancia AND v.contato = a.contato
+                        AND v.papel = 'humano' AND v.criado_em > per.desde) AS equipe,
+               coalesce(a.encaminhado_em > per.desde, false) AS encaminhada
+          FROM nucleo.atendimentos a, per
+         WHERE a.instancia <> 'simulador' AND a.ultima_cliente_em > per.desde
+    ),
+    tempos AS (
+        SELECT a.empresa_id, extract(epoch FROM r.decidido_em - v.criado_em) AS s
+          FROM nucleo.atendimento_respostas r JOIN nucleo.atendimentos a ON a.id = r.atendimento_id
+          JOIN nucleo.conversas v ON v.id = r.ate_conversa, per
+         WHERE r.status = 'enviada' AND r.decidido_em > per.desde AND a.instancia <> 'simulador'
+    ),
+    notas AS (
+        SELECT a.empresa_id, av.nota FROM nucleo.multi_avaliacoes av JOIN nucleo.conversas v ON v.id = av.conversa_id
+          JOIN nucleo.atendimentos a ON a.instancia = v.instancia AND a.contato = v.contato, per
+         WHERE av.em > per.desde
+    )
+    SELECT jsonb_build_object('dias', p_dias, 'linhas', coalesce((SELECT jsonb_agg(l ORDER BY l.conversas DESC) FROM (
+        SELECT coalesce(e.nome, 'Sem empresa definida') AS empresa,
+               count(*) AS conversas,
+               count(*) FILTER (WHERE at.ia_respondeu) AS ia_respondeu,
+               count(*) FILTER (WHERE at.ia_respondeu AND NOT at.equipe AND NOT at.encaminhada) AS resolvidas_ia,
+               count(*) FILTER (WHERE at.encaminhada) AS encaminhadas,
+               (SELECT round(avg(t.s)) FROM tempos t WHERE t.empresa_id IS NOT DISTINCT FROM at.empresa_id) AS tempo_medio_s,
+               (SELECT count(*) FROM notas n WHERE n.empresa_id IS NOT DISTINCT FROM at.empresa_id AND n.nota = 1) AS positivas,
+               (SELECT count(*) FROM notas n WHERE n.empresa_id IS NOT DISTINCT FROM at.empresa_id AND n.nota = -1) AS negativas,
+               (SELECT count(*) FROM nucleo.multi_lacunas la, per WHERE la.empresa_id IS NOT DISTINCT FROM at.empresa_id
+                   AND la.criado_em > per.desde) AS sem_resposta
+          FROM at LEFT JOIN nucleo.empresas e ON e.id = at.empresa_id
+         GROUP BY at.empresa_id, e.nome) l), '[]'))
+$$;
+
+-- texto do resumo de hoje (o mesmo que vai no WhatsApp e aparece no painel)
+CREATE OR REPLACE FUNCTION nucleo.multi_resumo_texto() RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+    WITH dia AS (SELECT ((now() AT TIME ZONE 'America/Sao_Paulo')::date::timestamp AT TIME ZONE 'America/Sao_Paulo') AS ini),
+    at AS (
+        SELECT a.*,
+               EXISTS (SELECT 1 FROM nucleo.atendimento_respostas r WHERE r.atendimento_id = a.id AND r.status = 'enviada'
+                        AND r.decidido_em > dia.ini) AS ia,
+               EXISTS (SELECT 1 FROM nucleo.conversas v WHERE v.agente = 'multi' AND v.instancia = a.instancia AND v.contato = a.contato
+                        AND v.papel = 'humano' AND v.criado_em > dia.ini) AS equipe
+          FROM nucleo.atendimentos a, dia WHERE a.instancia <> 'simulador' AND a.ultima_cliente_em > dia.ini
+    ),
+    n AS (
+        SELECT (SELECT count(*) FROM at) AS conversas,
+               (SELECT count(*) FROM nucleo.atendimento_respostas r JOIN nucleo.atendimentos a ON a.id = r.atendimento_id, dia
+                 WHERE r.status = 'enviada' AND r.decidido_em > dia.ini AND a.instancia <> 'simulador') AS mensagens_ia,
+               (SELECT count(*) FROM at, dia WHERE at.ia AND NOT at.equipe AND NOT coalesce(at.encaminhado_em > dia.ini, false)) AS resolvidas,
+               (SELECT count(*) FROM at, dia WHERE at.encaminhado_em > dia.ini) AS encaminhadas,
+               (SELECT count(*) FROM nucleo.empresa_base b, dia WHERE b.ativo AND b.responsavel LIKE 'Aprendiz%' AND b.atualizado_em > dia.ini) AS aprendidos,
+               (SELECT count(*) FROM nucleo.atendimentos WHERE estado = 'aguardando_humano' AND instancia <> 'simulador')
+             + (SELECT count(*) FROM nucleo.atendimento_respostas WHERE status = 'pendente') AS esperando,
+               (SELECT array_agg(p) FROM (SELECT left(la.pergunta, 90) AS p FROM nucleo.multi_lacunas la, dia
+                                          WHERE la.criado_em > dia.ini AND la.resolvida_em IS NULL ORDER BY la.id DESC LIMIT 3) q) AS lacunas,
+               (SELECT count(*) FROM nucleo.multi_lacunas la, dia WHERE la.criado_em > dia.ini AND la.resolvida_em IS NULL) AS total_lacunas
+    )
+    SELECT jsonb_build_object('conversas', n.conversas, 'texto',
+        '📊 *Atendimento de hoje* (' || to_char(now() AT TIME ZONE 'America/Sao_Paulo', 'DD/MM') || ')' || E'\n'
+        || '• ' || n.conversas || ' conversa' || CASE WHEN n.conversas = 1 THEN '' ELSE 's' END
+        || ' · a IA mandou ' || n.mensagens_ia || ' resposta' || CASE WHEN n.mensagens_ia = 1 THEN '' ELSE 's' END || E'\n'
+        || '• ' || n.resolvidas || ' resolvida' || CASE WHEN n.resolvidas = 1 THEN '' ELSE 's' END || ' só pela IA · '
+        || n.encaminhadas || ' passada' || CASE WHEN n.encaminhadas = 1 THEN '' ELSE 's' END || ' para a equipe' || E'\n'
+        || '• Aprendeu ' || n.aprendidos || ' coisa' || CASE WHEN n.aprendidos = 1 THEN '' ELSE 's' END || ' nova' || CASE WHEN n.aprendidos = 1 THEN '' ELSE 's' END
+        || CASE WHEN n.total_lacunas > 0 THEN E'\n' || '• ' || n.total_lacunas || ' pergunta' || CASE WHEN n.total_lacunas = 1 THEN '' ELSE 's' END
+               || ' sem resposta na base:' || E'\n' || array_to_string(ARRAY(SELECT '   – “' || x || '”' FROM unnest(n.lacunas) x), E'\n')
+                ELSE '' END
+        || CASE WHEN n.esperando > 0 THEN E'\n\n' || '⏳ Esperando você agora: ' || n.esperando ELSE '' END
+        || E'\n' || 'Painel → Multiempresa para responder e ensinar.')
+      FROM n
+$$;
+
+-- chamado de hora em hora pelo n8n: na hora configurada (uma vez por dia, so se houve conversa) devolve o texto e para quem
+CREATE OR REPLACE FUNCTION nucleo.multi_relatorio() RETURNS jsonb
+LANGUAGE plpgsql AS $$
+DECLARE
+    cfg   jsonb := coalesce((SELECT valor FROM nucleo.config WHERE chave = 'multi_relatorio'), '{}');
+    agora timestamp := now() AT TIME ZONE 'America/Sao_Paulo';
+    r     jsonb;
+BEGIN
+    IF NOT coalesce((cfg->>'ativo')::boolean, true) OR extract(hour FROM agora) < coalesce((cfg->>'hora')::int, 18)
+       OR nucleo.cfg('multi_relatorio_ultimo', '') = agora::date::text THEN
+        RETURN jsonb_build_object('enviar', false);
+    END IF;
+    INSERT INTO nucleo.config VALUES ('multi_relatorio_ultimo', to_jsonb(agora::date::text))
+    ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+    r := nucleo.multi_resumo_texto();
+    IF (r->>'conversas')::int = 0 THEN RETURN jsonb_build_object('enviar', false, 'motivo', 'sem conversas hoje'); END IF;
+    RETURN jsonb_build_object('enviar', true, 'texto', r->>'texto', 'avisar', nucleo.multi_avisar());
+END $$;
+
+-- ---------------------------------------------------------------- comando /ensina pelo WhatsApp
+-- o dono (conversa "Voce" do numero do atendimento) ou um admin escrevendo para o numero:
+--   /ensina girakids: frete gratis acima de R$ 200      (com uma empresa so, o slug e opcional)
+-- devolve saida 4 (o n8n responde o texto) ou NULL (nao e comando)
+CREATE OR REPLACE FUNCTION nucleo.multi_comando(p_numero text, p_texto text, p_de_mim boolean, p_propria boolean, p_instancia text)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+    resto text;
+    eid   int;
+    enome text;
+    tit   text;
+    quem  text;
+    m     text[];
+    resp  text;
+BEGIN
+    IF coalesce(p_texto, '') !~* '^\s*/ensina' THEN RETURN NULL; END IF;
+    SELECT nome INTO quem FROM nucleo.usuario_por_whatsapp(p_numero) WHERE papel = 'admin';
+    IF NOT (coalesce(p_propria, false) OR (NOT p_de_mim AND quem IS NOT NULL)) THEN RETURN NULL; END IF;
+    quem := coalesce(quem, nucleo.cfg('multi_dono_nome', 'Leonardo'));
+    resto := trim(regexp_replace(p_texto, '^\s*/ensina\s*', '', 'i'));
+    m := regexp_match(resto, '^([A-Za-z0-9-]+)\s*:\s*(.+)$', 's');
+    IF m IS NOT NULL THEN
+        SELECT id, nome INTO eid, enome FROM nucleo.empresas WHERE ativo AND slug = lower(m[1]);
+        IF eid IS NOT NULL THEN resto := trim(m[2]); END IF;
+    END IF;
+    IF eid IS NULL AND (SELECT count(*) FROM nucleo.empresas WHERE ativo) = 1 THEN
+        SELECT id, nome INTO eid, enome FROM nucleo.empresas WHERE ativo;
+    END IF;
+    IF resto = '' OR eid IS NULL THEN
+        resp := 'Para ensinar, mande assim:' || E'\n' || '/ensina ' || coalesce((SELECT slug FROM nucleo.empresas WHERE ativo ORDER BY nome LIMIT 1), 'empresa')
+             || ': o que a IA deve saber' || E'\n' || 'Empresas: '
+             || coalesce((SELECT string_agg(slug, ', ' ORDER BY slug) FROM nucleo.empresas WHERE ativo), '(nenhuma)');
+    ELSE
+        tit := left(trim(split_part(regexp_replace(resto, '([.!?])\s', '\1' || chr(10), 'g'), chr(10), 1)), 90);
+        INSERT INTO nucleo.empresa_base (empresa_id, tipo, titulo, conteudo, responsavel)
+        VALUES (eid, 'faq', tit, resto, quem || ' (WhatsApp)');
+        resp := '✅ Aprendi para a ' || enome || ': “' || left(resto, 200) || '”' || E'\n' || 'Para corrigir ou apagar: painel → Multiempresa.';
+    END IF;
+    RETURN jsonb_build_object('saida', 4, 'motivo', 'comando /ensina', 'numero', nucleo.so_digitos(p_numero),
+                              'instancia', p_instancia, 'texto', resp);
+END $$;
+
 -- ---------------------------------------------------------------- painel
 CREATE OR REPLACE FUNCTION nucleo.multi_painel() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     SELECT jsonb_build_object(
-        'modo', nucleo.multi_modo(),
+        'modo', nucleo.cfg('multi_modo', 'desligado'),       -- a chave geral
+        'modo_agora', nucleo.multi_modo(),                   -- o que vale agora (com o horario de atendimento)
+        'no_horario', nucleo.multi_no_horario(),
+        'horario', (SELECT valor FROM nucleo.config WHERE chave = 'multi_horario'),
+        'relatorio', (SELECT valor FROM nucleo.config WHERE chave = 'multi_relatorio'),
+        'humano_minutos', coalesce(nullif(nucleo.cfg('multi_humano_minutos', '30'), '')::int, 30),
+        'com_pessoa', (SELECT count(*) FROM nucleo.atendimentos WHERE estado = 'humano' AND instancia <> 'simulador'),
+        'desempenho', nucleo.multi_desempenho(7),
+        'resumo_hoje', nucleo.multi_resumo_texto() ->> 'texto',
+        'lacunas', coalesce((SELECT jsonb_agg(x ORDER BY x.vezes DESC, x.ultima DESC) FROM (
+            SELECT min(la.id) AS id, la.empresa_id, em.nome AS empresa, min(la.pergunta) AS pergunta, count(*) AS vezes,
+                   max(la.criado_em) AS ultima
+              FROM nucleo.multi_lacunas la LEFT JOIN nucleo.empresas em ON em.id = la.empresa_id
+             WHERE la.resolvida_em IS NULL
+             GROUP BY la.empresa_id, em.nome, nucleo.pergunta_chave(la.pergunta)
+             ORDER BY count(*) DESC, max(la.criado_em) DESC LIMIT 40) x), '[]'),
         'janela_horas', nucleo.cfg('multi_janela_horas', '24')::int,
         'dono', nucleo.cfg('multi_dono_nome', 'Leonardo'),
         'alcance', nucleo.cfg('multi_alcance', 'selecionados'),
@@ -481,11 +717,14 @@ LANGUAGE sql STABLE AS $$
                 'site', e.site, 'catalogo_url', e.catalogo_url, 'catalogo_env', e.catalogo_env, 'tom', e.tom,
                 'responsavel', e.responsavel, 'ativo', e.ativo, 'atualizado_em', e.atualizado_em,
                 'base', coalesce((SELECT jsonb_agg(jsonb_build_object('id', b.id, 'tipo', b.tipo, 'titulo', b.titulo,
-                          'conteudo', b.conteudo, 'responsavel', b.responsavel, 'atualizado_em', b.atualizado_em)
+                          'conteudo', b.conteudo, 'responsavel', b.responsavel, 'atualizado_em', b.atualizado_em,
+                          'revisar', b.atualizado_em < now() - interval '60 days',
+                          'repetida', EXISTS (SELECT 1 FROM nucleo.empresa_base o WHERE o.empresa_id = b.empresa_id AND o.ativo
+                                               AND o.id <> b.id AND lower(trim(o.titulo)) = lower(trim(b.titulo))))
                           ORDER BY b.tipo, b.titulo) FROM nucleo.empresa_base b WHERE b.empresa_id = e.id AND b.ativo), '[]'))
                 ORDER BY e.nome) FROM nucleo.empresas e), '[]'),
         'atendimentos', coalesce((SELECT jsonb_agg(x ORDER BY x.ordem, x.atualizado_em DESC) FROM (
-            SELECT a.id, a.instancia, a.contato, a.nome, a.estado, a.motivo, a.resumo, a.atualizado_em, a.sem_resposta,
+            SELECT a.id, a.instancia, a.contato, a.nome, a.estado, a.motivo, a.resumo, a.atualizado_em, a.sem_resposta, a.rascunho,
                    a.ultima_cliente_em, em.nome AS empresa, u.nome AS conduzido_por,
                    (a.instancia = 'simulador' OR nucleo.multi_liberado(a.contato)) AS liberado,
                    CASE a.estado WHEN 'aguardando_humano' THEN 0 WHEN 'humano' THEN 1 WHEN 'automatico' THEN 2 ELSE 3 END AS ordem,
@@ -509,7 +748,8 @@ LANGUAGE sql STABLE AS $$
         'atendimento', (SELECT to_jsonb(a) || jsonb_build_object('empresa', em.nome, 'conduzido_por_nome', u.nome)
                           FROM nucleo.atendimentos a LEFT JOIN nucleo.empresas em ON em.id = a.empresa_id
                           LEFT JOIN nucleo.usuarios u ON u.id = a.conduzido_por WHERE a.id = p_at),
-        'mensagens', coalesce((SELECT jsonb_agg(jsonb_build_object('papel', v.papel, 'texto', v.mensagem, 'em', v.criado_em) ORDER BY v.id)
+        'mensagens', coalesce((SELECT jsonb_agg(jsonb_build_object('id', v.id, 'papel', v.papel, 'texto', v.mensagem, 'em', v.criado_em,
+                                   'nota', (SELECT nota FROM nucleo.multi_avaliacoes av WHERE av.conversa_id = v.id)) ORDER BY v.id)
               FROM (SELECT v.* FROM nucleo.conversas v JOIN nucleo.atendimentos a ON a.instancia = v.instancia AND a.contato = v.contato
                      WHERE a.id = p_at AND v.agente = 'multi' ORDER BY v.id DESC LIMIT 100) v), '[]'),
         'respostas', coalesce((SELECT jsonb_agg(jsonb_build_object('id', r.id, 'status', r.status, 'texto', r.texto, 'motivo', r.motivo,
@@ -545,6 +785,30 @@ BEGIN
         END IF;
         IF coalesce(d->>'dono', '') <> '' THEN
             INSERT INTO nucleo.config VALUES ('multi_dono_nome', to_jsonb(left(d->>'dono', 60)))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        -- volta para a IA depois de X min sem a equipe escrever (5 min a 24 h)
+        IF coalesce(d->>'humano_minutos', '') ~ '^\d+$' THEN
+            INSERT INTO nucleo.config VALUES ('multi_humano_minutos', to_jsonb(least(greatest((d->>'humano_minutos')::int, 5), 1440)))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        -- horario de atendimento: { ativo, inicio "HH:MM", fim, dias [1..7], modo_dentro, modo_fora }
+        IF jsonb_typeof(d->'horario') = 'object' THEN
+            INSERT INTO nucleo.config VALUES ('multi_horario', jsonb_build_object(
+                'ativo', coalesce((d->'horario'->>'ativo')::boolean, false),
+                'inicio', CASE WHEN d->'horario'->>'inicio' ~ '^\d{2}:\d{2}$' THEN d->'horario'->>'inicio' ELSE '09:00' END,
+                'fim', CASE WHEN d->'horario'->>'fim' ~ '^\d{2}:\d{2}$' THEN d->'horario'->>'fim' ELSE '18:00' END,
+                'dias', coalesce((SELECT jsonb_agg(x::int ORDER BY x::int) FROM jsonb_array_elements_text(coalesce(d->'horario'->'dias', '[]')) x
+                                   WHERE x ~ '^[1-7]$'), '[]'),
+                'modo_dentro', CASE WHEN d->'horario'->>'modo_dentro' IN ('observando', 'aprovacao', 'automatico') THEN d->'horario'->>'modo_dentro' ELSE 'aprovacao' END,
+                'modo_fora', CASE WHEN d->'horario'->>'modo_fora' IN ('observando', 'aprovacao', 'automatico') THEN d->'horario'->>'modo_fora' ELSE 'automatico' END))
+            ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
+        END IF;
+        -- resumo do dia no WhatsApp: { ativo, hora 0..23 }
+        IF jsonb_typeof(d->'relatorio') = 'object' THEN
+            INSERT INTO nucleo.config VALUES ('multi_relatorio', jsonb_build_object(
+                'ativo', coalesce((d->'relatorio'->>'ativo')::boolean, true),
+                'hora', CASE WHEN d->'relatorio'->>'hora' ~ '^\d{1,2}$' THEN least((d->'relatorio'->>'hora')::int, 23) ELSE 18 END))
             ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor;
         END IF;
         -- numero que atende: a instancia passa a ter papel 'multi' (volta para 'leo' se tirar)
@@ -629,13 +893,70 @@ BEGIN
         IF a.estado IN ('automatico', 'aguardando_humano') THEN
             PERFORM nucleo.multi_mudar_estado(a.id, 'humano', p_usuario, 'respondeu pelo painel');
         END IF;
-        UPDATE nucleo.atendimentos SET sem_resposta = NULL, atualizado_em = now() WHERE id = a.id;
+        UPDATE nucleo.atendimentos SET sem_resposta = NULL, rascunho = NULL, atualizado_em = now() WHERE id = a.id;
         IF a.instancia = 'simulador' OR a.contato LIKE 'teste%' THEN
             RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', jsonb_build_object('ok', true, 'enviado', false, 'motivo', 'conversa de teste'));
         END IF;
         -- 5 = o n8n envia pelo numero do atendimento (o id enviado e guardado: o eco do WhatsApp nao duplica)
         RETURN jsonb_build_object('saida', 5, 'status', 200, 'corpo', jsonb_build_object(
             'numero', a.contato, 'texto', trim(d->>'texto'), 'instancia', a.instancia, 'so_instancia', true));
+
+    ELSIF p_acao = 'admin_multi_devolver_todas' THEN   -- fim do expediente: tudo que esta com uma pessoa volta para a IA
+        PERFORM nucleo.multi_mudar_estado(id, 'automatico', p_usuario, 'devolvido para a IA (todas)')
+           FROM nucleo.atendimentos WHERE estado = 'humano';
+        RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_painel());
+
+    ELSIF p_acao = 'admin_multi_lacuna' THEN   -- pergunta sem resposta: responder (vira informacao) ou ignorar
+        SELECT empresa_id INTO eid FROM nucleo.multi_lacunas WHERE id = (d->>'id')::int;
+        eid := coalesce(nullif(d->>'empresa_id', '')::int, eid);
+        IF coalesce((d->>'ignorar')::boolean, false) THEN
+            UPDATE nucleo.multi_lacunas l SET resolvida_em = now() FROM nucleo.multi_lacunas o
+             WHERE o.id = (d->>'id')::int AND l.resolvida_em IS NULL AND l.empresa_id IS NOT DISTINCT FROM o.empresa_id
+               AND nucleo.pergunta_chave(l.pergunta)
+                 = nucleo.pergunta_chave(o.pergunta);
+            RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_painel());
+        END IF;
+        IF eid IS NULL THEN
+            RETURN jsonb_build_object('saida', 0, 'status', 400, 'corpo', jsonb_build_object('erro', 'Escolha a empresa desta resposta'));
+        END IF;
+        IF coalesce(trim(d->>'resposta'), '') = '' THEN
+            RETURN jsonb_build_object('saida', 0, 'status', 400, 'corpo', jsonb_build_object('erro', 'Escreva a resposta'));
+        END IF;
+        WITH b AS (
+            INSERT INTO nucleo.empresa_base (empresa_id, tipo, titulo, conteudo, responsavel)
+            SELECT eid, 'faq', left(pergunta, 200), trim(d->>'resposta'), (SELECT nome FROM nucleo.usuarios WHERE id = p_usuario)
+              FROM nucleo.multi_lacunas WHERE id = (d->>'id')::int
+            RETURNING id)
+        UPDATE nucleo.multi_lacunas l SET resolvida_em = now(), base_id = (SELECT id FROM b)
+          FROM nucleo.multi_lacunas o
+         WHERE o.id = (d->>'id')::int AND l.resolvida_em IS NULL AND l.empresa_id IS NOT DISTINCT FROM o.empresa_id
+           AND nucleo.pergunta_chave(l.pergunta)
+                 = nucleo.pergunta_chave(o.pergunta);
+        RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_painel());
+
+    ELSIF p_acao = 'admin_multi_avaliar' THEN   -- nota numa resposta da IA; negativa com a resposta certa vira informacao
+        SELECT a2.* INTO a FROM nucleo.conversas v JOIN nucleo.atendimentos a2 ON a2.instancia = v.instancia AND a2.contato = v.contato
+         WHERE v.id = (d->>'conversa_id')::bigint AND v.agente = 'multi' AND v.papel = 'ia';
+        IF NOT FOUND OR coalesce(d->>'nota', '') NOT IN ('1', '-1') THEN
+            RETURN jsonb_build_object('saida', 0, 'status', 400, 'corpo', jsonb_build_object('erro', 'Resposta nao encontrada'));
+        END IF;
+        IF (d->>'nota')::int = -1 AND coalesce(trim(d->>'correcao'), '') <> '' THEN
+            IF a.empresa_id IS NULL THEN
+                RETURN jsonb_build_object('saida', 0, 'status', 400, 'corpo', jsonb_build_object('erro',
+                       'A conversa ainda nao tem empresa definida: ensine pela base da empresa'));
+            END IF;
+            INSERT INTO nucleo.empresa_base (empresa_id, tipo, titulo, conteudo, responsavel)
+            VALUES (a.empresa_id, 'faq',
+                    left(coalesce((SELECT v.mensagem FROM nucleo.conversas v WHERE v.agente = 'multi' AND v.instancia = a.instancia
+                                    AND v.contato = a.contato AND v.papel = 'usuario' AND v.id < (d->>'conversa_id')::bigint
+                                  ORDER BY v.id DESC LIMIT 1), 'Correcao da equipe'), 200),
+                    trim(d->>'correcao'), (SELECT nome FROM nucleo.usuarios WHERE id = p_usuario));
+        END IF;
+        INSERT INTO nucleo.multi_avaliacoes (conversa_id, nota, correcao, usuario_id)
+        VALUES ((d->>'conversa_id')::bigint, (d->>'nota')::int, nullif(trim(d->>'correcao'), ''), p_usuario)
+        ON CONFLICT (conversa_id) DO UPDATE SET nota = EXCLUDED.nota, correcao = EXCLUDED.correcao,
+                                                usuario_id = EXCLUDED.usuario_id, em = now();
+        RETURN jsonb_build_object('saida', 0, 'status', 200, 'corpo', nucleo.multi_conversa(a.id));
 
     ELSIF p_acao = 'admin_multi_rejeitar' THEN
         UPDATE nucleo.atendimento_respostas SET status = 'descartada', motivo = 'rejeitada no painel', revisado_por = p_usuario, decidido_em = now()
