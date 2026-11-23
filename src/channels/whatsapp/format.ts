@@ -44,3 +44,13 @@ export function toBubbles(text: string): string[] {
 /** "digitando" proporcional ao tamanho: 30 ms por caractere, entre 1,5 e 6 s. */
 /** "digitando" proporcional ao tamanho (como alguem digitando no celular), com variacao para nao parecer robo. */
 export const typingMs = (text: string) => Math.round(Math.min(7000, Math.max(1200, text.length * 45)) * (0.85 + Math.random() * 0.3));
+
+/** Remove emojis (e os modificadores que sobram), mantendo o texto. */
+export function stripEmojis(t: string): string {
+  return t
+    .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}‍️⃣]/gu, '')
+    .replace(/[ \t]+([.,!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}

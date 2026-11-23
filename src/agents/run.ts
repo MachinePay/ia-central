@@ -22,7 +22,7 @@ export type AgentResult = {
 
 const WHATSAPP_RULES = `- Escreva como no WhatsApp: de 1 a 4 mensagens curtas, separadas por uma linha em branco. Cada mensagem é uma bolha que o cliente vê chegar separada (1 a 2 frases cada).
 - Uma resposta simples cabe numa bolha só. Não force várias.
-- Pode usar letra minúscula no começo, abreviações e emojis do jeito que você costuma usar (veja os exemplos acima). Não exagere.
+- Pode usar letra minúscula no começo e as abreviações que você costuma usar (veja os exemplos acima).
 - Sem markdown: nada de **, #, listas ou links formatados.`;
 
 const EMAIL_RULES = `- E-mail curto e direto, parágrafos de 1 a 3 frases, cumprimento simples no começo e seu nome no final (só o nome).
@@ -33,7 +33,7 @@ export async function systemPrompt(agent: Specialist, pack: ContextPack, interna
   const persona = personaFor(pack.thread.instance);
   const [style, knowledge] = await Promise.all([
     styleFor(pack.thread.instance, pack.thread.company_slug).catch(() => ''),
-    knowledgeFor(pack.blockText, pack.thread.company_slug).catch(() => ({ text: '', evidence: [] })),
+    knowledgeFor(pack.blockText, pack.thread.company_slug, pack.thread.instance).catch(() => ({ text: '', evidence: [] })),
   ]);
   const common = fill(loadPrompt('comum'), {
     PERSONA_NAME: persona.name,

@@ -70,11 +70,13 @@ function Knowledge({ initialQ }: { initialQ?: string }) {
   const [q, setQ] = useState(initialQ ?? '');
   const [kind, setKind] = useState('');
   const [source, setSource] = useState('');
+  const [instance, setInstance] = useState('');
   const [editing, setEditing] = useState<any | null>(null);
   const list = useQuery({
-    queryKey: ['knowledge', q, kind, source],
-    queryFn: () => api(`/api/knowledge?${new URLSearchParams({ ...(q && { q }), ...(kind && { kind }), ...(source && { source }) })}`),
+    queryKey: ['knowledge', q, kind, source, instance],
+    queryFn: () => api(`/api/knowledge?${new URLSearchParams({ ...(q && { q }), ...(kind && { kind }), ...(source && { source }), ...(instance && { instance }) })}`),
   });
+  const numbers = useNumbers();
   const companies = useQuery({ queryKey: ['companies'], queryFn: () => api('/api/companies') });
   const remove = useMutation({ mutationFn: (id: string) => del(`/api/knowledge/${id}`), onSuccess: () => { toast('Removido da base.'); void qc.invalidateQueries({ queryKey: ['knowledge'] }); }, onError: toastError });
   return (
@@ -85,9 +87,12 @@ function Knowledge({ initialQ }: { initialQ?: string }) {
         <select className={cx(inputCls, 'w-auto!')} value={source} onChange={(e) => setSource(e.target.value)} aria-label="Origem">
           <option value="">Todas as origens</option><option value="aprendido">Aprendido com a equipe</option><option value="legado">Sistema antigo</option><option value="painel">Escrito no painel</option>
         </select>
+        <select className={cx(inputCls, 'w-auto!')} value={instance} onChange={(e) => setInstance(e.target.value)} aria-label="Número">
+          <option value="">Todos os números</option>{numbers.map((n) => <option key={n} value={n}>Número {n}</option>)}<option value="*">Vale para todos</option>
+        </select>
         <Button variant="primary" className="ml-auto" icon={<Plus size={14} />} onClick={() => setEditing({ title: '', content: '', kind: 'faq', company_slug: null })}>Novo conhecimento</Button>
       </div>
-      {editing && <KnowledgeForm item={editing} companies={companies.data ?? []} onClose={() => setEditing(null)} />}
+      {editing && <KnowledgeForm item={editing} companies={companies.data ?? []} numbers={numbers} onClose={() => setEditing(null)} />}
       {list.isLoading ? <Skeleton /> : list.error ? <ErrorState error={list.error} /> : list.data.length === 0 ? (
         <EmptyState title="Nada na base com esses filtros." text="A Clara só responde com o que estiver aqui. O aprendiz adiciona sozinho o que a equipe ensina nas conversas." />
       ) : (
@@ -96,7 +101,7 @@ function Knowledge({ initialQ }: { initialQ?: string }) {
             <div key={k.id} className="flex gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="font-semibold">{k.title}</span><Pill>{k.kind}</Pill>{k.company_slug && <Pill tone="cyan">{k.company_slug}</Pill>}
+                  <span className="font-semibold">{k.title}</span><Pill tone="coral">{k.instance ? `número ${k.instance}` : 'todos os números'}</Pill><Pill>{k.kind}</Pill>{k.company_slug && <Pill tone="cyan">{k.company_slug}</Pill>}
                   <Pill tone={k.source.startsWith('aprendido') ? 'ok' : 'default'}>{k.source.startsWith('aprendido') ? 'aprendido' : k.source.startsWith('legado') ? 'sistema antigo' : 'painel'}</Pill>
                   {!k.indexed && <Pill tone="amber" title="Ainda sem índice de busca por significado; a busca por palavra já funciona">indexando</Pill>}
                 </div>
@@ -115,21 +120,22 @@ function Knowledge({ initialQ }: { initialQ?: string }) {
   );
 }
 
-function KnowledgeForm({ item, companies, onClose }: { item: any; companies: any[]; onClose: () => void }) {
+function KnowledgeForm({ item, companies, numbers, onClose }: { item: any; companies: any[]; numbers: string[]; onClose: () => void }) {
   const qc = useQueryClient();
   const [f, setF] = useState(item);
   const save = useMutation({
-    mutationFn: () => (item.id ? patch(`/api/knowledge/${item.id}`, { title: f.title, content: f.content, kind: f.kind, company_slug: f.company_slug || null })
-      : post('/api/knowledge', { title: f.title, content: f.content, kind: f.kind, company_slug: f.company_slug || null })),
+    mutationFn: () => (item.id ? patch(`/api/knowledge/${item.id}`, { title: f.title, content: f.content, kind: f.kind, company_slug: f.company_slug || null, instance: f.instance || null })
+      : post('/api/knowledge', { title: f.title, content: f.content, kind: f.kind, company_slug: f.company_slug || null, instance: f.instance || null })),
     onSuccess: () => { toast('Salvo na base.'); void qc.invalidateQueries({ queryKey: ['knowledge'] }); onClose(); },
     onError: toastError,
   });
   return (
     <Card className="mb-4 space-y-3 p-4">
-      <div className="grid gap-3 md:grid-cols-[1fr_160px_160px]">
+      <div className="grid gap-3 md:grid-cols-[1fr_150px_150px_160px]">
         <Field label="Título"><input className={inputCls} value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} autoFocus /></Field>
         <Field label="Tipo"><select className={inputCls} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select></Field>
         <Field label="Empresa"><select className={inputCls} value={f.company_slug ?? ''} onChange={(e) => setF({ ...f, company_slug: e.target.value })}><option value="">Todas</option>{companies.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select></Field>
+        <Field label="Número"><select className={inputCls} value={f.instance ?? ''} onChange={(e) => setF({ ...f, instance: e.target.value })}><option value="">Todos os números</option>{numbers.map((n) => <option key={n} value={n}>{n}</option>)}</select></Field>
       </div>
       <Field label="Conteúdo" hint="Escreva como explicaria para alguém novo na equipe. Preços ficam no catálogo, não aqui.">
         <textarea className={cx(inputCls, 'h-32! py-2!')} value={f.content} onChange={(e) => setF({ ...f, content: e.target.value })} />
@@ -137,6 +143,12 @@ function KnowledgeForm({ item, companies, onClose }: { item: any; companies: any
       <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" busy={save.isPending} onClick={() => save.mutate()}>Salvar</Button></div>
     </Card>
   );
+}
+
+/** Numeros de WhatsApp ativos (para separar o que cada IA sabe). */
+function useNumbers(): string[] {
+  const s = useQuery({ queryKey: ['settings'], queryFn: () => api('/api/settings'), staleTime: 60_000 });
+  return (s.data?.instances ?? []).filter((i: any) => i.role !== 'OFF').map((i: any) => i.name);
 }
 
 function Gaps({ q }: { q: any }) {

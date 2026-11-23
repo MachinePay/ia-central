@@ -41,8 +41,10 @@ Regras:
 export async function learnFromTeam(maxThreads = 15): Promise<number> {
   if ((await costToday()) >= Number(setting('DAILY_COST_LIMIT_USD')) * 0.8) return 0; // aprendiz nunca consome o fim do orcamento
   const threads = await q<{ thread_id: string }>(
-    `SELECT DISTINCT thread_id FROM messages
-      WHERE direction = 'OUTBOUND' AND sender = 'HUMAN' AND learned_at IS NULL AND created_at > now() - interval '30 days'
+    // conversas pessoais (familia, amigos) nao viram conhecimento de empresa
+    `SELECT DISTINCT m.thread_id FROM messages m JOIN threads t ON t.id = m.thread_id JOIN contacts c ON c.id = t.contact_id
+      WHERE m.direction = 'OUTBOUND' AND m.sender = 'HUMAN' AND m.learned_at IS NULL AND m.created_at > now() - interval '30 days'
+        AND c.role <> 'PESSOAL'
       LIMIT $1`,
     [maxThreads],
   );
@@ -57,7 +59,7 @@ export async function learnFromTeam(maxThreads = 15): Promise<number> {
     const pending = msgs.filter((m) => m.sender === 'HUMAN');
     const hasRealText = pending.some((m) => m.content && !m.content.startsWith('[mensagem/mídia enviada pela equipe]') && m.content.length > 15);
     if (hasRealText) {
-      const thread = await one<{ company_slug: string | null }>(`SELECT company_slug FROM threads WHERE id = $1`, [thread_id]);
+      const thread = await one<{ company_slug: string | null; instance: string }>(`SELECT company_slug, instance FROM threads WHERE id = $1`, [thread_id]);
       const transcript = msgs.reverse()
         .map((m) => `${m.direction === 'INBOUND' ? 'CLIENTE' : m.sender === 'HUMAN' ? 'EQUIPE' : 'BOT'}: ${maskSensitive(m.content).slice(0, 600)}`)
         .join('\n');
@@ -75,12 +77,12 @@ export async function learnFromTeam(maxThreads = 15): Promise<number> {
         for (const it of r.object.items) {
           const slug = companies.some((c) => c.slug === it.company_slug) ? it.company_slug : thread?.company_slug ?? null;
           const dup = await one(
-            `SELECT 1 FROM knowledge_chunks WHERE active AND (lower(title) = lower($1) OR content = $2) LIMIT 1`, [it.title, it.content],
+            `SELECT 1 FROM knowledge_chunks WHERE active AND instance = $3 AND (lower(title) = lower($1) OR content = $2) LIMIT 1`, [it.title, it.content, thread?.instance],
           );
           if (dup) continue;
           await q(
-            `INSERT INTO knowledge_chunks (company_slug, kind, source, title, content) VALUES ($1, $2, 'aprendido:equipe', $3, $4)`,
-            [slug, it.kind, it.title, it.content],
+            `INSERT INTO knowledge_chunks (company_slug, kind, source, title, content, instance) VALUES ($1, $2, 'aprendido:equipe', $3, $4, $5)`,
+            [slug, it.kind, it.title, it.content, thread?.instance ?? null],
           );
           saved++;
         }

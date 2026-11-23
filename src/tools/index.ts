@@ -75,7 +75,7 @@ function shared(ctx: ToolCtx): ToolSet {
       description: 'Registra uma pergunta do cliente que a base não responde, para a equipe responder e virar conhecimento.',
       inputSchema: z.object({ question: z.string().max(400) }),
       execute: wrap(ctx, 'report_knowledge_gap', async ({ question }) => {
-        await q(`INSERT INTO knowledge_gaps (company_slug, question, thread_id) VALUES ($1, $2, $3)`, [ctx.thread.company_slug, question, ctx.thread.id]);
+        await q(`INSERT INTO knowledge_gaps (company_slug, question, thread_id, instance) VALUES ($1, $2, $3, $4)`, [ctx.thread.company_slug, question, ctx.thread.id, ctx.thread.instance]);
         return { ok: true };
       }),
     }),
@@ -98,7 +98,7 @@ function catalogTool(ctx: ToolCtx) {
         const data = await r.json();
         return { fonte: `catálogo ${c.name} (tempo real)`, itens: data };
       }
-      const chunks = await searchKnowledge(query, c?.slug ?? null, 6, ['produto', 'politica']);
+      const chunks = await searchKnowledge(query, c?.slug ?? null, 6, ['produto', 'politica'], ctx.thread.instance);
       if (!chunks.length) return { itens: [], note: `Sem catálogo para ${c?.name ?? 'esta empresa'}. NÃO informe preço; ${c?.site ? `mande o site ${c.site} ou ` : ''}ofereça confirmar com a equipe.` };
       return { fonte: 'tabela cadastrada', itens: chunks.map((x) => ({ titulo: x.title, conteudo: x.content })) };
     }),
@@ -178,7 +178,7 @@ function claraTools(ctx: ToolCtx): ToolSet {
       inputSchema: z.object({ query: z.string().max(300) }),
       execute: wrap(ctx, 'search_knowledge_base', async ({ query }) => {
         ctx.kbConsulted = true;
-        const chunks = await searchKnowledge(query, ctx.thread.company_slug, 5);
+        const chunks = await searchKnowledge(query, ctx.thread.company_slug, 5, undefined, ctx.thread.instance);
         if (!chunks.length) return { trechos: [], note: 'Nada na base cobre isso. Não invente: diga que vai verificar com a engenharia.' };
         return { trechos: chunks.map((c) => ({ titulo: c.title, origem: c.source, conteudo: c.content })) };
       }),

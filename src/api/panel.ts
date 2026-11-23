@@ -7,7 +7,8 @@ import { deliver } from '../delivery.js';
 import { getThread, setThread } from '../domain/repo.js';
 import type { Agent } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { EDITABLE_SETTINGS, env, instanceRoles, setting, type EditableSetting } from '../lib/env.js';
+import { EDITABLE_SETTINGS, env, instanceRoles, personaFor, setting, type EditableSetting } from '../lib/env.js';
+import { buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
 import { normalizePhone } from '../lib/phone.js';
@@ -243,23 +244,24 @@ export async function panelRoutes(app: FastifyInstance) {
     api.get('/api/knowledge', async (req) => {
       const f = req.query as Record<string, string | undefined>;
       return q(
-        `SELECT id, company_slug, kind, source, title, content, active, updated_at, embedding IS NOT NULL AS indexed FROM app.knowledge_chunks
+        `SELECT id, company_slug, instance, kind, source, title, content, active, updated_at, embedding IS NOT NULL AS indexed FROM app.knowledge_chunks
           WHERE ($1::text IS NULL OR title ILIKE '%' || $1 || '%' OR content ILIKE '%' || $1 || '%')
             AND ($2::text IS NULL OR kind = $2) AND ($3::text IS NULL OR company_slug = $3) AND ($4::text IS NULL OR source LIKE $4 || '%')
-            AND active
+            AND ($5::text IS NULL OR instance = $5 OR ($5 = '*' AND instance IS NULL)) AND active AND kind <> 'persona'
           ORDER BY updated_at DESC LIMIT 300`,
-        [f.q || null, f.kind || null, f.company || null, f.source || null],
+        [f.q || null, f.kind || null, f.company || null, f.source || null, f.instance || null],
       );
     });
     const KnowledgeBody = z.object({
       title: z.string().min(2).max(200), content: z.string().min(2).max(4000),
       kind: z.enum(['produto', 'politica', 'faq', 'procedimento', 'contato', 'estilo', 'manual']).default('faq'),
       company_slug: z.string().nullable().optional(),
+      instance: z.string().nullable().optional(),   // null = todos os numeros
     });
     api.post('/api/knowledge', async (req, reply) => {
       const b = KnowledgeBody.safeParse(req.body);
       if (!b.success) return bad(reply, 'Preencha título e conteúdo.');
-      await addKnowledge({ title: b.data.title, content: b.data.content, kind: b.data.kind, company: b.data.company_slug ?? null, source: `painel:${user(req)}` });
+      await addKnowledge({ title: b.data.title, content: b.data.content, kind: b.data.kind, company: b.data.company_slug ?? null, instance: b.data.instance ?? null, source: `painel:${user(req)}` });
       return { ok: true };
     });
     api.patch<{ Params: { id: string } }>('/api/knowledge/:id', async (req, reply) => {
@@ -268,8 +270,9 @@ export async function panelRoutes(app: FastifyInstance) {
       await q(
         `UPDATE app.knowledge_chunks SET title = coalesce($2, title), content = coalesce($3, content), kind = coalesce($4, kind),
            company_slug = CASE WHEN $5 THEN $6 ELSE company_slug END,
+           instance = CASE WHEN $7 THEN $8 ELSE instance END,
            embedding = CASE WHEN $3 IS NOT NULL AND $3 <> content THEN NULL ELSE embedding END, updated_at = now() WHERE id = $1`,
-        [req.params.id, b.data.title ?? null, b.data.content ?? null, b.data.kind ?? null, b.data.company_slug !== undefined, b.data.company_slug ?? null],
+        [req.params.id, b.data.title ?? null, b.data.content ?? null, b.data.kind ?? null, b.data.company_slug !== undefined, b.data.company_slug ?? null, b.data.instance !== undefined, b.data.instance ?? null],
       );
       return { ok: true };
     });
@@ -283,9 +286,9 @@ export async function panelRoutes(app: FastifyInstance) {
     api.post<{ Params: { id: string } }>('/api/knowledge/gaps/:id/answer', async (req, reply) => {
       const b = z.object({ answer: z.string().min(2).max(4000) }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Escreva a resposta.');
-      const g = await one<{ question: string; company_slug: string | null }>(`SELECT * FROM app.knowledge_gaps WHERE id = $1`, [req.params.id]);
+      const g = await one<{ question: string; company_slug: string | null; instance: string | null }>(`SELECT * FROM app.knowledge_gaps WHERE id = $1`, [req.params.id]);
       if (!g) return bad(reply, 'Pergunta não encontrada.', 404);
-      await addKnowledge({ title: g.question.slice(0, 200), content: b.data.answer, kind: 'faq', company: g.company_slug, source: `painel:${user(req)}` });
+      await addKnowledge({ title: g.question.slice(0, 200), content: b.data.answer, kind: 'faq', company: g.company_slug, instance: g.instance, source: `painel:${user(req)}` });
       await q(`UPDATE app.knowledge_gaps SET resolved_at = now() WHERE id = $1`, [req.params.id]);
       return { ok: true };
     });
@@ -455,6 +458,27 @@ export async function panelRoutes(app: FastifyInstance) {
     });
     api.delete<{ Params: { id: string } }>('/api/costs/fixed/:id', async (req) => {
       await q(`DELETE FROM sentinela.fixed_costs WHERE id = $1`, [req.params.id]);
+      return { ok: true };
+    });
+
+    // ---------------------------------------------------------------- jeito de escrever de cada numero
+    api.get('/api/personas', async () => Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([instance, role]) => {
+      const p = await getPersonaProfile(instance);
+      return { instance, role, persona: personaFor(instance), profile: p?.content ?? '', updatedAt: p?.updated_at ?? null, messages: await countPersonaMessages(instance) };
+    })));
+    api.post<{ Params: { instance: string } }>('/api/personas/:instance/rebuild', async (req, reply) => {
+      try {
+        const guide = await buildPersonaProfile(req.params.instance);
+        if (!guide) return bad(reply, 'Ainda há poucas mensagens suas neste número (mínimo 15). Continue usando o WhatsApp normalmente e tente de novo.');
+        return { profile: guide };
+      } catch (e: any) {
+        return bad(reply, `Não consegui gerar agora: ${e.message}`);
+      }
+    });
+    api.put<{ Params: { instance: string } }>('/api/personas/:instance', async (req, reply) => {
+      const b = z.object({ profile: z.string().min(10).max(4000) }).safeParse(req.body);
+      if (!b.success) return bad(reply, 'Escreva o jeito de escrever (mínimo 10 caracteres).');
+      await savePersonaProfile(req.params.instance, b.data.profile, `painel:${user(req)}`);
       return { ok: true };
     });
 

@@ -17,14 +17,16 @@ export async function embedText(text: string): Promise<number[] | undefined> {
  * Busca hibrida: vetorial + palavra-chave (codigos como "E-102" se perdem na vetorial).
  * Junta as duas listas por Reciprocal Rank Fusion.
  */
-export async function searchKnowledge(query: string, company: string | null, k = 5, kinds?: string[]): Promise<Chunk[]> {
-  const filters = `active AND ($2::text IS NULL OR company_slug IS NULL OR company_slug = $2) AND ($3::text[] IS NULL OR kind = ANY($3))`;
+/** instance: so o que foi aprendido neste numero + o que foi escrito no painel para todos (instance NULL). */
+export async function searchKnowledge(query: string, company: string | null, k = 5, kinds?: string[], instance?: string): Promise<Chunk[]> {
+  const filters = `active AND kind <> 'persona' AND ($2::text IS NULL OR company_slug IS NULL OR company_slug = $2) AND ($3::text[] IS NULL OR kind = ANY($3))
+    AND (instance IS NULL OR instance = $5)`;
   const vec = await embedText(query).catch(() => undefined);
   const vectorRows = vec
     ? await q<Chunk>(
         `SELECT id, title, content, source, kind, company_slug FROM knowledge_chunks
-          WHERE ${filters} AND embedding IS NOT NULL ORDER BY embedding <=> $1::vector LIMIT 10`,
-        [toVec(vec), company, kinds ?? null],
+          WHERE ${filters} AND embedding IS NOT NULL AND $4::int IS NULL ORDER BY embedding <=> $1::vector LIMIT 10`,
+        [toVec(vec), company, kinds ?? null, null, instance ?? ''],
       )
     : [];
   const codes = query.match(/\b[A-Z]{1,4}-?\d{2,5}\b/g) ?? [];
@@ -32,7 +34,7 @@ export async function searchKnowledge(query: string, company: string | null, k =
     `SELECT id, title, content, source, kind, company_slug FROM knowledge_chunks
       WHERE ${filters} AND (search @@ websearch_to_tsquery('portuguese', $1) OR (cardinality($4::text[]) > 0 AND content ILIKE ANY($4)))
       ORDER BY ts_rank(search, websearch_to_tsquery('portuguese', $1)) DESC LIMIT 10`,
-    [query, company, kinds ?? null, codes.map((c) => `%${c}%`)],
+    [query, company, kinds ?? null, codes.map((c) => `%${c}%`), instance ?? ''],
   );
   const score = new Map<string, { c: Chunk; s: number }>();
   for (const [list, w] of [[vectorRows, 1], [keywordRows, 1.2]] as const) {
@@ -57,9 +59,9 @@ export async function backfillEmbeddings(batch = 64): Promise<number> {
   return rows.length;
 }
 
-export async function addKnowledge(o: { title: string; content: string; source: string; kind?: string; company?: string | null }) {
+export async function addKnowledge(o: { title: string; content: string; source: string; kind?: string; company?: string | null; instance?: string | null }) {
   await q(
-    `INSERT INTO knowledge_chunks (title, content, source, kind, company_slug) VALUES ($1, $2, $3, $4, $5)`,
-    [o.title, o.content, o.source, o.kind ?? 'faq', o.company ?? null],
+    `INSERT INTO knowledge_chunks (title, content, source, kind, company_slug, instance) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [o.title, o.content, o.source, o.kind ?? 'faq', o.company ?? null, o.instance ?? null],
   );
 }

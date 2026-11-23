@@ -61,6 +61,7 @@ const schema = z.object({
   VERCEL_TEAM_ID: z.string().default(''),
   MONTHLY_BUDGET_USD: z.coerce.number().default(300),
   // quem "e" cada numero: a IA escreve como essa pessoa. "gabriel:Gabriel|dono da SelfMachine;suporte:Bruna|atendimento AGarraMais"
+  EMOJIS: z.string().default('off'),   // off = a IA nunca manda emoji
   PERSONAS: z.string().default('gabriel:Gabriel|fundador da SelfMachine'),
 });
 
@@ -83,7 +84,7 @@ export type Env = typeof env;
  * Ajustes feitos no painel (tabela app.settings) valem por cima das variaveis de ambiente.
  * O cache e atualizado a cada 30 s em cada processo (lib/settings.ts).
  */
-export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS'] as const;
+export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS'] as const;
 export type EditableSetting = (typeof EDITABLE_SETTINGS)[number];
 const overrides: Partial<Record<EditableSetting, string>> = {};
 export function setOverrides(o: Partial<Record<EditableSetting, string>>) {
@@ -97,6 +98,7 @@ export function setting(key: EditableSetting): string {
 }
 export const sendMode = () => (setting('SEND_MODE') === 'auto' ? 'auto' : 'draft');
 export const autoSendAgents = () => setting('AUTO_SEND_AGENTS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+export const emojisAllowed = () => setting('EMOJIS') === 'on';
 export const shadowNotify = () => /^(true|1)$/i.test(setting('SHADOW_NOTIFY'));
 
 export type Persona = { name: string; about: string };

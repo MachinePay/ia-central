@@ -6,7 +6,8 @@ import { deliver, notifyGabriel } from '../delivery.js';
 import { getThread, lastInboundId, setThread } from '../domain/repo.js';
 import type { Agent, Specialist, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { env, setting } from '../lib/env.js';
+import { emojisAllowed, env, setting } from '../lib/env.js';
+import { stripEmojis } from '../channels/whatsapp/format.js';
 import { addCost, costToday, costUsd } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { enqueueRespond, summarizeQueue } from '../lib/queues.js';
@@ -148,6 +149,8 @@ async function respond(threadId: string, started: number) {
     return;
   }
 
+  // sem emoji (padrao): tirado no codigo, nao depende do modelo obedecer
+  if (!emojisAllowed()) check.text = stripEmojis(check.text) || check.text;
   const lastMsg = pack.block[pack.block.length - 1];
   const status = await deliver({
     thread, agent, text: check.text, lastInboundId: lastSeen,

@@ -264,7 +264,7 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
             <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="+ tag (VIP, BOT…)" className={cx(inputCls, 'h-7! w-32! text-[12px]')} />
           </form>
         </div>
-        {d.thread.instance && <p className="mt-2 text-[12px] text-text-2">No seu número pessoal, a IA só fala com quem tem a tag BOT.</p>}
+        {d.thread.instance && <p className="mt-2 text-[12px] text-text-2">Tag BOT: no seu número pessoal, a IA só fala com quem tem. Tag AUTO: a resposta sai sozinha para este contato (sem rascunho).</p>}
       </Section>
       <Section title="Resumo da conversa"><p className="text-[13px] whitespace-pre-wrap text-text-2">{d.thread.summary ?? 'Ainda sem resumo (é feito a cada 10 mensagens).'}</p></Section>
       {promises.length > 0 && (

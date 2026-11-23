@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, put } from '../lib/api';
+import { api, post, put } from '../lib/api';
 import { AGENTS, phone, type AgentKey } from '../lib/format';
 import { toast, toastError } from '../lib/toast';
 import { Button, Card, cx, ErrorState, Field, inputCls, PageHeader, Pill, Skeleton, StatusBadge } from '../ui';
@@ -71,6 +71,8 @@ export function Settings() {
             </div>
           </Card>
 
+          <PersonaProfiles />
+
           <Card className="p-4">
             <h2 className="font-semibold">Envio das respostas</h2>
             <p className="mb-3 text-[13px] text-text-2">No modo rascunho nada sai sozinho para o cliente: a resposta fica na conversa para você enviar com um clique.</p>
@@ -120,5 +122,47 @@ export function Settings() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Jeito de escrever de cada numero: gerado das mensagens reais da pessoa, editavel. */
+function PersonaProfiles() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['personas'], queryFn: () => api('/api/personas') });
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  const rebuild = useMutation({
+    mutationFn: (instance: string) => post(`/api/personas/${instance}/rebuild`),
+    onSuccess: () => { toast('Jeito de escrever reaprendido das suas mensagens.'); void qc.invalidateQueries({ queryKey: ['personas'] }); },
+    onError: toastError,
+  });
+  const save = useMutation({
+    mutationFn: (instance: string) => put(`/api/personas/${instance}`, { profile: edit[instance] }),
+    onSuccess: (_d, instance) => { toast('Salvo. A IA usa o novo jeito em até 10 minutos.'); setEdit((e) => { const n = { ...e }; delete n[instance]; return n; }); void qc.invalidateQueries({ queryKey: ['personas'] }); },
+    onError: toastError,
+  });
+  if (q.isLoading) return <Card className="p-4"><Skeleton lines={2} /></Card>;
+  if (q.error) return <ErrorState error={q.error} />;
+  return (
+    <Card className="p-4">
+      <h2 className="font-semibold">Jeito de escrever de cada número</h2>
+      <p className="mb-3 text-[13px] text-text-2">Cada número aprende só com as próprias mensagens. A IA estuda o que foi mandado por aquele número e escreve este guia; ela segue à risca. Dá para corrigir à mão.</p>
+      <div className="space-y-4">
+        {(q.data as any[]).map((p) => (
+          <div key={p.instance} className="rounded-[6px] border border-line p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="font-semibold">{p.persona.name}</span><span className="text-text-2">· número {p.instance} · {p.messages} mensagens suas guardadas</span>
+              <span className="ml-auto text-[12px] text-text-2">{p.updatedAt ? `atualizado ${new Date(p.updatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'ainda não gerado'}</span>
+            </div>
+            <textarea className={cx(inputCls, 'h-48! py-2! font-mono text-[12px]')} value={edit[p.instance] ?? p.profile}
+              placeholder={p.messages < 15 ? 'Ainda há poucas mensagens deste número. Continue usando o WhatsApp normalmente; o guia é gerado sozinho toda madrugada.' : 'Clique em "Reaprender" para gerar.'}
+              onChange={(e) => setEdit({ ...edit, [p.instance]: e.target.value })} aria-label={`Jeito de escrever do número ${p.instance}`} />
+            <div className="mt-2 flex justify-end gap-2">
+              <Button size="sm" busy={rebuild.isPending && rebuild.variables === p.instance} onClick={() => rebuild.mutate(p.instance)}>Reaprender das mensagens</Button>
+              <Button size="sm" variant="primary" disabled={edit[p.instance] === undefined} busy={save.isPending && save.variables === p.instance} onClick={() => save.mutate(p.instance)}>Salvar edição</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }

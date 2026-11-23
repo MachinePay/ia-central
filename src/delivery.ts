@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { sendText } from './channels/whatsapp/evolution.js';
 import { saveOutbound } from './domain/repo.js';
+import { one } from './lib/db.js';
 import type { Agent, Thread } from './domain/types.js';
 import { approvalInstance, autoSendAgents, env, sendMode, shadowNotify } from './lib/env.js';
 import { logger } from './lib/logger.js';
@@ -25,7 +26,9 @@ export type DeliverInput = {
 /** Decide entre rascunho e envio; o envio de fato acontece no worker "outbound". */
 export async function deliver(i: DeliverInput): Promise<'DRAFT' | 'QUEUED'> {
   const outboundKey = createHash('sha256').update(`${i.thread.id}|${i.lastInboundId ?? ''}|${i.agent}|${i.force ? i.text : ''}`).digest('hex').slice(0, 32);
-  const auto = i.force || autoSendEnabled(i.agent, i.thread.channel);
+  // tag AUTO no contato: responde sozinho so para ele (o resto continua em rascunho)
+  const contactAuto = !!(await one<{ ok: boolean }>(`SELECT true AS ok FROM contacts WHERE id = $1 AND 'AUTO' = ANY(tags)`, [i.thread.contact_id]));
+  const auto = i.force || contactAuto || autoSendEnabled(i.agent, i.thread.channel);
   const status = auto ? 'QUEUED' : 'DRAFT';
   const msg = await saveOutbound(i.thread.id, i.text, i.agent, status, { outboundKey, quotedId: i.quotedId });
   if (!msg) return status;

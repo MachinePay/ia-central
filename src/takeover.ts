@@ -2,8 +2,10 @@ import { handleGabrielReply, isGabrielPhone } from './approvals/approvals.js';
 import { deleteForEveryone } from './channels/whatsapp/evolution.js';
 import { normalizePhone } from './lib/phone.js';
 import { handleSentinelCommand } from './sentinela/commands.js';
-import { findWaThread, saveOutbound, setThread } from './domain/repo.js';
-import type { Thread } from './domain/types.js';
+import { findWaThread, saveOutbound, setThread, upsertContact, upsertThread } from './domain/repo.js';
+import type { InboundEvent, Thread } from './domain/types.js';
+import { q } from './lib/db.js';
+import { instanceRole } from './lib/env.js';
 import { logger } from './lib/logger.js';
 import { cancelPendingRespond } from './lib/queues.js';
 import { keys, redis } from './lib/redis.js';
@@ -50,7 +52,16 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
     await handleGabrielReply(p.text, p.quotedId);
     return;
   }
-  const thread = await findWaThread(instance, p.jid);
+  let thread = await findWaThread(instance, p.jid);
+  if (!thread && instanceRole(instance) === 'GABRIEL' && p.text && !p.text.startsWith('/')) {
+    // numero pessoal: guarda tudo o que o Gabriel escreve, para a IA aprender o jeito dele (nao responde ninguem por isso)
+    const ev = { channel: 'WHATSAPP', instance, externalMessageId: `wa:${instance}:${p.id}`, externalThreadId: p.jid, sender: { phone: normalizePhone(p.jid), jid: p.jid }, content: '', media: [], needsMedia: false, metadata: {}, receivedAt: new Date().toISOString() } as InboundEvent;
+    const contact = await upsertContact(ev);
+    if (contact.role === 'LEAD' && !contact.tags.length) await q(`UPDATE contacts SET role = 'PESSOAL' WHERE id = $1`, [contact.id]);
+    thread = await upsertThread(ev, contact.id);
+    await saveOutbound(thread.id, p.text, 'HUMAN', 'SENT', {}, `wa:${instance}:${p.id}`);
+    return;
+  }
   if (!thread) return;
   if (await handleBotCommand(thread, p.text)) {
     await deleteForEveryone(instance, p.jid, p.id); // o cliente nao ve o comando
