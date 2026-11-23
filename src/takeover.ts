@@ -1,3 +1,4 @@
+import { handleGabrielReply, isGabrielPhone } from './approvals/approvals.js';
 import { deleteForEveryone } from './channels/whatsapp/evolution.js';
 import { findWaThread, saveOutbound, setThread } from './domain/repo.js';
 import type { Thread } from './domain/types.js';
@@ -39,8 +40,13 @@ export async function handleBotCommand(thread: Thread, text: string): Promise<bo
 }
 
 /** Mensagem fromMe que nao foi o bot: o Gabriel (ou a equipe) digitou no celular. */
-export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean }) {
+export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string }) {
   if (p.botMarked || (await redis.exists(keys.sent(p.id)))) return; // foi o proprio bot
+  // conversa "Voce" do Gabriel (consigo mesmo): e onde chegam rascunhos e aprovacoes; a resposta dele decide a aprovacao
+  if (isGabrielPhone(p.jid)) {
+    await handleGabrielReply(p.text, p.quotedId);
+    return;
+  }
   const thread = await findWaThread(instance, p.jid);
   if (!thread) return;
   if (await handleBotCommand(thread, p.text)) {

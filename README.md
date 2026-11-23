@@ -54,6 +54,17 @@ npm run dev:worker
 Aprovações chegam no seu WhatsApp como `[Aprovação #A-0001]`: responda **citando a mensagem** com `1` (aprovar),
 `2` (recusar) ou o texto que deve ir para o cliente.
 
+## Papel de cada número (`WA_INSTANCES`)
+
+| Papel | O que faz |
+|---|---|
+| `ATENDIMENTO` | o Léo roteia e João/Clara/Gabriel respondem (rascunho ou envio, conforme `SEND_MODE`) |
+| `OBSERVAR` | só aprendendo: guarda as conversas e o aprendiz estuda as respostas da equipe a cada 30 min; nunca responde |
+| `GABRIEL` | seu número pessoal: só fala com contatos liberados (tag `BOT`); a conversa "Você" recebe rascunhos e aprovações |
+| `OFF` | ignorado |
+
+O que o aprendiz guarda vai para `app.knowledge_chunks` com origem `aprendido:equipe` (sem dados de cliente nem preços).
+
 ## Modo sombra → envio automático
 
 `SEND_MODE=draft` (padrão): nada vai para o cliente. No WhatsApp o rascunho fica no banco (e chega para você se

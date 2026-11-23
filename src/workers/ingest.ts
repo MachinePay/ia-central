@@ -48,6 +48,11 @@ async function persistAndQueue(ev: InboundEvent) {
     return;
   }
   if (ev.metadata.late) return; // reenvio atrasado: so registra, nao responde horas depois
+  if (ev.channel === 'WHATSAPP' && instanceRole(ev.instance) === 'OBSERVAR') {
+    // so aprendendo: guarda a conversa (audio vira texto para o aprendiz), mas nunca gera resposta
+    if (ev.needsMedia) await mediaQueue.add('media', { messageId: saved.message.id, threadId: thread.id, channel: ev.channel, instance: ev.instance, raw, observeOnly: true }, { attempts: 2 });
+    return;
+  }
   if (ev.needsMedia) {
     await mediaQueue.add('media', { messageId: saved.message.id, threadId: thread.id, channel: ev.channel, instance: ev.instance, raw },
       { attempts: 2, backoff: { type: 'fixed', delay: 5000 } });
@@ -91,7 +96,7 @@ export async function mediaWorker(job: Job) {
   }
   const content = [msg.content, ...parts].filter(Boolean).join('\n');
   await q(`UPDATE messages SET content = $2, media = $3, status = 'DONE' WHERE id = $1`, [messageId, content, JSON.stringify(media)]);
-  await enqueueRespond(threadId, channel);
+  if (!job.data.observeOnly) await enqueueRespond(threadId, channel);
 }
 
 // ------------------------------------------------------------------ Gmail

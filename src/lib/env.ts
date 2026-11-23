@@ -67,7 +67,8 @@ export const env = {
 };
 export type Env = typeof env;
 
-export type InstanceRole = 'ATENDIMENTO' | 'GABRIEL' | 'OFF';
+/** ATENDIMENTO: agentes atendem | GABRIEL: numero pessoal | OBSERVAR: so registra e aprende | OFF: ignora */
+export type InstanceRole = 'ATENDIMENTO' | 'GABRIEL' | 'OBSERVAR' | 'OFF';
 
 /** "joao:ATENDIMENTO,gabriel:GABRIEL" -> Map */
 export function instanceRoles(): Map<string, InstanceRole> {
@@ -76,7 +77,7 @@ export function instanceRoles(): Map<string, InstanceRole> {
     const [name, role] = part.split(':').map((s) => s?.trim());
     if (!name) continue;
     const r = (role ?? 'ATENDIMENTO').toUpperCase();
-    m.set(name, r === 'GABRIEL' || r === 'OFF' ? r : 'ATENDIMENTO');
+    m.set(name, r === 'GABRIEL' || r === 'OFF' || r === 'OBSERVAR' ? r : 'ATENDIMENTO');
   }
   return m;
 }

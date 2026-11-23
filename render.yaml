@@ -27,11 +27,11 @@ envVarGroups:
         value: production
       - key: DB_SCHEMA
         value: app
-      - key: WA_INSTANCES            # papel de cada instancia: ATENDIMENTO | GABRIEL | OFF
+      - key: WA_INSTANCES            # papel de cada instancia: ATENDIMENTO | GABRIEL | OBSERVAR | OFF
         sync: false
       - key: GABRIEL_PERSONAL_PHONE  # recebe aprovacoes e alertas
         sync: false
-      - key: APPROVAL_INSTANCE       # instancia que manda as aprovacoes para o Gabriel
+      - key: APPROVAL_INSTANCE       # instancia que manda rascunhos e aprovacoes (o numero do Gabriel = conversa "Voce")
         sync: false
       - key: OPENAI_API_KEY
         sync: false

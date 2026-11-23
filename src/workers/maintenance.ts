@@ -7,6 +7,7 @@ import { env } from '../lib/env.js';
 import { logger } from '../lib/logger.js';
 import { ingestQueue, maintenanceQueue, respondQueue, summarizeQueue } from '../lib/queues.js';
 import { backfillEmbeddings } from '../memory/kb.js';
+import { learnFromTeam } from '../memory/learn.js';
 
 export async function scheduleMaintenance() {
   const every = (name: string, pattern: string) =>
@@ -19,6 +20,7 @@ export async function scheduleMaintenance() {
   await every('embeddings', '*/5 * * * *');
   await every('queue-health', '*/5 * * * *');
   await every('lgpd-retention', '30 3 * * *');
+  await every('learn', '*/30 * * * *');               // aprendiz: respostas da equipe viram conhecimento
 }
 
 export async function maintenanceWorker(job: Job) {
@@ -31,6 +33,7 @@ export async function maintenanceWorker(job: Job) {
     case 'embeddings': { const n = await backfillEmbeddings(); if (n) logger.info({ n }, 'embeddings gerados'); return; }
     case 'queue-health': return queueHealth();
     case 'lgpd-retention': return retention();
+    case 'learn': { await learnFromTeam(); return; }
   }
 }
 

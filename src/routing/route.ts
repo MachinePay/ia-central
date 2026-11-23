@@ -32,6 +32,7 @@ const isSpecialist = (a: Agent): a is Specialist => a === 'JOAO' || a === 'CLARA
 // ------------------------------------------------------------------ nivel 1: deterministico (sem LLM)
 export async function preRoute(p: ContextPack): Promise<RouteDecision | { action: 'CHECK_CONTINUITY' } | null> {
   const { thread, contact } = p;
+  if (thread.channel === 'WHATSAPP' && instanceRole(thread.instance) === 'OBSERVAR') return { action: 'SILENT', reason: 'numero so aprendendo' };
   if (await isTakeover(thread.id)) return { action: 'SILENT', reason: 'takeover humano' };
   if (thread.status === 'PAUSED') return { action: 'SILENT', reason: 'thread pausada' };
   if (contact.opted_out) return { action: 'SILENT', reason: 'opt-out' };
