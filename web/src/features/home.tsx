@@ -61,7 +61,11 @@ export function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => { if (data && sceneRef.current) sceneRef.current.setData(data.areas, data.items); }, [data]);
-  useEffect(() => { sceneRef.current?.setFilter({ status, q, area }); }, [status, q, area, data]);
+  const [visible, setVisible] = useState<number | null>(null);
+  useEffect(() => {
+    sceneRef.current?.setFilter({ status, q, area });
+    setVisible(sceneRef.current && (q || status !== 'all' || area) ? sceneRef.current.count() : null);
+  }, [status, q, area, data]);
   useEffect(() => { sceneRef.current?.setLabels(tools.labels); sceneRef.current?.setFlow(tools.flow); sceneRef.current?.setSpin(tools.spin); }, [tools]);
   useEffect(() => {
     const t = new MutationObserver(() => sceneRef.current?.applyTheme());
@@ -107,7 +111,6 @@ export function Home() {
   const needs = summary.data?.needsYou;
   const needsCount = (needs?.approvals.length ?? 0) + (needs?.incidents.filter((i: any) => i.status === 'OPEN').length ?? 0) + (needs?.unanswered.length ?? 0);
   const areas = data?.areas ?? [];
-  const visible = sceneRef.current && (q || status !== 'all' || area) ? sceneRef.current.count() : null;
 
   return (
     <div className="relative h-full overflow-hidden" style={{ background: 'var(--scene-bg)' }}>

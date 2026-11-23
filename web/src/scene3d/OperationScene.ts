@@ -80,7 +80,7 @@ export class OperationScene {
   private labels: Array<{ el: HTMLElement; pos: THREE.Vector3 }> = [];
   private ray = new THREE.Raycaster(); private mouse = new THREE.Vector2();
   private tween: null | { t: number; ft: THREE.Vector3; fc: THREE.Vector3; tt: THREE.Vector3; tc: THREE.Vector3 } = null;
-  private HOME = { target: new THREE.Vector3(0, 0, 2), cam: new THREE.Vector3(30, 31, 38) };
+  private HOME = { target: new THREE.Vector3(0, 0, 3), cam: new THREE.Vector3(28, 36, 44) };
   private running = true; private raf = 0; private last = performance.now(); private time = 0;
   private W = 0; private H = 0; private pr: number; private frames = 0; private acc = 0;
   private hoverIt: Item | null = null; private down = { x: 0, y: 0 }; private pendingMove: PointerEvent | null = null;
@@ -140,7 +140,7 @@ export class OperationScene {
     this.roleMats = { desk: [], agent: [], rack: [] };
     const ring = areasIn.filter((a) => a.kind !== 'hub');
     ring.forEach((a, i) => { (a as any)._i = i; });
-    const R = Math.max(13, 4.2 * ring.length);
+    const R = Math.max(13, 3.3 * ring.length);
     areasIn.forEach((a, idx) => {
       let x = 0, z = 0;
       if (a.kind !== 'hub') {
