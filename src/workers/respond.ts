@@ -11,7 +11,7 @@ import { addCost, costToday, costUsd } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { enqueueRespond, summarizeQueue } from '../lib/queues.js';
 import { acquireLock, keys, redis, releaseLock } from '../lib/redis.js';
-import { checkOutput } from '../guardrails/output.js';
+import { ASKS_BOT, checkOutput, isSmallTalk } from '../guardrails/output.js';
 import { buildContext } from '../memory/context.js';
 import { summarizeThread } from '../memory/summarize.js';
 import { route, switchLimitReached, type RouteDecision } from '../routing/route.js';
@@ -133,6 +133,7 @@ async function respond(threadId: string, started: number) {
   const check = await checkOutput({
     text: reply, channel: thread.channel, agent, evidence: result?.ctx.evidence ?? [],
     facts: thread.facts, kbConsulted: result?.ctx.kbConsulted ?? false,
+    clientAskedBot: ASKS_BOT.test(pack.blockText), shortClient: pack.block.every((m) => isSmallTalk(m.content)),
   });
   if (check.blocked) {
     await notifyGabriel(`🛑 Resposta bloqueada pelo verificador (${agent}) para ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email}: ${check.issues.join('; ')}\n\nRascunho: ${reply}`).catch(() => undefined);

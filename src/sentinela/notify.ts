@@ -41,7 +41,8 @@ function inQuietHours(c: AlertContact, at = new Date()): boolean {
 }
 
 async function recipients(inc: Incident, level = 1): Promise<AlertContact[]> {
-  const all = await q<AlertContact>(`SELECT * FROM sentinela.contacts WHERE active AND verified_at IS NOT NULL AND escalation_level <= $1`, [level]);
+  // nivel 1 recebe o aviso; o escalonamento vai so para quem e nivel 2 (sem repetir para o nivel 1)
+  const all = await q<AlertContact>(`SELECT * FROM sentinela.contacts WHERE active AND verified_at IS NOT NULL AND escalation_level = $1`, [level]);
   return all.filter((c) =>
     severityRank(inc.severity) >= severityRank(c.min_severity) &&
     (!c.sources.length || c.sources.includes(inc.source)) &&
@@ -155,7 +156,7 @@ export async function notify(incidentId: number, kind: 'opened' | 'resolved' | '
     await sendAlert(c.phone, text).then(() => sent++).catch((e) => logger.error({ err: String(e) }, 'falha ao mandar alerta'));
   }
   if (sent && kind === 'opened') await q(`UPDATE sentinela.incidents SET notified_at = now() WHERE id = $1`, [incidentId]);
-  if (sent && kind === 'escalated') await q(`UPDATE sentinela.incidents SET escalated_at = now() WHERE id = $1`, [incidentId]);
+  if (kind === 'escalated') await q(`UPDATE sentinela.incidents SET escalated_at = now() WHERE id = $1`, [incidentId]);
   if (sent) await q(`INSERT INTO sentinela.incident_events (incident_id, type, payload) VALUES ($1, 'NOTIFIED', $2)`, [incidentId, JSON.stringify({ kind, to: sent })]);
 }
 

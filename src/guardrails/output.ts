@@ -12,6 +12,11 @@ const DEADLINE = /\b(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|em (até )?\d+\s?(dias|horas
 // especificacao tecnica com unidade (110/220V, 50 W, 4 GB, 30 cm...): tambem precisa vir de fonte
 const SPECS = /\b\d+(?:[.,/]\d+)*\s?(?:V|W|kW|A|GB|MB|Mbps|cm|mm|m|kg|g|pol(?:egadas)?|")(?![a-zA-Z])/g;
 const WA_MAX_CHARS = 1800;
+const SELF_AS_BOT = /\b(assistente (do|da|de|virtual)|sou (o|a|um|uma) (assistente|bot|rob[oô]|ia)|atendimento autom[aá]tico|agente virtual)\b/i;
+export const ASKS_BOT = /\b(rob[oô]|bot|\bia\b|intelig[eê]ncia artificial|chat ?gpt|autom[aá]tic|é (uma )?pessoa|é gente|é humano)\b/i;
+/** Cumprimento ou mensagem curta sem pedido ("oi", "blz", "iai dboa?"). */
+export const isSmallTalk = (t: string) =>
+  t.trim().length <= 40 && /^(oi+|ol[aá]|opa|e a[ií]|iai|eai|fala|bom dia|boa tarde|boa noite|tudo (bem|certo|bom)|blz|beleza|dboa|de boa|tranquilo|salve|ok|obrigad|valeu|vlw|tmj|👍|🙏)/i.test(t.trim());
 
 const norm = (s: string) => s.replace(/\s/g, '').replace(',', '.').toLowerCase();
 
@@ -30,11 +35,16 @@ function unsupportedFigures(text: string, evidence: string): string[] {
  */
 export async function checkOutput(o: {
   text: string; channel: Channel; agent: Agent; evidence: string[]; facts: unknown; kbConsulted: boolean;
+  clientAskedBot?: boolean; shortClient?: boolean;
 }): Promise<OutputCheck> {
   const issues: string[] = [];
   const evidence = o.evidence.join('\n') + JSON.stringify(o.facts ?? {});
   if (SENSITIVE_RE.some((r) => r.test(o.text))) issues.push('contém dado sensível (CPF/CNPJ/senha/token): remova');
-  if (CLAIMS_HUMAN.test(o.text)) issues.push('diz ser humano: diga que é o assistente virtual e que o Gabriel acompanha');
+  if (CLAIMS_HUMAN.test(o.text)) issues.push('nega ser IA: se perguntaram, diga com leveza que usa um assistente para responder rápido e que a pessoa acompanha tudo');
+  // humano substituto: so fala de "assistente" quando o cliente perguntou se e robo
+  if (!o.clientAskedBot && SELF_AS_BOT.test(o.text)) issues.push('se apresenta como assistente/robô sem o cliente perguntar: escreva em primeira pessoa como a própria pessoa, sem mencionar assistente');
+  if (o.channel === 'WHATSAPP' && /^\s*[•\-*]\s/m.test(o.text)) issues.push('tem lista com marcadores: escreva em frases normais, como no WhatsApp');
+  if (o.shortClient && o.text.length > 280) issues.push('o cliente só cumprimentou ou mandou algo curto: responda curto (1 bolha) e não puxe assuntos antigos');
   const figs = unsupportedFigures(o.text, evidence);
   if (figs.length) issues.push(`cita valores, prazos ou especificações que não vieram de ferramenta nem de aprovação (${figs.join(', ')}): remova e diga que vai confirmar`);
   if (o.agent === 'CLARA' && !o.kbConsulted && /(\n\s*\d+[.)]\s|clique em|acesse o menu|v[aá] em configura)/i.test(o.text)) {

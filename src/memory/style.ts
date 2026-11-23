@@ -16,6 +16,9 @@ export async function styleFor(instance: string, company: string | null): Promis
        SELECT DISTINCT ON (left(m.content, 60)) m.content, m.created_at FROM app.messages m JOIN app.threads t ON t.id = m.thread_id
         WHERE m.sender = 'HUMAN' AND t.instance = $1 AND length(m.content) BETWEEN 2 AND 400 AND left(m.content, 1) <> '['
           AND m.content !~* '(senha|pix:|cpf|cnpj|\\d{3}\\.\\d{3}\\.\\d{3})'
+          -- mensagens do robo antigo (n8n) tambem sairam por este numero: nao sao o jeito da pessoa
+          AND m.content !~* '(assistente|🤖|intelig[eê]ncia artificial|\\mia\\M|\\mbot\\M|rob[oô]|atendimento autom|📝 rascunho|aprova[cç][aã]o #|\\[aprova)'
+          AND m.content !~ '^\\s*[•\\-\\*] '
         ORDER BY left(m.content, 60), m.created_at DESC) x
      ORDER BY created_at DESC LIMIT 30`,
     [instance],
@@ -23,6 +26,7 @@ export async function styleFor(instance: string, company: string | null): Promis
   const sample = examples.reverse().map((e) => `- ${e.content.replace(/⁣/g, '').replace(/\n/g, ' / ').slice(0, 220)}`);
   const notes = await q<{ title: string; content: string }>(
     `SELECT title, content FROM app.knowledge_chunks WHERE active AND kind = 'estilo' AND ($1::text IS NULL OR company_slug IS NULL OR company_slug = $1)
+        AND content !~* '(assistente|rob[oô]|\\mia\\M)'
       ORDER BY updated_at DESC LIMIT 6`,
     [company],
   );
