@@ -98,4 +98,4 @@ Ainda não feito: navegador real com login (Playwright), rollback/restart pelo W
 
 ## Render
 
-Veja [docs/implantar.md](docs/implantar.md).
+Veja [docs/implantar.md](docs/implantar.md). O painel (`web/`) é publicado na Vercel (projeto `iacentralleo`, Root Directory `web`, variável `VITE_API_URL`).

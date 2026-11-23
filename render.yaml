@@ -156,26 +156,7 @@ services:
       - key: EVOLUTION_BASE_URL
         fromService: { type: web, name: ia-central-evolution, property: hostport }
 
-  # ------------------------------------------------------------------ Painel (Centro de Comando): site estatico
-  - type: web
-    name: ia-central-painel
-    runtime: static
-    rootDir: web
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    buildFilter:
-      paths: [web/**]
-    envVars:
-      - key: VITE_API_URL
-        value: https://ia-central-api.onrender.com
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /assets/*
-        name: cache-control
-        value: public, max-age=31536000, immutable
+  # O painel (web/) fica na Vercel, projeto iacentralleo (Root Directory = web, VITE_API_URL = endereco da API).
 
   # ------------------------------------------------------------------ Evolution API: WhatsApp
   - type: web
