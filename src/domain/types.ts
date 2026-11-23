@@ -43,6 +43,8 @@ export type Contact = {
   tags: string[];
   crm_stage: string;
   notes: string | null;
+  treatment?: string | null; // como o dono do numero trata este contato (aprendido das mensagens)
+  treatment_manual?: boolean;
   opted_out: boolean;
   consent_at: Date | null;
 };

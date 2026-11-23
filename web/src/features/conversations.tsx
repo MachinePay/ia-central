@@ -266,6 +266,7 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
         </div>
         {d.thread.instance && <p className="mt-2 text-[12px] text-text-2">Tag BOT: no seu número pessoal, a IA só fala com quem tem. Tag AUTO: a resposta sai sozinha para este contato (sem rascunho).</p>}
       </Section>
+      <TreatmentSection threadId={d.thread.id} contact={c} onChanged={onChanged} />
       <Section title="Resumo da conversa"><p className="text-[13px] whitespace-pre-wrap text-text-2">{d.thread.summary ?? 'Ainda sem resumo (é feito a cada 10 mensagens).'}</p></Section>
       {promises.length > 0 && (
         <Section title="Promessas">
@@ -294,5 +295,31 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
         </ul>
       </Section>
     </aside>
+  );
+}
+
+/** Como o dono do numero trata esta pessoa: aprendido das mensagens ja mandadas, editavel. */
+function TreatmentSection({ threadId, contact, onChanged }: { threadId: string; contact: any; onChanged: () => void }) {
+  const [text, setText] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: () => patch(`/api/contacts/${contact.id}`, { treatment: text }),
+    onSuccess: () => { toast('Salvo. A IA passa a tratar esta pessoa assim.'); setText(null); onChanged(); },
+    onError: toastError,
+  });
+  const relearn = useMutation({
+    mutationFn: () => post(`/api/threads/${threadId}/treatment`),
+    onSuccess: () => { toast('Reaprendido das suas mensagens com esta pessoa.'); setText(null); onChanged(); },
+    onError: toastError,
+  });
+  return (
+    <Section title="Como você trata esta pessoa" right={contact.treatment_manual ? <Pill>editado à mão</Pill> : contact.treatment_at ? <Pill tone="ok">aprendido</Pill> : null}>
+      <textarea value={text ?? contact.treatment ?? ''} onChange={(e) => setText(e.target.value)} rows={6}
+        placeholder="Ainda não aprendido. Depois de algumas mensagens suas para esta pessoa, a IA anota aqui o apelido, o tom e os cuidados."
+        className="w-full rounded-[6px] border border-line bg-bg p-2 text-[13px]" aria-label="Como você trata esta pessoa" />
+      <div className="mt-1.5 flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" busy={relearn.isPending} onClick={() => relearn.mutate()}>Reaprender</Button>
+        <Button size="sm" disabled={text === null} busy={save.isPending} onClick={() => save.mutate()}>Salvar</Button>
+      </div>
+    </Section>
   );
 }

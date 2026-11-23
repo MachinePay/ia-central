@@ -8,7 +8,7 @@ import { getThread, setThread } from '../domain/repo.js';
 import type { Agent } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { EDITABLE_SETTINGS, env, instanceRoles, personaFor, setting, type EditableSetting } from '../lib/env.js';
-import { buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
+import { buildContactTreatment, buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
 import { normalizePhone } from '../lib/phone.js';
@@ -188,6 +188,7 @@ export async function panelRoutes(app: FastifyInstance) {
         role: z.enum(['CLIENTE', 'LEAD', 'FORNECEDOR', 'PARCEIRO', 'PESSOAL']).optional(), tags: z.array(z.string().max(40)).max(20).optional(),
         notes: z.string().max(2000).nullable().optional(), crm_stage: z.enum(['NEW', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CUSTOMER', 'LOST']).optional(),
         opted_out: z.boolean().optional(),
+        treatment: z.string().max(2000).nullable().optional(),
       }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
       const cols = Object.entries(b.data).filter(([, v]) => v !== undefined);
@@ -196,7 +197,18 @@ export async function panelRoutes(app: FastifyInstance) {
         `UPDATE app.contacts SET ${cols.map(([k], i) => `${k} = $${i + 2}${k === 'crm_stage' ? '::app.crm_stage' : ''}`).join(', ')}, updated_at = now() WHERE id = $1`,
         [req.params.id, ...cols.map(([, v]) => v)],
       );
+      // editado a mao: o aprendizado automatico nao sobrescreve mais (ate pedir para reaprender)
+      if (b.data.treatment !== undefined) await q(`UPDATE app.contacts SET treatment_manual = true, treatment_at = now() WHERE id = $1`, [req.params.id]);
       return { ok: true };
+    });
+    // reaprender o jeito com este contato a partir das mensagens (desfaz edicao manual)
+    api.post<{ Params: { id: string } }>('/api/threads/:id/treatment', async (req, reply) => {
+      const t = await getThread(req.params.id);
+      if (!t) return bad(reply, 'Conversa não encontrada.', 404);
+      await q(`UPDATE app.contacts SET treatment_manual = false WHERE id = $1`, [t.contact_id]);
+      const text = await buildContactTreatment(t.id).catch((e) => { throw new Error(`Não consegui gerar agora: ${e.message}`); });
+      if (!text) return bad(reply, 'Ainda há poucas mensagens suas para esta pessoa (mínimo 4).');
+      return { treatment: text };
     });
 
     // ---------------------------------------------------------------- aprovacoes

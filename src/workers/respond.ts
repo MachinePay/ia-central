@@ -13,6 +13,7 @@ import { logger } from '../lib/logger.js';
 import { enqueueRespond, summarizeQueue } from '../lib/queues.js';
 import { acquireLock, keys, redis, releaseLock } from '../lib/redis.js';
 import { ASKS_BOT, checkOutput, isSmallTalk } from '../guardrails/output.js';
+import { INTIMATE_RE } from '../memory/persona.js';
 import { buildContext } from '../memory/context.js';
 import { summarizeThread } from '../memory/summarize.js';
 import { route, switchLimitReached, type RouteDecision } from '../routing/route.js';
@@ -134,6 +135,7 @@ async function respond(threadId: string, started: number) {
   const check = await checkOutput({
     text: reply, channel: thread.channel, agent, evidence: result?.ctx.evidence ?? [],
     facts: thread.facts, kbConsulted: result?.ctx.kbConsulted ?? false,
+    intimateAllowed: INTIMATE_RE.test(pack.contact.treatment ?? '') || pack.recent.some((m) => m.sender === 'HUMAN' && INTIMATE_RE.test(m.content)),
     clientAskedBot: ASKS_BOT.test(pack.blockText), shortClient: pack.block.every((m) => isSmallTalk(m.content)),
   });
   if (check.blocked) {

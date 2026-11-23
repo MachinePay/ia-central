@@ -8,7 +8,7 @@ import { logger } from '../lib/logger.js';
 import { ingestQueue, maintenanceQueue, respondQueue, summarizeQueue } from '../lib/queues.js';
 import { backfillEmbeddings } from '../memory/kb.js';
 import { learnFromTeam } from '../memory/learn.js';
-import { buildPersonaProfile } from '../memory/persona.js';
+import { buildPersonaProfile, refreshContactTreatments } from '../memory/persona.js';
 import { instanceRoles } from '../lib/env.js';
 
 export async function scheduleMaintenance() {
@@ -23,7 +23,8 @@ export async function scheduleMaintenance() {
   await every('queue-health', '*/5 * * * *');
   await every('lgpd-retention', '30 3 * * *');
   await every('learn', '*/30 * * * *');
-  await every('personas', '0 4 * * *');                // jeito de escrever de cada numero, reaprendido toda madrugada               // aprendiz: respostas da equipe viram conhecimento
+  await every('personas', '0 4 * * *');                // jeito geral de cada numero, toda madrugada
+  await every('treatments', '20 * * * *');             // jeito com cada contato, de hora em hora
 }
 
 export async function maintenanceWorker(job: Job) {
@@ -37,6 +38,7 @@ export async function maintenanceWorker(job: Job) {
     case 'queue-health': return queueHealth();
     case 'lgpd-retention': return retention();
     case 'learn': { await learnFromTeam(); return; }
+    case 'treatments': { await refreshContactTreatments(); return; }
     case 'personas': {
       for (const [inst, role] of instanceRoles()) if (role !== 'OFF') await buildPersonaProfile(inst).catch((e) => logger.warn({ err: String(e), inst }, 'perfil nao gerado'));
       return;

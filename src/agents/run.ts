@@ -48,6 +48,7 @@ export async function systemPrompt(agent: Specialist, pack: ContextPack, interna
     COMPANIES: companiesText(pack.companies),
     COMPANY: company ? company.name : 'ainda não identificada (descubra com naturalidade se precisar)',
     CONTACT_PROFILE: contactProfile(pack.contact),
+    CONTACT_TREATMENT: pack.contact.treatment || '(ainda não aprendido: é a primeira vez ou vocês conversaram pouco)',
     FACTS_JSON: JSON.stringify(pack.thread.facts ?? {}),
     SUMMARY: pack.thread.summary ?? '(conversa nova)',
     OTHER_CHANNEL: pack.otherChannel ?? '(nenhum)',
