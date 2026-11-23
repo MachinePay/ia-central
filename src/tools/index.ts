@@ -5,7 +5,7 @@ import { notifyGabriel } from '../delivery.js';
 import { recentMessages, setThread } from '../domain/repo.js';
 import type { Agent, Contact, Specialist, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { env } from '../lib/env.js';
+import { env, setting } from '../lib/env.js';
 import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
@@ -150,7 +150,7 @@ function joaoTools(ctx: ToolCtx): ToolSet {
       execute: wrap(ctx, 'create_payment_link', async ({ items, draft_reply }) => approval(ctx, 'PAYMENT_LINK', { items }, draft_reply)),
     }),
     apply_discount: tool({
-      description: `Aplica desconto. Até ${env.MAX_AUTO_DISCOUNT_PERCENT}% passa direto; acima, vira pedido de aprovação automaticamente.`,
+      description: `Aplica desconto. Até ${Number(setting('MAX_AUTO_DISCOUNT_PERCENT'))}% passa direto; acima, vira pedido de aprovação automaticamente.`,
       inputSchema: z.object({
         percent: z.number().min(0).max(100),
         scope: z.string().max(200).describe('sobre o que é o desconto (plano, quantidade)'),
@@ -158,13 +158,13 @@ function joaoTools(ctx: ToolCtx): ToolSet {
         draft_reply: z.string().max(800).describe('mensagem ao cliente se aprovado'),
       }),
       execute: wrap(ctx, 'apply_discount', async ({ percent, scope, reason, draft_reply }) => {
-        if (percent <= env.MAX_AUTO_DISCOUNT_PERCENT) {
+        if (percent <= Number(setting('MAX_AUTO_DISCOUNT_PERCENT'))) {
           const facts = { ...(ctx.thread.facts as any) };
           facts.decisoes = [...(facts.decisoes ?? []), { o_que: `desconto de ${percent}% em ${scope}`, quando: new Date().toISOString().slice(0, 10), por: ctx.agent }];
           await setThread(ctx.thread.id, { facts });
           return { applied: true, percent, scope };
         }
-        return approval(ctx, 'DISCOUNT', { percent, scope, reason, limite_automatico: env.MAX_AUTO_DISCOUNT_PERCENT }, draft_reply);
+        return approval(ctx, 'DISCOUNT', { percent, scope, reason, limite_automatico: Number(setting('MAX_AUTO_DISCOUNT_PERCENT')) }, draft_reply);
       }),
     }),
   };

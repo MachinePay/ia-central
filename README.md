@@ -71,6 +71,31 @@ O que o aprendiz guarda vai para `app.knowledge_chunks` com origem `aprendido:eq
 `SHADOW_NOTIFY=true`); no Gmail vira rascunho na própria thread. Quando estiver bom, libere por agente com
 `AUTO_SEND_AGENTS=CLARA` ou `JOAO:WHATSAPP`, ou tudo com `SEND_MODE=auto`.
 
+## Centro de Comando (painel) — `web/`
+
+React 19 + Vite + TanStack Router/Query + Tailwind v4 ([docs/frontend.md](docs/frontend.md)). Login com `ADMIN_USER`/`ADMIN_PASSWORD`.
+Telas: Início (precisa de você, números do dia, mapa da operação, linha do tempo), Conversas (assumir, devolver, escrever,
+enviar/editar/descartar rascunho, fatos e perfil), Aprovações (atalhos 1/2/3), Agentes (desempenho, base de conhecimento,
+perguntas sem resposta, empresas), Sentinela, Custos e Configurações (papéis dos números e modo de envio valem sem deploy).
+Atualiza em tempo real por SSE (`/api/events`). `Ctrl K` abre a busca/paleta.
+
+```bash
+cd web && echo VITE_API_URL=http://localhost:3000 > .env.local && npm install && npm run dev
+```
+
+Ainda não feito: cena 3D (o mapa é 2D), totens (esperando os equipamentos mandarem sinal), editor de prompts, 2FA no login.
+
+## Sentinela — `src/sentinela/`
+
+Vigia Render (deploys, suspensões, bancos), Vercel (deploy de produção), sites cadastrados (status, tempo, texto esperado, SSL),
+os WhatsApps (inclusive "conectado mas sem receber nada", a falha de 16/11), filas, erros dos agentes e custos
+([docs/sentinela.md](docs/sentinela.md)). Um problema = um incidente `#I-001`, com diagnóstico da IA, aviso no WhatsApp dos
+contatos cadastrados, escalonamento em 10 min e aviso de resolvido. Resumo às 8h.
+Comandos pelo WhatsApp: `/status`, `/custos`, `/incidentes`, `ok 42`, `detalhes 42`, `/silenciar <site> 30`, `/monitor add <url>`, `/check <url>`.
+As chaves da Render/Vercel só são usadas para leitura.
+
+Ainda não feito: navegador real com login (Playwright), rollback/restart pelo WhatsApp, webhooks da Vercel, totens e gateway.
+
 ## Render
 
 Veja [docs/implantar.md](docs/implantar.md).

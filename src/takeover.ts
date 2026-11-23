@@ -1,5 +1,7 @@
 import { handleGabrielReply, isGabrielPhone } from './approvals/approvals.js';
 import { deleteForEveryone } from './channels/whatsapp/evolution.js';
+import { normalizePhone } from './lib/phone.js';
+import { handleSentinelCommand } from './sentinela/commands.js';
 import { findWaThread, saveOutbound, setThread } from './domain/repo.js';
 import type { Thread } from './domain/types.js';
 import { logger } from './lib/logger.js';
@@ -44,6 +46,7 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
   if (p.botMarked || (await redis.exists(keys.sent(p.id)))) return; // foi o proprio bot
   // conversa "Voce" do Gabriel (consigo mesmo): e onde chegam rascunhos e aprovacoes; a resposta dele decide a aprovacao
   if (isGabrielPhone(p.jid)) {
+    if (await handleSentinelCommand(normalizePhone(p.jid), p.text)) return; // ok 42, /status, /custos...
     await handleGabrielReply(p.text, p.quotedId);
     return;
   }

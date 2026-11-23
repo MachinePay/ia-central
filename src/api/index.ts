@@ -10,8 +10,21 @@ import { env, instanceRoles } from '../lib/env.js';
 import { logger } from '../lib/logger.js';
 import { allQueues, ingestQueue } from '../lib/queues.js';
 import { redis } from '../lib/redis.js';
+import { startSettingsRefresh } from '../lib/settings.js';
+import cors from '@fastify/cors';
+import { panelRoutes, startEventFanout } from './panel.js';
 
-const app = Fastify({ loggerInstance: logger, bodyLimit: 64 * 1024 * 1024 }); // audio chega em base64
+const app = Fastify({ loggerInstance: logger, bodyLimit: 64 * 1024 * 1024, trustProxy: true }); // audio chega em base64
+
+// painel (outro dominio): login por token no cabecalho, sem cookie
+await app.register(cors, {
+  origin: env.WEB_ORIGIN === '*' ? true : env.WEB_ORIGIN.split(',').map((s) => s.trim()),
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['authorization', 'content-type', 'last-event-id'],
+});
+startSettingsRefresh();
+startEventFanout();
+await app.register(panelRoutes);
 
 const safeEq = (a: string, b: string) => {
   const x = Buffer.from(a);

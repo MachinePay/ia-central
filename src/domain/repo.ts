@@ -1,4 +1,5 @@
 import { one, q } from '../lib/db.js';
+import { publish } from '../lib/events.js';
 import { normalizePhone, phoneVariants } from '../lib/phone.js';
 import type { Agent, Contact, InboundEvent, Message, Thread } from './types.js';
 
@@ -59,6 +60,7 @@ export async function saveInboundIfNew(ev: InboundEvent): Promise<{ message: Mes
   );
   if (!message) return undefined;
   await q(`UPDATE threads SET last_inbound_at = $2, msgs_since_summary = msgs_since_summary + 1 WHERE id = $1`, [thread.id, ev.receivedAt]);
+  await publish('message.created', { threadId: thread.id, messageId: message.id, direction: 'INBOUND' });
   return { message, thread, contact };
 }
 
@@ -75,6 +77,7 @@ export async function saveOutbound(threadId: string, content: string, sender: Ag
       [threadId, sender],
     );
   }
+  if (m) await publish('message.created', { threadId, messageId: m.id, direction: 'OUTBOUND', sender, status });
   return m;
 }
 

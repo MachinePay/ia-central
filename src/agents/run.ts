@@ -1,6 +1,6 @@
 import { generateText, stepCountIs } from 'ai';
 import type { Specialist } from '../domain/types.js';
-import { env } from '../lib/env.js';
+import { env, setting } from '../lib/env.js';
 import { withFallback } from '../lib/llm.js';
 import { isBusinessHours, nowLabel } from '../lib/util.js';
 import { companiesText, contactProfile, toModelMessages, type ContextPack } from '../memory/context.js';
@@ -23,8 +23,8 @@ export function systemPrompt(agent: Specialist, pack: ContextPack, internalNote:
   const company = pack.companies.find((c) => c.slug === pack.thread.company_slug);
   const common = fill(loadPrompt('comum'), {
     TODAY: nowLabel(env.TIMEZONE),
-    BUSINESS_HOURS: env.BUSINESS_HOURS,
-    IN_HOURS: isBusinessHours(env.BUSINESS_HOURS, env.TIMEZONE) ? 'agora estamos dentro do horário' : 'agora estamos FORA do horário: o que depender de uma pessoa fica para o próximo dia útil, avise isso',
+    BUSINESS_HOURS: setting('BUSINESS_HOURS'),
+    IN_HOURS: isBusinessHours(setting('BUSINESS_HOURS'), env.TIMEZONE) ? 'agora estamos dentro do horário' : 'agora estamos FORA do horário: o que depender de uma pessoa fica para o próximo dia útil, avise isso',
     CHANNEL: pack.thread.channel,
     PREVIOUS_AGENT: previous,
     COMPANIES: companiesText(pack.companies),

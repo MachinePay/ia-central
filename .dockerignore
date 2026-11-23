@@ -4,3 +4,4 @@ dist
 .env
 workflows
 docs/*.pdf
+web

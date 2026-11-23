@@ -50,6 +50,16 @@ const schema = z.object({
 
   ADMIN_USER: z.string().default('admin'),
   ADMIN_PASSWORD: z.string().default(''),
+  SESSION_SECRET: z.string().default(''),        // assina o token de login do painel
+  WEB_ORIGIN: z.string().default('*'),            // endereco do painel (CORS)
+
+  // Sentinela
+  SENTINEL_ENABLED: z.string().default('true').transform((v) => v !== 'false'),
+  SENTINEL_INSTANCE: z.string().default(''),      // instancia que manda os alertas (padrao: a das aprovacoes)
+  RENDER_API_KEY: z.string().default(''),
+  VERCEL_TOKEN: z.string().default(''),
+  VERCEL_TEAM_ID: z.string().default(''),
+  MONTHLY_BUDGET_USD: z.coerce.number().default(300),
 });
 
 const withScheme = (u: string) => (/^https?:\/\//.test(u) ? u : `http://${u}`); // Render entrega "host:porta"
@@ -67,13 +77,33 @@ export const env = {
 };
 export type Env = typeof env;
 
+/**
+ * Ajustes feitos no painel (tabela app.settings) valem por cima das variaveis de ambiente.
+ * O cache e atualizado a cada 30 s em cada processo (lib/settings.ts).
+ */
+export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD'] as const;
+export type EditableSetting = (typeof EDITABLE_SETTINGS)[number];
+const overrides: Partial<Record<EditableSetting, string>> = {};
+export function setOverrides(o: Partial<Record<EditableSetting, string>>) {
+  for (const k of EDITABLE_SETTINGS) delete overrides[k];
+  Object.assign(overrides, o);
+}
+export function setting(key: EditableSetting): string {
+  if (overrides[key] !== undefined) return overrides[key]!;
+  const v = (env as any)[key];
+  return Array.isArray(v) ? v.join(',') : String(v ?? '');
+}
+export const sendMode = () => (setting('SEND_MODE') === 'auto' ? 'auto' : 'draft');
+export const autoSendAgents = () => setting('AUTO_SEND_AGENTS').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+export const shadowNotify = () => /^(true|1)$/i.test(setting('SHADOW_NOTIFY'));
+
 /** ATENDIMENTO: agentes atendem | GABRIEL: numero pessoal | OBSERVAR: so registra e aprende | OFF: ignora */
 export type InstanceRole = 'ATENDIMENTO' | 'GABRIEL' | 'OBSERVAR' | 'OFF';
 
 /** "joao:ATENDIMENTO,gabriel:GABRIEL" -> Map */
 export function instanceRoles(): Map<string, InstanceRole> {
   const m = new Map<string, InstanceRole>();
-  for (const part of env.WA_INSTANCES.split(',')) {
+  for (const part of setting('WA_INSTANCES').split(',')) {
     const [name, role] = part.split(':').map((s) => s?.trim());
     if (!name) continue;
     const r = (role ?? 'ATENDIMENTO').toUpperCase();

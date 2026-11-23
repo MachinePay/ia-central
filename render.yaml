@@ -23,6 +23,17 @@ envVarGroups:
   # configuracao comum da API e do worker
   - name: selfmachine-agents
     envVars:
+      - key: SESSION_SECRET          # assina o login do painel
+        generateValue: true
+      - key: MONTHLY_BUDGET_USD
+        value: "300"
+      # Sentinela (somente leitura): chaves da Render e da Vercel
+      - key: RENDER_API_KEY
+        sync: false
+      - key: VERCEL_TOKEN
+        sync: false
+      - key: VERCEL_TEAM_ID
+        sync: false
       - key: NODE_ENV
         value: production
       - key: DB_SCHEMA
@@ -144,6 +155,27 @@ services:
         fromService: { type: keyvalue, name: ia-central-redis, property: connectionString }
       - key: EVOLUTION_BASE_URL
         fromService: { type: web, name: ia-central-evolution, property: hostport }
+
+  # ------------------------------------------------------------------ Painel (Centro de Comando): site estatico
+  - type: web
+    name: ia-central-painel
+    runtime: static
+    rootDir: web
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    buildFilter:
+      paths: [web/**]
+    envVars:
+      - key: VITE_API_URL
+        value: https://ia-central-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: cache-control
+        value: public, max-age=31536000, immutable
 
   # ------------------------------------------------------------------ Evolution API: WhatsApp
   - type: web

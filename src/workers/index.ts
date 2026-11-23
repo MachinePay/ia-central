@@ -6,6 +6,8 @@ import { ingestWorker, mediaWorker } from './ingest.js';
 import { maintenanceWorker, renewGmailWatch, scheduleMaintenance } from './maintenance.js';
 import { outboundWorker } from './outbound.js';
 import { respondWorker } from './respond.js';
+import { scheduleSentinel, sentinelWorker } from '../sentinela/worker.js';
+import { startSettingsRefresh } from '../lib/settings.js';
 
 const connection = redisOptions();
 
@@ -22,9 +24,12 @@ const workers = [
   start('summarize', async (job) => summarizeThread(job.data.threadId), 2),
   start('outbound', outboundWorker, 10),
   start('maintenance', maintenanceWorker, 1),
+  start('sentinela', sentinelWorker, 4),
 ];
 
+startSettingsRefresh();
 await scheduleMaintenance();
+await scheduleSentinel();
 await renewGmailWatch().catch((e) => logger.warn({ err: String(e) }, 'watch do Gmail nao iniciado'));
 logger.info('workers no ar');
 

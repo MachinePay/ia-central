@@ -5,6 +5,7 @@ import type { Agent } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { env } from '../lib/env.js';
 import { model } from '../lib/llm.js';
+import { publish } from '../lib/events.js';
 import { logger } from '../lib/logger.js';
 import { normalizePhone, phoneVariants } from '../lib/phone.js';
 import { clip } from '../lib/util.js';
@@ -49,6 +50,7 @@ export async function requestApproval(o: {
   ].join('\n');
   const msgId = await notifyGabriel(text).catch((e) => logger.error(e, 'falha ao avisar aprovacao'));
   if (msgId) await q(`UPDATE pending_approvals SET notify_msg_id = $2 WHERE id = $1`, [a.id, msgId]);
+  await publish('approval.created', { id: a.id, code: a.code, threadId: o.threadId });
   return { status: 'APPROVAL_REQUESTED', code: a.code, tell_client: NEUTRAL_REPLY };
 }
 
@@ -75,20 +77,37 @@ export async function handleGabrielReply(text: string, quotedWaId?: string): Pro
     return true;
   }
   const body = text.replace(/#?\bA-\d{4,}\b/i, '').trim();
+  const decision = /^1$/.test(body) ? 'APPROVE' : /^2$/.test(body) ? 'REJECT' : 'EDIT';
+  const status = await applyDecision(a, decision, body, 'WhatsApp');
+  await notifyGabriel(`✅ #${a.code} ${status === 'APPROVED' ? 'aprovada' : status === 'REJECTED' ? 'recusada' : 'enviada com o seu texto'}.`);
+  return true;
+}
+
+/** Decisao vinda do painel. */
+export async function decideApproval(id: string, decision: 'APPROVE' | 'REJECT' | 'EDIT', text?: string): Promise<string> {
+  const a = await one<Approval>(`SELECT * FROM pending_approvals WHERE id = $1`, [id]);
+  if (!a) throw new Error('Aprovação não encontrada');
+  if (a.status !== 'PENDING') throw new Error(`Essa aprovação já foi decidida (${a.status})`);
+  if (decision === 'EDIT' && !text?.trim()) throw new Error('Escreva o texto que vai para o cliente');
+  return applyDecision(a, decision, text?.trim() ?? '', 'painel');
+}
+
+async function applyDecision(a: Approval, decision: 'APPROVE' | 'REJECT' | 'EDIT', body: string, via: string): Promise<string> {
   const thread = (await getThread(a.thread_id))!;
   let status: string;
   let reply: string;
-  if (/^1$/.test(body)) {
+  if (decision === 'APPROVE') {
     status = 'APPROVED';
     reply = a.draft_reply;
-  } else if (/^2$/.test(body)) {
+  } else if (decision === 'REJECT') {
     status = 'REJECTED';
     reply = await politeAlternative(a);
   } else {
     status = 'EDITED';
     reply = body;
   }
-  await q(`UPDATE pending_approvals SET status = $2, decided_at = now(), decision_note = $3 WHERE id = $1`, [a.id, status, body]);
+  await q(`UPDATE pending_approvals SET status = $2, decided_at = now(), decision_note = $3 WHERE id = $1`, [a.id, status, `${via}: ${body}`]);
+  await publish('approval.decided', { id: a.id, status });
   const facts = (thread.facts ?? {}) as any;
   facts.decisoes = [...(facts.decisoes ?? []), {
     o_que: `${ACTION_LABEL[a.action]}: ${status === 'REJECTED' ? 'recusado' : 'aprovado'} ${clip(JSON.stringify(a.payload), 120)}`,
@@ -96,8 +115,7 @@ export async function handleGabrielReply(text: string, quotedWaId?: string): Pro
   }];
   await setThread(thread.id, { status: 'OPEN', facts });
   await deliver({ thread: { ...thread, status: 'OPEN' }, agent: a.requested_by, text: reply, force: true });
-  await notifyGabriel(`✅ #${a.code} ${status === 'APPROVED' ? 'aprovada' : status === 'REJECTED' ? 'recusada' : 'enviada com o seu texto'}.`);
-  return true;
+  return status;
 }
 
 async function politeAlternative(a: Approval): Promise<string> {

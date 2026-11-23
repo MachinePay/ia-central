@@ -6,7 +6,7 @@ import { deliver, notifyGabriel } from '../delivery.js';
 import { getThread, lastInboundId, setThread } from '../domain/repo.js';
 import type { Agent, Specialist, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { env } from '../lib/env.js';
+import { env, setting } from '../lib/env.js';
 import { addCost, costToday, costUsd } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { enqueueRespond, summarizeQueue } from '../lib/queues.js';
@@ -71,13 +71,13 @@ async function respond(threadId: string, started: number) {
 
   // teto de custo diario
   const spent = await costToday();
-  if (spent >= env.DAILY_COST_LIMIT_USD) {
+  if (spent >= Number(setting('DAILY_COST_LIMIT_USD'))) {
     if (await redis.set('cost-alert:limit', '1', 'EX', 86400, 'NX')) await notifyGabriel(`💸 Limite diário de custo de IA atingido (US$ ${spent.toFixed(2)}). Bots pausados até amanhã.`).catch(() => undefined);
     await saveRun(threadId, { agent: thread.active_agent, model: '-', route: decision, toolCalls: [], inTok: 0, outTok: 0, latency: 0, outcome: 'SILENT', error: 'limite de custo' });
     return;
   }
-  if (spent >= env.DAILY_COST_LIMIT_USD * 0.8 && (await redis.set('cost-alert:80', '1', 'EX', 86400, 'NX'))) {
-    await notifyGabriel(`💸 Gasto de IA hoje em 80% do limite (US$ ${spent.toFixed(2)} de ${env.DAILY_COST_LIMIT_USD}).`).catch(() => undefined);
+  if (spent >= Number(setting('DAILY_COST_LIMIT_USD')) * 0.8 && (await redis.set('cost-alert:80', '1', 'EX', 86400, 'NX'))) {
+    await notifyGabriel(`💸 Gasto de IA hoje em 80% do limite (US$ ${spent.toFixed(2)} de ${Number(setting('DAILY_COST_LIMIT_USD'))}).`).catch(() => undefined);
   }
 
   // Gmail anti-loop: mais de 3 respostas do bot em 1 h sem humano -> pausa

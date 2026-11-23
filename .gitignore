@@ -6,3 +6,6 @@ dist/
 !.env.example
 .ver-execucao.txt
 workflows/
+web/node_modules/
+web/dist/
+web/.env.local

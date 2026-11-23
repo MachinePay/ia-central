@@ -11,6 +11,7 @@ import { approvalInstance, env, instanceRole } from '../lib/env.js';
 import { logger } from '../lib/logger.js';
 import { enqueueRespond, ingestQueue, mediaQueue } from '../lib/queues.js';
 import { describeMedia } from '../media.js';
+import { handleSentinelCommand } from '../sentinela/commands.js';
 import { applyTakeover, handleWhatsappFromMe } from '../takeover.js';
 
 const OPT_OUT = /^\s*(parar|pare|sair|stop|descadastrar|n[aã]o quero mais (receber )?mensagens?)\s*[.!]?\s*$/i;
@@ -31,6 +32,8 @@ async function ingestWhatsapp(instance: string, data: any) {
   if (p.kind === 'fromMe') return handleWhatsappFromMe(instance, p); // nunca responde mensagens proprias
 
   const ev = p.event;
+  // comando do Sentinela vindo de um contato de alertas (ok 42, /status...)
+  if (await handleSentinelCommand(ev.sender.phone ?? '', ev.content)) return;
   // resposta do Gabriel real a uma aprovacao (numero dele na allowlist)
   if (isGabrielPhone(ev.sender.phone ?? '') && (await handleGabrielReply(ev.content, ev.metadata.quotedMessageId))) return;
   await persistAndQueue(ev);

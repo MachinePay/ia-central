@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto';
 import { sendText } from './channels/whatsapp/evolution.js';
 import { saveOutbound } from './domain/repo.js';
 import type { Agent, Thread } from './domain/types.js';
-import { approvalInstance, env } from './lib/env.js';
+import { approvalInstance, autoSendAgents, env, sendMode, shadowNotify } from './lib/env.js';
 import { logger } from './lib/logger.js';
 import { outboundQueue } from './lib/queues.js';
 
 export function autoSendEnabled(agent: Agent, channel: Thread['channel']): boolean {
-  if (env.SEND_MODE === 'auto') return true;
-  return env.AUTO_SEND_AGENTS.includes(agent) || env.AUTO_SEND_AGENTS.includes(`${agent}:${channel}`);
+  if (sendMode() === 'auto') return true;
+  const list = autoSendAgents();
+  return list.includes(agent) || list.includes(`${agent}:${channel}`);
 }
 
 export type DeliverInput = {
@@ -36,7 +37,7 @@ export async function deliver(i: DeliverInput): Promise<'DRAFT' | 'QUEUED'> {
       attempts: 3,
       backoff: { type: 'exponential', delay: 3000 },
     });
-  } else if (env.SHADOW_NOTIFY) {
+  } else if (shadowNotify()) {
     await notifyGabriel(`📝 Rascunho (${i.agent}) para ${i.thread.external_id.split('@')[0]}:\n\n${i.text}`).catch(() => undefined);
   }
   return status;
