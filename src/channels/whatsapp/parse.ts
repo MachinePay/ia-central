@@ -44,6 +44,8 @@ export function parseEvolution(instance: string, data: any): ParsedWa {
   if (d.key.fromMe) {
     return { kind: 'fromMe', jid, text, id: d.key.id, botMarked: text.startsWith(BOT_MARK) };
   }
+  // mensagem de um dos nossos numeros (rascunho, aprovacao, alerta): nunca vira conversa de cliente
+  if (text.startsWith(BOT_MARK)) return { kind: 'ignore', reason: 'mensagem de outro numero do sistema' };
   if (m.reactionMessage || m.protocolMessage || m.senderKeyDistributionMessage && !text) {
     return m.reactionMessage ? { kind: 'reaction' } : { kind: 'ignore', reason: 'protocolo' };
   }
