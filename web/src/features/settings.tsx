@@ -17,10 +17,17 @@ export function Settings() {
   const q = useQuery({ queryKey: ['settings'], queryFn: () => api('/api/settings') });
   const [roles, setRoles] = useState<Record<string, string>>({});
   const [v, setV] = useState<Record<string, string>>({});
+  const [personas, setPersonas] = useState<Record<string, { name: string; about: string }>>({});
   useEffect(() => {
     if (!q.data) return;
     setRoles(Object.fromEntries(q.data.instances.map((i: any) => [i.name, i.role])));
     setV(q.data.values);
+    const p: Record<string, { name: string; about: string }> = {};
+    for (const part of String(q.data.values.PERSONAS ?? '').split(/[;\n]/)) {
+      const m = part.match(/^\s*([^:]+):([^|]*)\|?(.*)$/);
+      if (m) p[m[1].trim()] = { name: m[2].trim(), about: m[3].trim() };
+    }
+    setPersonas(p);
   }, [q.data]);
   const save = useMutation({ mutationFn: (body: Record<string, string>) => put('/api/settings', body), onSuccess: () => { toast('Ajuste salvo. Vale em até 30 segundos, sem deploy.'); void qc.invalidateQueries({ queryKey: ['settings'] }); }, onError: toastError });
   if (q.isLoading) return <Skeleton lines={8} />;
@@ -44,11 +51,23 @@ export function Settings() {
                     {ROLES.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
                   </select>
                   <span className="flex-1 text-[12px] text-text-2">{ROLES.find((r) => r.v === (roles[i.name] ?? i.role))?.d}</span>
+                  {(roles[i.name] ?? i.role) !== 'OFF' && (
+                    <div className="grid w-full gap-2 pl-[140px] md:grid-cols-[180px_1fr]">
+                      <input className={inputCls} placeholder="Quem responde (ex.: Gabriel)" value={personas[i.name]?.name ?? ''} aria-label={`Nome de quem responde pelo ${i.name}`}
+                        onChange={(e) => setPersonas({ ...personas, [i.name]: { name: e.target.value, about: personas[i.name]?.about ?? '' } })} />
+                      <input className={inputCls} placeholder="Quem é essa pessoa (ex.: dono da AGarraMais, atende o suporte)" value={personas[i.name]?.about ?? ''} aria-label={`Descrição de quem responde pelo ${i.name}`}
+                        onChange={(e) => setPersonas({ ...personas, [i.name]: { name: personas[i.name]?.name ?? '', about: e.target.value } })} />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
+            <p className="mt-2 text-[12px] text-text-2">A IA escreve como essa pessoa, em primeira pessoa, copiando o jeito das mensagens que vocês já mandaram por esse número. Se perguntarem a sério se é robô, ela não nega.</p>
             <div className="mt-3 flex justify-end">
-              <Button variant="primary" onClick={() => save.mutate({ WA_INSTANCES: Object.entries(roles).map(([n, r]) => `${n}:${r}`).join(',') })}>Salvar papéis</Button>
+              <Button variant="primary" onClick={() => save.mutate({
+                WA_INSTANCES: Object.entries(roles).map(([n, r]) => `${n}:${r}`).join(','),
+                PERSONAS: Object.entries(personas).filter(([, p]) => p.name.trim()).map(([n, p]) => `${n}:${p.name.trim()}|${p.about.trim().replace(/[;|]/g, ',')}`).join(';'),
+              })}>Salvar números</Button>
             </div>
           </Card>
 

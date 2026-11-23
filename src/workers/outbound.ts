@@ -6,13 +6,13 @@ import { getContact, getThread } from '../domain/repo.js';
 import type { Agent, Message } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { keys, redis } from '../lib/redis.js';
+import { personaFor } from '../lib/env.js';
 import { sleep } from '../lib/util.js';
 
 const DISPLAY: Record<Agent, string> = {
   LEO: 'SelfMachine', JOAO: 'João · Comercial SelfMachine', CLARA: 'Clara · Suporte SelfMachine',
-  GABRIEL: 'Assistente do Gabriel · SelfMachine', HUMAN: 'SelfMachine',
+  GABRIEL: 'Gabriel · SelfMachine', HUMAN: 'SelfMachine',
 };
-const EMAIL_NOTICE = '\n\n—\nAtendimento feito por assistente virtual, acompanhado pela equipe SelfMachine.';
 
 export async function outboundWorker(job: Job) {
   const { messageId, outboundKey, mode } = job.data as { messageId: string; outboundKey: string; mode: 'send' | 'draft' };
@@ -33,8 +33,10 @@ export async function outboundWorker(job: Job) {
     const sent: string[] = JSON.parse(String((await redis.get(`bubbles:${messageId}`)) ?? '[]'));
     for (const [i, b] of bubbles.entries()) {
       if (sent[i]) continue; // retentativa: nao repete bolhas ja enviadas
-      await sendPresence(thread.instance, number, typingMs(b));
-      await sleep(typingMs(b));
+      const typing = typingMs(b);
+      if (i > 0) await sleep(400 + Math.random() * 900); // pausa curta entre uma bolha e outra
+      await sendPresence(thread.instance, number, typing);
+      await sleep(typing);
       const id = await sendText(thread.instance, number, b, i === 0 ? msg.metadata?.quotedId : undefined);
       sent[i] = id ?? 'ok';
       await redis.set(`bubbles:${messageId}`, JSON.stringify(sent), 'EX', 86400);
@@ -46,9 +48,9 @@ export async function outboundWorker(job: Job) {
     );
     const meta = original?.metadata ?? {};
     const subject = String(meta.subject ?? thread.subject ?? 'SelfMachine');
-    const body = msg.content + EMAIL_NOTICE;
+    const body = msg.content;
     const raw = buildMime({
-      fromName: DISPLAY[agent], to: contact.email!, agent,
+      fromName: personaFor(thread.instance).name || DISPLAY[agent], to: contact.email!, agent,
       subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
       inReplyTo: meta.messageIdHeader,
       references: [...(meta.references ?? []), meta.messageIdHeader].filter(Boolean).join(' '),

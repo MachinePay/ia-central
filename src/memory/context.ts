@@ -52,7 +52,8 @@ export function toModelMessages(recent: Message[], channel: Thread['channel']): 
       const quoted = m.metadata?.quotedText ? `(respondendo a: "${m.metadata.quotedText.slice(0, 200)}")\n` : '';
       out.push({ role: 'user', content: fence(tag, quoted + maskSensitive(m.content)) });
     } else {
-      out.push({ role: 'assistant', content: `${senderLabel(m.sender)} ${m.content}`.trim() });
+      // o que os agentes mandaram aparece sem rotulo: para o cliente e tudo a mesma pessoa
+      out.push({ role: 'assistant', content: m.sender === 'HUMAN' ? `[EQUIPE] ${m.content}` : m.content.replace(/^⁣/, '') });
     }
   }
   // o modelo precisa terminar numa mensagem do usuario

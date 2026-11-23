@@ -478,7 +478,7 @@ export async function panelRoutes(app: FastifyInstance) {
       };
     });
     api.put('/api/settings', async (req, reply) => {
-      const b = z.record(z.string(), z.string().max(500)).safeParse(req.body);
+      const b = z.record(z.string(), z.string().max(3000)).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
       for (const [k, v] of Object.entries(b.data)) {
         if (!(EDITABLE_SETTINGS as readonly string[]).includes(k)) return bad(reply, `Ajuste desconhecido: ${k}`);

@@ -1,9 +1,10 @@
 import { generateText, stepCountIs } from 'ai';
 import type { Specialist } from '../domain/types.js';
-import { env, setting } from '../lib/env.js';
+import { env, personaFor, setting } from '../lib/env.js';
 import { withFallback } from '../lib/llm.js';
 import { isBusinessHours, nowLabel } from '../lib/util.js';
 import { companiesText, contactProfile, toModelMessages, type ContextPack } from '../memory/context.js';
+import { knowledgeFor, styleFor } from '../memory/style.js';
 import { toolsFor, type ToolCtx } from '../tools/index.js';
 import { fill, loadPrompt } from './prompts.js';
 
@@ -19,14 +20,31 @@ export type AgentResult = {
   ctx: ToolCtx;
 };
 
-export function systemPrompt(agent: Specialist, pack: ContextPack, internalNote: string, previous: string, introduce: boolean): string {
+const WHATSAPP_RULES = `- Escreva como no WhatsApp: de 1 a 4 mensagens curtas, separadas por uma linha em branco. Cada mensagem é uma bolha que o cliente vê chegar separada (1 a 2 frases cada).
+- Uma resposta simples cabe numa bolha só. Não force várias.
+- Pode usar letra minúscula no começo, abreviações e emojis do jeito que você costuma usar (veja os exemplos acima). Não exagere.
+- Sem markdown: nada de **, #, listas ou links formatados.`;
+
+const EMAIL_RULES = `- E-mail curto e direto, parágrafos de 1 a 3 frases, cumprimento simples no começo e seu nome no final (só o nome).
+- Sem textão, sem "venho por meio desta", sem listas longas.`;
+
+export async function systemPrompt(agent: Specialist, pack: ContextPack, internalNote: string): Promise<{ text: string; evidence: string[] }> {
   const company = pack.companies.find((c) => c.slug === pack.thread.company_slug);
+  const persona = personaFor(pack.thread.instance);
+  const [style, knowledge] = await Promise.all([
+    styleFor(pack.thread.instance, pack.thread.company_slug).catch(() => ''),
+    knowledgeFor(pack.blockText, pack.thread.company_slug).catch(() => ({ text: '', evidence: [] })),
+  ]);
   const common = fill(loadPrompt('comum'), {
+    PERSONA_NAME: persona.name,
+    PERSONA_ABOUT: persona.about || 'atendimento',
+    CHANNEL_NAME: pack.thread.channel === 'GMAIL' ? 'e-mail' : 'WhatsApp',
     TODAY: nowLabel(env.TIMEZONE),
     BUSINESS_HOURS: setting('BUSINESS_HOURS'),
-    IN_HOURS: isBusinessHours(setting('BUSINESS_HOURS'), env.TIMEZONE) ? 'agora estamos dentro do horário' : 'agora estamos FORA do horário: o que depender de uma pessoa fica para o próximo dia útil, avise isso',
-    CHANNEL: pack.thread.channel,
-    PREVIOUS_AGENT: previous,
+    IN_HOURS: isBusinessHours(setting('BUSINESS_HOURS'), env.TIMEZONE) ? 'agora é horário de atendimento' : 'agora é FORA do horário: o que depender de outra pessoa fica para o próximo dia útil, avise isso com naturalidade',
+    STYLE: style || '(ainda sem exemplos deste número: escreva de forma simpática, curta e natural, como alguém no celular)',
+    CHANNEL_RULES: pack.thread.channel === 'GMAIL' ? EMAIL_RULES : WHATSAPP_RULES,
+    KNOWLEDGE: knowledge.text || '(nada específico sobre este assunto ainda)',
     COMPANIES: companiesText(pack.companies),
     COMPANY: company ? company.name : 'ainda não identificada (descubra com naturalidade se precisar)',
     CONTACT_PROFILE: contactProfile(pack.contact),
@@ -34,11 +52,8 @@ export function systemPrompt(agent: Specialist, pack: ContextPack, internalNote:
     SUMMARY: pack.thread.summary ?? '(conversa nova)',
     OTHER_CHANNEL: pack.otherChannel ?? '(nenhum)',
     INTERNAL_NOTE: internalNote || '(nenhuma)',
-    FIRST_MESSAGE_RULE: introduce
-      ? '\n# PRIMEIRA MENSAGEM SUA NESTA CONVERSA\nApresente-se em uma linha (nome e área) e mostre que conhece o contexto com uma referência concreta ao que já foi dito. Não diga "vou te transferir".'
-      : '',
   });
-  return `${common}\n${loadPrompt(PROMPT_FILE[agent])}`;
+  return { text: `${common}\n${loadPrompt(PROMPT_FILE[agent])}`, evidence: knowledge.evidence };
 }
 
 export async function runAgent(agent: Specialist, pack: ContextPack, o: { internalNote: string; previous: string; introduce: boolean }): Promise<AgentResult> {
@@ -46,12 +61,15 @@ export async function runAgent(agent: Specialist, pack: ContextPack, o: { intern
     thread: pack.thread, contact: pack.contact, agent, companies: pack.companies,
     log: [], evidence: [], kbConsulted: false,
   };
-  const system = systemPrompt(agent, pack, o.internalNote, o.previous, o.introduce);
+  const system = await systemPrompt(agent, pack, o.internalNote);
+  // o que veio da base tambem conta como fonte para o verificador de saida
+  ctx.evidence.push(...system.evidence);
+  if (system.evidence.length) ctx.kbConsulted = true;
   const messages = toModelMessages(pack.recent, pack.thread.channel);
   const r = await withFallback('agent', ({ model }) =>
     generateText({
       model,
-      system,
+      system: system.text,
       messages,
       tools: toolsFor(agent, ctx),
       stopWhen: [stepCountIs(MAX_STEPS), () => !!ctx.handoff],

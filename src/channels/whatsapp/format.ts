@@ -1,5 +1,5 @@
 const MAX_BUBBLE = 600;
-const MAX_BUBBLES = 3;
+const MAX_BUBBLES = 4;
 
 /** Markdown -> formatacao do WhatsApp; remove titulos e tabelas. */
 export function toWhatsapp(md: string): string {
@@ -42,4 +42,5 @@ export function toBubbles(text: string): string[] {
 }
 
 /** "digitando" proporcional ao tamanho: 30 ms por caractere, entre 1,5 e 6 s. */
-export const typingMs = (text: string) => Math.min(6000, Math.max(1500, text.length * 30));
+/** "digitando" proporcional ao tamanho (como alguem digitando no celular), com variacao para nao parecer robo. */
+export const typingMs = (text: string) => Math.round(Math.min(7000, Math.max(1200, text.length * 45)) * (0.85 + Math.random() * 0.3));
