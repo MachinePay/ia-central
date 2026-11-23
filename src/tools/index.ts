@@ -79,6 +79,22 @@ function shared(ctx: ToolCtx): ToolSet {
         return { ok: true };
       }),
     }),
+    avisar_dono: tool({
+      description: 'Avisa a pessoa de verdade (dono do número) que este contato precisa de algo que só ela pode fazer: liberar, reiniciar, estornar, verificar uma máquina, mandar algo, decidir. Use sempre que o cliente pedir uma ação. Depois diga ao cliente só que vai averiguar.',
+      inputSchema: z.object({
+        what: z.string().max(400).describe('o que o contato precisa, em uma frase, com os dados que ele já passou'),
+        urgency: z.enum(['LOW', 'MEDIUM', 'HIGH']).default('MEDIUM'),
+      }),
+      execute: wrap(ctx, 'avisar_dono', async ({ what, urgency }) => {
+        // uma vez por conversa a cada 20 min, para nao virar spam
+        const key = `avisar-dono:${ctx.thread.id}`;
+        const { redis } = await import('../lib/redis.js');
+        if (!(await redis.set(key, '1', 'EX', 1200, 'NX'))) return { ok: true, note: 'Já avisado há pouco. Só tranquilize o cliente.' };
+        const who = ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email;
+        await notifyGabriel(`${urgency === 'HIGH' ? '🚨' : '🙋'} ${who} (número ${ctx.thread.instance}) precisa de você: ${what}`).catch(() => undefined);
+        return { ok: true, note: 'Avisado. Diga ao cliente só que vai averiguar (sem prometer o que vai ser feito).' };
+      }),
+    }),
   };
 }
 

@@ -13,7 +13,14 @@ const DEADLINE = /\b(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|em (até )?\d+\s?(dias|horas
 // especificacao tecnica com unidade (110/220V, 50 W, 4 GB, 30 cm...): tambem precisa vir de fonte
 const SPECS = /\b\d+(?:[.,/]\d+)*\s?(?:V|W|kW|A|GB|MB|Mbps|cm|mm|m|kg|g|pol(?:egadas)?|")(?![a-zA-Z])/g;
 const WA_MAX_CHARS = 1800;
-const SELF_AS_BOT = /\b(assistente (do|da|de|virtual)|sou (o|a|um|uma) (assistente|bot|rob[oô]|ia)|atendimento autom[aá]tico|agente virtual)\b/i;
+/** "vou liberar", "ja reinicio", "te mando agora", "ja estornei"... (averiguar/ver/checar continuam permitidos) */
+const ACTION_VERBS = '(liber|reinici|reset|ajust|corrig|resolv|estorn|reembols|credit|recredit|envi|mand|transfer|desbloque|troc|configur|instal|deslig|lig)';
+const PROMISES_ACTION = new RegExp(
+  `\\b(vou|vamos|irei|ja|já|agora mesmo|te|a gente vai)\\s+(te\\s+|lhe\\s+|ja\\s+|já\\s+)?${ACTION_VERBS}\\w*` +
+  `|\\b${ACTION_VERBS}u?ei\\b`,
+  'i',
+);
+const SELF_AS_BOT =/\b(assistente (do|da|de|virtual)|sou (o|a|um|uma) (assistente|bot|rob[oô]|ia)|atendimento autom[aá]tico|agente virtual)\b/i;
 export const ASKS_BOT = /\b(rob[oô]|bot|\bia\b|intelig[eê]ncia artificial|chat ?gpt|autom[aá]tic|é (uma )?pessoa|é gente|é humano)\b/i;
 /** Cumprimento ou mensagem curta sem pedido ("oi", "blz", "iai dboa?"). */
 export const isSmallTalk = (t: string) =>
@@ -46,6 +53,7 @@ export async function checkOutput(o: {
   if (CLAIMS_HUMAN.test(o.text)) issues.push('nega ser IA: se perguntaram, diga com leveza que usa um assistente para responder rápido e que a pessoa acompanha tudo');
   // humano substituto: so fala de "assistente" quando o cliente perguntou se e robo
   if (!o.clientAskedBot && SELF_AS_BOT.test(o.text)) issues.push('se apresenta como assistente/robô sem o cliente perguntar: escreva em primeira pessoa como a própria pessoa, sem mencionar assistente');
+  if (PROMISES_ACTION.test(o.text)) issues.push('promete ou diz que fez uma ação (liberar, reiniciar, enviar, estornar...): troque por acalmar e dizer que vai averiguar, ex.: "vou dar uma averiguada, so um instante"');
   if (/\b(olhada remota|acesso remoto|remotamente|conex[aã]o remota|reinici(o|ar) remot)/i.test(o.text)) issues.push('oferece acesso/olhada remota, que você não consegue fazer: troque por "vou ver aqui e te falo"');
   if (!o.intimateAllowed && INTIMATE_RE.test(o.text)) issues.push('usa apelido ou carinho (amor, bb...) com quem você não trata assim: fale do seu jeito geral, sem apelidos');
   if (o.channel === 'WHATSAPP' && /^\s*[•\-*]\s/m.test(o.text)) issues.push('tem lista com marcadores: escreva em frases normais, como no WhatsApp');

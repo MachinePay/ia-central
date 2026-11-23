@@ -42,12 +42,18 @@ export function companiesText(companies: Company[]): string {
 
 const senderLabel = (a: Agent | null) => (a === 'HUMAN' ? '[EQUIPE]' : a ? `[${a}]` : '');
 
+const RECENT_WINDOW_MS = 6 * 3600_000;
+
 /** Historico como mensagens do modelo; conteudo do cliente sempre entre tags (nao confiavel). */
 export function toModelMessages(recent: Message[], channel: Thread['channel']): ModelMessage[] {
   const tag = channel === 'GMAIL' ? 'email' : 'mensagem_cliente';
   const out: ModelMessage[] = [];
-  for (const m of recent) {
-    if (m.status === 'DRAFT') continue; // rascunho nao enviado: o cliente nao viu
+  // so a conversa de agora: mensagens de mais de 6 h antes da ultima ficam de fora (o passado vem pelo resumo, com data).
+  // Assim um assunto velho do historico nao volta como se fosse novo.
+  const last = recent.length ? new Date(recent[recent.length - 1].created_at).getTime() : Date.now();
+  const window = recent.filter((m) => last - new Date(m.created_at).getTime() <= RECENT_WINDOW_MS);
+  for (const m of window) {
+    if (m.status === 'DRAFT' || m.status === 'DRAFT_DISCARDED') continue; // rascunho nao enviado: o cliente nao viu
     if (m.direction === 'INBOUND') {
       const quoted = m.metadata?.quotedText ? `(respondendo a: "${m.metadata.quotedText.slice(0, 200)}")\n` : '';
       out.push({ role: 'user', content: fence(tag, quoted + maskSensitive(m.content)) });
