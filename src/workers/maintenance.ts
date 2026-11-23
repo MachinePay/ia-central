@@ -5,7 +5,7 @@ import { notifyGabriel } from '../delivery.js';
 import { q } from '../lib/db.js';
 import { env } from '../lib/env.js';
 import { logger } from '../lib/logger.js';
-import { ingestQueue, maintenanceQueue, respondQueue, summarizeQueue } from '../lib/queues.js';
+import { ingestQueue, maintenanceQueue, outboundQueue, respondQueue, summarizeQueue } from '../lib/queues.js';
 import { backfillEmbeddings } from '../memory/kb.js';
 import { learnFromTeam } from '../memory/learn.js';
 import { buildPersonaProfile, refreshContactTreatments } from '../memory/persona.js';
@@ -20,7 +20,7 @@ export async function scheduleMaintenance() {
   await every('idle-summaries', '*/10 * * * *');
   await every('promises', '0 8 * * 1-5');
   await every('embeddings', '*/5 * * * *');
-  await every('queue-health', '*/5 * * * *');
+  await every('queue-health', '*/2 * * * *');
   await every('lgpd-retention', '30 3 * * *');
   await every('learn', '*/30 * * * *');
   await every('personas', '0 4 * * *');                // jeito geral de cada numero, toda madrugada
@@ -77,7 +77,20 @@ async function promisesDue() {
   await notifyGabriel(`📌 Promessas vencendo:\n${rows.map((r) => `• ${r.name}: ${r.o_que} (prazo ${r.prazo})`).join('\n')}`);
 }
 
+/** Rede de seguranca: resposta liberada para envio (QUEUED) parada ha mais de 2 min volta para a fila. */
+async function requeueStuckOutbound() {
+  const stuck = await q<{ id: string; key: string | null; channel: string }>(
+    `SELECT m.id, m.metadata->>'outboundKey' AS key, t.channel FROM messages m JOIN threads t ON t.id = m.thread_id
+      WHERE m.status = 'QUEUED' AND m.created_at < now() - interval '2 minutes' AND m.created_at > now() - interval '1 day' LIMIT 50`,
+  );
+  for (const s of stuck) {
+    if (!s.key) continue;
+    await outboundQueue.add('send', { messageId: s.id, outboundKey: s.key, mode: 'send' }, { jobId: `out-${s.key}`, attempts: 3, backoff: { type: 'exponential', delay: 3000 } });
+  }
+}
+
 async function queueHealth() {
+  await requeueStuckOutbound();
   const waiting = await respondQueue.getWaitingCount();
   if (waiting > 50) await notifyGabriel(`⚠️ Fila de respostas com ${waiting} jobs esperando.`).catch(() => undefined);
 }

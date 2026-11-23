@@ -116,7 +116,7 @@ async function syncGmail() {
       });
       for (const h of res.data.history ?? []) {
         for (const added of h.messagesAdded ?? []) {
-          if (added.message?.id) await ingestQueue.add('gmail', { id: added.message.id }, { jobId: `gm:${added.message.id}`, attempts: 3 });
+          if (added.message?.id) await ingestQueue.add('gmail', { id: added.message.id }, { jobId: `gm-${added.message.id}`, attempts: 3 });
         }
       }
       if (res.data.historyId) lastHistoryId = String(res.data.historyId);
@@ -126,7 +126,7 @@ async function syncGmail() {
     if (e?.code !== 404) throw e;
     // historyId antigo demais: sincronizacao completa das ultimas 24 h
     const list = await gmail().users.messages.list({ userId: 'me', q: 'newer_than:1d in:inbox' });
-    for (const m of list.data.messages ?? []) await ingestQueue.add('gmail', { id: m.id }, { jobId: `gm:${m.id}`, attempts: 3 });
+    for (const m of list.data.messages ?? []) await ingestQueue.add('gmail', { id: m.id }, { jobId: `gm-${m.id}`, attempts: 3 });
     const profile = await gmail().users.getProfile({ userId: 'me' });
     lastHistoryId = String(profile.data.historyId);
   }

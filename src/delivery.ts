@@ -36,7 +36,7 @@ export async function deliver(i: DeliverInput): Promise<'DRAFT' | 'QUEUED'> {
   if (auto || i.thread.channel === 'GMAIL') {
     // Gmail em modo rascunho: cria o rascunho na propria thread para o Gabriel enviar com um clique
     await outboundQueue.add('send', { messageId: msg.id, outboundKey, mode: auto ? 'send' : 'draft' }, {
-      jobId: `out:${outboundKey}`,
+      jobId: `out-${outboundKey}`,
       attempts: 3,
       backoff: { type: 'exponential', delay: 3000 },
     });

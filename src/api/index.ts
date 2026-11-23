@@ -51,7 +51,7 @@ app.post<{ Params: { instance: string }; Querystring: { token?: string } }>('/we
   const id = data?.key?.id;
   if (!id) return reply.send({ ok: true });
   await ingestQueue.add('whatsapp', { instance, data }, {
-    jobId: `wa:${instance}:${id}`, // dedupe ja na fila
+    jobId: `wa-${instance}-${id}`, // dedupe ja na fila
     removeOnComplete: 1000,
     attempts: 5,
     backoff: { type: 'exponential', delay: 2000 },
