@@ -17,7 +17,7 @@ export function Agents() {
   const gaps = useQuery({ queryKey: ['gaps'], queryFn: () => api('/api/knowledge/gaps') });
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Agentes" accent="var(--text-2)" tabs={<>
+      <PageHeader title="IAs" accent="var(--lilac)" tabs={<>
         <Tab active={tab === 'metricas'} onClick={() => setTab('metricas')}>Desempenho</Tab>
         <Tab active={tab === 'base'} onClick={() => setTab('base')}>Base de conhecimento</Tab>
         <Tab active={tab === 'perguntas'} onClick={() => setTab('perguntas')} count={gaps.data?.length}>Perguntas sem resposta</Tab>

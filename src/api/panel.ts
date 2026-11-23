@@ -7,7 +7,7 @@ import { deliver } from '../delivery.js';
 import { getThread, setThread } from '../domain/repo.js';
 import type { Agent } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { EDITABLE_SETTINGS, env, instanceRoles, personaFor, setting, type EditableSetting } from '../lib/env.js';
+import { centralInstance, EDITABLE_SETTINGS, env, instanceRoles, personaFor, setting, type EditableSetting } from '../lib/env.js';
 import { buildContactTreatment, buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
@@ -68,49 +68,72 @@ export async function panelRoutes(app: FastifyInstance) {
       };
     });
 
-    // ---------------------------------------------------------------- cena 3D do Inicio: tudo o que as ilhas mostram, numa chamada
+    // ---------------------------------------------------------------- cena 3D do Inicio: cada numero e uma ilha com a sua "pessoa"
     api.get('/api/scene', async () => {
-      const [threads, resources, monitors, approvals, incidents, instances] = await Promise.all([
-        q(`SELECT t.id, t.active_agent, t.instance, t.channel, t.status, coalesce(c.name, c.phone, c.email) AS contact, c.tags,
-                  t.last_inbound_at, t.last_outbound_at, left(lm.content, 120) AS last, lm.direction AS last_dir, lm.status AS last_status
-             FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
-             LEFT JOIN LATERAL (SELECT content, direction, status FROM app.messages m WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
-            WHERE coalesce(t.last_inbound_at, t.updated_at) > now() - interval '3 days' AND c.role <> 'PESSOAL'
-            ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC LIMIT 120`),
-        q(`SELECT source, external_id, name, kind, status, url, meta FROM sentinela.resources WHERE status <> 'SUSPENDED' AND source IN ('RENDER', 'VERCEL')
-            ORDER BY (status IN ('FAIL', 'WARN')) DESC, (meta->'lastDeploy'->>'createdAt') DESC NULLS LAST, name LIMIT 14`),
+      const roles = [...instanceRoles()].filter(([, r]) => r !== 'OFF' && r !== 'CENTRAL');
+      const central = centralInstance();
+      const [threads, resources, monitors, approvals, incidents, numbers, runs] = await Promise.all([
+        q(`SELECT * FROM (
+             SELECT t.id, t.instance, t.channel, t.active_agent, coalesce(c.name, c.phone, c.email) AS contact, c.tags, c.role,
+                    t.last_inbound_at, t.last_outbound_at, left(lm.content, 120) AS last, lm.status AS last_status,
+                    row_number() OVER (PARTITION BY t.instance ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC) AS rn
+               FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
+               LEFT JOIN LATERAL (SELECT content, status FROM app.messages m WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
+              WHERE coalesce(t.last_inbound_at, t.updated_at) > now() - interval '7 days') x
+            WHERE rn <= 12`),
+        q(`SELECT source, external_id, name, kind, status, meta FROM sentinela.resources WHERE status <> 'SUSPENDED' AND source IN ('RENDER', 'VERCEL')
+            ORDER BY (status IN ('FAIL', 'WARN')) DESC, name LIMIT 14`),
         q(`SELECT id, name, url, last_status, last_latency_ms FROM sentinela.monitors WHERE enabled ORDER BY (last_status = 'FAIL') DESC, name LIMIT 6`),
         q(`SELECT thread_id FROM app.pending_approvals WHERE status = 'PENDING'`),
         q(`SELECT id, severity, title, resource_id FROM sentinela.incidents WHERE status <> 'RESOLVED'`),
         Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([name, role]) => {
           let state = 'desconhecido';
           try { state = await connectionState(name); } catch { /* Evolution fora */ }
-          const last = await one<{ at: Date | null; n: number }>(
-            `SELECT max(m.created_at) AS at, count(*) FILTER (WHERE m.created_at > now() - interval '24 hours')::int AS n
-               FROM app.messages m JOIN app.threads t ON t.id = m.thread_id WHERE t.instance = $1 AND m.direction = 'INBOUND'`, [name],
+          const c = await one<{ n24: number; threads: number }>(
+            `SELECT count(*) FILTER (WHERE m.direction = 'INBOUND' AND m.created_at > now() - interval '24 hours')::int AS n24,
+                    count(DISTINCT t.id) FILTER (WHERE t.last_inbound_at > now() - interval '24 hours')::int AS threads
+               FROM app.threads t LEFT JOIN app.messages m ON m.thread_id = t.id WHERE t.instance = $1`, [name],
           );
-          return { name, role, state, persona: personaFor(name).name, lastInboundAt: last?.at ?? null, messages24h: last?.n ?? 0 };
+          const p = personaFor(name);
+          return { name, role, state, persona: p.name, about: p.about, messages24h: c?.n24 ?? 0, active24h: c?.threads ?? 0 };
         })),
+        one<{ n: number; drafts: number; sent: number }>(
+          `SELECT count(*)::int n, count(*) FILTER (WHERE outcome = 'DRAFT')::int drafts, count(*) FILTER (WHERE outcome = 'SENT')::int sent
+             FROM app.agent_runs WHERE created_at::date = current_date`,
+        ),
       ]);
       const pendingSet = new Set(approvals.map((a: any) => a.thread_id));
       const flags = threads.length ? await redis.mget(threads.map((t: any) => keys.takeover(t.id))) : [];
       const incidentBy = new Map(incidents.map((i: any) => [i.resource_id, i]));
-      const ROLE_LABEL: Record<string, string> = { ATENDIMENTO: 'atendimento', GABRIEL: 'pessoal', OBSERVAR: 'só aprendendo' };
-      const items: any[] = [];
-      const perAgent: Record<string, number> = {};
+      const ROLE_LABEL: Record<string, string> = { ATENDIMENTO: 'atende clientes', GABRIEL: 'pessoa · só contatos liberados', OBSERVAR: 'só aprendendo', CENTRAL: 'orquestrador' };
+      const areas = [
+        { id: 'central', kind: 'hub', name: 'IA central', who: central ? `Orquestrador · número ${central}` : 'Orquestrador · fala com você pela conversa "Você"', state: central ? (numbers.find((n) => n.name === central)?.state ?? 'desconhecido') : 'open' },
+        ...roles.map(([name, role]) => {
+          const n = numbers.find((x) => x.name === name)!;
+          return { id: name, kind: 'desks', name: n.persona, who: `${ROLE_LABEL[role] ?? role} · número ${name}`, role, state: n.state, about: n.about, messages24h: n.messages24h, active24h: n.active24h };
+        }),
+        { id: 'sentinela', kind: 'racks', name: 'Sentinela', who: 'Render, Vercel e sites vigiados', state: 'open' },
+      ];
+      const items: any[] = [{
+        id: 'hub', area: 'central', name: 'Orquestrador', status: 'ok', link: '/agentes',
+        sub: 'Lê as mensagens, escolhe quem responde e fala com você',
+        extra: { Hoje: `${runs?.n ?? 0} execuções · ${runs?.sent ?? 0} enviadas · ${runs?.drafts ?? 0} rascunhos`, Número: central ?? 'ainda sem número próprio' },
+      }];
       threads.forEach((t: any, i: number) => {
-        const area = ({ JOAO: 'joao', CLARA: 'clara', GABRIEL: 'gabriel' } as Record<string, string>)[t.active_agent] ?? 'leo';
-        if (area === 'leo') return;
-        perAgent[area] = (perAgent[area] ?? 0) + 1;
-        if (perAgent[area] > 12) return;
+        if (!areas.some((a) => a.id === t.instance)) return;
         const unanswered = t.last_inbound_at && (!t.last_outbound_at || new Date(t.last_outbound_at) < new Date(t.last_inbound_at));
         const pending = pendingSet.has(t.id);
         const takeover = !!flags[i];
-        const status = pending || (unanswered && Date.now() - new Date(t.last_inbound_at).getTime() > 3600_000) ? 'warn' : 'ok';
+        const old = unanswered && Date.now() - new Date(t.last_inbound_at).getTime() > 3600_000;
         items.push({
-          id: `t:${t.id}`, area, name: t.contact, status, link: `/conversas/${t.id}`,
-          sub: pending ? 'Aprovação esperando você' : takeover ? 'Com você agora' : unanswered ? 'Sem resposta' : String(t.last ?? '').replace(/^⁣/, '').slice(0, 80) || 'Conversa ativa',
-          extra: { Canal: t.channel === 'GMAIL' ? 'Gmail' : `WhatsApp ${t.instance}`, ...(t.last_status === 'DRAFT' ? { 'Última resposta': 'rascunho esperando você' } : {}) },
+          id: `t:${t.id}`, area: t.instance, name: t.contact, link: `/conversas/${t.id}`,
+          status: pending || old ? 'warn' : 'ok',
+          sub: pending ? 'Aprovação esperando você' : takeover ? 'Com você agora' : unanswered ? 'Sem resposta' : String(t.last ?? '').replace(/^⁣/, '').slice(0, 80) || 'Conversa',
+          extra: {
+            Canal: t.channel === 'GMAIL' ? 'Gmail' : 'WhatsApp',
+            'IA liberada': t.tags?.includes('AUTO') ? 'sim, responde sozinha' : t.tags?.includes('BOT') ? 'sim, em rascunho' : 'não',
+            ...(t.last_status === 'DRAFT' ? { 'Última resposta': 'rascunho esperando você' } : {}),
+          },
         });
       });
       for (const r of resources as any[]) {
@@ -132,23 +155,8 @@ export async function panelRoutes(app: FastifyInstance) {
           extra: { Endereço: m.url },
         });
       }
-      for (const n of instances) {
-        const silentH = n.lastInboundAt ? (Date.now() - new Date(n.lastInboundAt).getTime()) / 3_600_000 : null;
-        items.push({
-          id: `n:${n.name}`, area: 'numeros', name: `${n.name} · ${n.persona}`, link: '/configuracoes',
-          status: n.state !== 'open' ? 'crit' : silentH !== null && silentH > 12 && n.messages24h === 0 ? 'warn' : 'ok',
-          sub: n.state !== 'open' ? `Desconectado (${n.state})` : `${ROLE_LABEL[n.role] ?? n.role} · ${n.messages24h} mensagens em 24 h`,
-          extra: { Papel: ROLE_LABEL[n.role] ?? n.role, Conexão: n.state === 'open' ? 'conectado' : n.state },
-        });
-      }
-      const routed = await one<{ n: number; handoffs: number }>(
-        `SELECT count(*)::int n, count(*) FILTER (WHERE jsonb_array_length(coalesce(route->'handoffs', '[]')) > 0)::int handoffs
-           FROM app.agent_runs WHERE created_at::date = current_date`,
-      );
-      items.unshift({ id: 'hub', area: 'leo', name: 'Roteamento', status: 'ok', link: '/agentes', sub: 'Lendo as mensagens e escolhendo quem responde', extra: { Hoje: `${routed?.n ?? 0} execuções, ${routed?.handoffs ?? 0} trocas de agente` } });
-      return { items, threadAreas: Object.fromEntries(threads.map((t: any) => [t.id, ({ JOAO: 'joao', CLARA: 'clara', GABRIEL: 'gabriel' } as Record<string, string>)[t.active_agent] ?? 'leo'])) };
+      return { areas, items, threadAreas: Object.fromEntries(threads.map((t: any) => [t.id, t.instance])) };
     });
-
     // ---------------------------------------------------------------- conversas
     api.get('/api/threads', async (req) => {
       const f = req.query as Record<string, string | undefined>;

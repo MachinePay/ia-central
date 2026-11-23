@@ -3,7 +3,7 @@ import { API_URL, getToken } from '../lib/api';
 
 type Listener = (e: { type: string; data: any }) => void;
 const listeners = new Set<Listener>();
-export const onEvent = (l: Listener) => { listeners.add(l); return () => listeners.delete(l); };
+export const onEvent = (l: Listener) => { listeners.add(l); return () => { listeners.delete(l); }; };
 
 /**
  * Uma conexao SSE por aba. Eventos nao recarregam a tela: invalidam so as consultas afetadas,
@@ -27,13 +27,13 @@ export function startRealtime(qc: QueryClient) {
     if (!scheduled) { scheduled = true; requestAnimationFrame(flush); }
   };
   const MAP: Record<string, string[]> = {
-    'message.created': ['threads', 'thread', 'summary'],
+    'message.created': ['threads', 'thread', 'summary', 'scene'],
     'thread.updated': ['threads', 'thread', 'summary'],
-    'approval.created': ['approvals', 'summary', 'thread'],
+    'approval.created': ['approvals', 'summary', 'thread', 'scene'],
     'approval.decided': ['approvals', 'summary', 'thread'],
-    'incident.opened': ['incidents', 'summary', 'incident'],
+    'incident.opened': ['incidents', 'summary', 'incident', 'scene'],
     'incident.updated': ['incidents', 'summary', 'incident'],
-    'incident.resolved': ['incidents', 'summary', 'incident'],
+    'incident.resolved': ['incidents', 'summary', 'incident', 'scene'],
     'resource.updated': ['monitors', 'resources'],
     'cost.updated': ['costs', 'summary'],
   };

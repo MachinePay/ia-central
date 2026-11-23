@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useRouterState } from '@tanstack/react-router';
 import {
-  Bot, CheckCheck, Cpu, Gauge, Home, LogOut, MessagesSquare, Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Sun, Wallet,
+  Bot, CheckCheck, Gauge, Home, LogOut, MessagesSquare, Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Sun, Wallet,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api, setToken } from '../lib/api';
@@ -13,10 +13,9 @@ export const AREAS = [
   { to: '/', label: 'Início', icon: Home, color: 'var(--amber)', key: 'home' },
   { to: '/conversas', label: 'Conversas', icon: MessagesSquare, color: 'var(--cyan)', key: 'conv' },
   { to: '/aprovacoes', label: 'Aprovações', icon: CheckCheck, color: 'var(--amber)', key: 'appr' },
-  { to: '/agentes', label: 'Agentes', icon: Bot, color: 'var(--text-2)', key: 'agents' },
+  { to: '/agentes', label: 'IAs', icon: Bot, color: 'var(--lilac)', key: 'agents' },
   { to: '/sentinela', label: 'Sentinela', icon: ShieldCheck, color: 'var(--ok)', key: 'sent' },
   { to: '/custos', label: 'Custos', icon: Wallet, color: 'var(--lilac)', key: 'cost' },
-  { to: '/totens', label: 'Totens', icon: Cpu, color: 'var(--coral)', key: 'totem' },
 ] as const;
 
 export function useSummary() {
@@ -65,7 +64,7 @@ export function Shell() {
 
   return (
     <div className="flex h-full">
-      <nav aria-label="Áreas" className={cx('flex shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-200', collapsed ? 'w-16' : 'w-[232px]')}>
+      <nav aria-label="Áreas" className={cx('glass relative z-10 m-2 mr-0 flex shrink-0 flex-col transition-[width] duration-200', collapsed ? 'w-16' : 'w-[232px]')}>
         <div className="flex h-14 items-center gap-2 px-4">
           <Gauge size={20} className="shrink-0 text-amber" />
           {!collapsed && <span className="font-semibold">Centro de Comando</span>}
@@ -96,7 +95,7 @@ export function Shell() {
           <NavAction collapsed={collapsed} onClick={() => setCollapsed((c) => !c)} icon={collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />} label="Recolher menu" />
         </div>
       </nav>
-      <main className="min-w-0 flex-1 overflow-hidden"><Outlet /></main>
+      <main className="app-bg min-w-0 flex-1 overflow-hidden"><Outlet /></main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} toggleTheme={toggleTheme} />
       <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex flex-col gap-2">
         {toasts.map((t) => (

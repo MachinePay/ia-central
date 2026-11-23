@@ -114,7 +114,7 @@ export function RefreshBar({ active }: { active: boolean }) {
 // ------------------------------------------------------------------ cabecalho da pagina e painel lateral
 export function PageHeader({ title, accent, children, tabs }: { title: string; accent: string; children?: ReactNode; tabs?: ReactNode }) {
   return (
-    <header className="border-b border-line" style={{ boxShadow: `inset 0 2px 0 ${accent}` }}>
+    <header className="glass m-2 mb-0" style={{ boxShadow: `inset 0 2px 0 ${accent}` }}>
       <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
         <h1 className="text-[23px] font-semibold leading-tight">{title}</h1>
         <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>
@@ -138,7 +138,7 @@ export function SidePanel({ title, onClose, children, actions }: { title: ReactN
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
   return (
-    <aside className="flex h-full min-w-0 flex-col border-l border-line bg-surface">
+    <aside className="glass m-2 flex min-w-0 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0 flex-1 truncate font-semibold">{title}</div>
         {actions}
@@ -159,7 +159,7 @@ export function Section({ title, children, right }: { title: ReactNode; children
 }
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx('rounded-[10px] border border-line bg-surface', className)}>{children}</div>;
+  return <div className={cx('glass', className)}>{children}</div>;
 }
 
 export function Stat({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: ReactNode; tone?: string }) {

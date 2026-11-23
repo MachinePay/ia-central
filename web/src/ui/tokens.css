@@ -87,3 +87,34 @@ body {
 /* uPlot */
 .uplot { font-family: var(--font-sans) !important; }
 .u-legend { color: var(--text-2); font-size: 12px; }
+
+/* ---------------------------------------------------------------- Centro de Comando 3D */
+:root { --scene-bg: #0B2128; --grid: #143540; --grid-strong: #235566; --slab-base: #16394A; --desk: #24505F; --agent: #AFC3C4; --rack: #1C4452; --glass: rgba(18, 46, 56, .80); }
+:root[data-theme='light'] { --scene-bg: #E1EBEA; --grid: #CFDCDC; --grid-strong: #A7C0C1; --slab-base: #F4F8F8; --desk: #C3D3D4; --agent: #5E7C82; --rack: #AFC3C5; --glass: rgba(255, 255, 255, .84); }
+.glass { background: var(--glass); border: 1px solid var(--line); border-radius: 10px; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.cc-labels { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+.lbl { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line); border-left: 3px solid var(--c); font-size: 12px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); transition: opacity .15s; font-family: var(--font-sans); }
+.lbl .n { color: var(--text-2); font-weight: 400; font-variant-numeric: tabular-nums; }
+.lbl.dim { opacity: .35; }
+.lbl.portal { font-weight: 400; cursor: default; }
+.bad { font-size: 11px; font-weight: 600; border-radius: 9px; padding: 1px 6px; font-variant-numeric: tabular-nums; }
+.bad.crit { background: var(--crit); color: #fff; }
+.bad.warn { background: var(--warn); color: #10262c; }
+.cc-tip { position: absolute; pointer-events: none; z-index: 7; max-width: 260px; padding: 8px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transition: opacity .1s; }
+.cc-tip strong { display: block; font-size: 13px; }
+.cc-tip.show { opacity: 1; }
+.cc-chip { height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid transparent; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--text); font-size: 13px; }
+.cc-chip:hover { background: color-mix(in srgb, var(--line) 55%, transparent); }
+.cc-chip[aria-pressed='true'] { background: var(--cyan); color: var(--bg); }
+.cc-side { transform: translateX(calc(100% + 24px)); transition: transform .18s var(--ease-out); }
+.cc-side.open { transform: none; }
+@media (max-width: 760px) { .cc-side { transform: translateY(calc(100% + 80px)); } .cc-side.open { transform: none; } }
+
+/* fundo das telas: grade sutil com brilho, igual a maquete */
+.app-bg { background:
+  radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--cyan) 7%, transparent), transparent 70%),
+  linear-gradient(color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px) 0 0 / 40px 40px,
+  linear-gradient(90deg, color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px) 0 0 / 40px 40px,
+  var(--bg); }
