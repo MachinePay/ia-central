@@ -163,7 +163,7 @@ export async function panelRoutes(app: FastifyInstance) {
     api.patch<{ Params: { id: string } }>('/api/threads/:id/facts', async (req, reply) => {
       const b = z.object({ facts: z.record(z.string(), z.unknown()).optional(), summary: z.string().max(3000).optional() }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
-      await setThread(req.params.id, { ...(b.data.facts ? { facts: b.data.facts } : {}), ...(b.data.summary !== undefined ? { summary: b.data.summary } : {}) });
+      await setThread(req.params.id, { ...(b.data.facts ? { facts: b.data.facts } : {}), ...(b.data.summary !== undefined ? { summary: b.data.summary || null, summary_at: new Date() } : {}) });
       return { ok: true };
     });
 

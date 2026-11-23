@@ -60,6 +60,7 @@ export type Thread = {
   active_agent: Agent;
   status: 'OPEN' | 'PAUSED' | 'WAITING_APPROVAL' | 'CLOSED';
   summary: string | null;
+  summary_at?: Date | null;
   facts: Record<string, unknown>;
   pending_handoff: { to: Specialist; reason: string; summary: string } | null;
   agent_switches: Array<{ at: string; to: Agent }>;

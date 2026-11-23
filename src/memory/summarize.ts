@@ -54,6 +54,6 @@ export async function summarizeThread(threadId: string) {
       kept.push(p as any);
     }
   }
-  await setThread(threadId, { summary: r.object.summary, facts: r.object.facts, msgs_since_summary: 0 });
+  await setThread(threadId, { summary: r.object.summary, facts: r.object.facts, msgs_since_summary: 0, summary_at: new Date() });
   await addCost(costUsd(r.modelSpec, r.usage.inputTokens, r.usage.outputTokens));
 }

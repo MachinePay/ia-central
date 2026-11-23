@@ -20,6 +20,13 @@ export type AgentResult = {
   ctx: ToolCtx;
 };
 
+/** "hoje", "ontem", "ha 3 dias" */
+function ago(d: Date | string | null | undefined): string {
+  if (!d) return 'em data desconhecida';
+  const days = Math.floor((Date.now() - new Date(d).getTime()) / 86_400_000);
+  return days <= 0 ? 'hoje' : days === 1 ? 'ontem' : `há ${days} dias`;
+}
+
 const WHATSAPP_RULES = `- Escreva como no WhatsApp: de 1 a 4 mensagens curtas, separadas por uma linha em branco. Cada mensagem é uma bolha que o cliente vê chegar separada (1 a 2 frases cada).
 - Uma resposta simples cabe numa bolha só. Não force várias.
 - Pode usar letra minúscula no começo e as abreviações que você costuma usar (veja os exemplos acima).
@@ -50,7 +57,8 @@ export async function systemPrompt(agent: Specialist, pack: ContextPack, interna
     CONTACT_PROFILE: contactProfile(pack.contact),
     CONTACT_TREATMENT: pack.contact.treatment || '(ainda não aprendido: é a primeira vez ou vocês conversaram pouco)',
     FACTS_JSON: JSON.stringify(pack.thread.facts ?? {}),
-    SUMMARY: pack.thread.summary ?? '(conversa nova)',
+    SUMMARY: pack.thread.summary ? `(resumo feito ${ago(pack.thread.summary_at)}; o que está aqui é passado, não é novidade de hoje)
+${pack.thread.summary}` : '(conversa nova)',
     OTHER_CHANNEL: pack.otherChannel ?? '(nenhum)',
     INTERNAL_NOTE: internalNote || '(nenhuma)',
   });

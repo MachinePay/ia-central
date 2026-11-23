@@ -46,6 +46,7 @@ export async function checkOutput(o: {
   if (CLAIMS_HUMAN.test(o.text)) issues.push('nega ser IA: se perguntaram, diga com leveza que usa um assistente para responder rápido e que a pessoa acompanha tudo');
   // humano substituto: so fala de "assistente" quando o cliente perguntou se e robo
   if (!o.clientAskedBot && SELF_AS_BOT.test(o.text)) issues.push('se apresenta como assistente/robô sem o cliente perguntar: escreva em primeira pessoa como a própria pessoa, sem mencionar assistente');
+  if (/\b(olhada remota|acesso remoto|remotamente|conex[aã]o remota|reinici(o|ar) remot)/i.test(o.text)) issues.push('oferece acesso/olhada remota, que você não consegue fazer: troque por "vou ver aqui e te falo"');
   if (!o.intimateAllowed && INTIMATE_RE.test(o.text)) issues.push('usa apelido ou carinho (amor, bb...) com quem você não trata assim: fale do seu jeito geral, sem apelidos');
   if (o.channel === 'WHATSAPP' && /^\s*[•\-*]\s/m.test(o.text)) issues.push('tem lista com marcadores: escreva em frases normais, como no WhatsApp');
   if (o.shortClient && o.text.length > 280) issues.push('o cliente só cumprimentou ou mandou algo curto: responda curto (1 bolha) e não puxe assuntos antigos');
