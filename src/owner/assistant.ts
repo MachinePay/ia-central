@@ -118,15 +118,15 @@ function tools(log: string[]) {
       },
     }),
     ligar_ia_contato: tool({
-      description: 'Liga ou desliga a IA para um contato. responder_sozinha=true faz a resposta sair sem rascunho (tag AUTO).',
-      inputSchema: z.object({ busca: z.string().min(2), ligar: z.boolean(), responder_sozinha: z.boolean().optional() }),
-      execute: async ({ busca, ligar, responder_sozinha }) => {
-        const found = await findThread(busca);
-        if (found.length !== 1 && !(found.length > 1 && found.every((f) => f.contact_id === found[0].contact_id))) return found.length ? { varios: found.map((f) => f.contact) } : { erro: 'Não achei esse contato.' };
-        const id = found[0].contact_id;
-        const tags = ligar ? ['BOT', ...(responder_sozinha ? ['AUTO'] : [])] : [];
-        await q(`UPDATE contacts SET tags = (SELECT coalesce(array_agg(DISTINCT x), '{}') FROM unnest(array_remove(array_remove(tags, 'BOT'), 'AUTO') || $2::text[]) x), updated_at = now() WHERE id = $1`, [id, tags]);
-        return { ok: done(`${found[0].contact}: IA ${ligar ? (responder_sozinha ? 'ligada, respondendo sozinha' : 'ligada, em rascunho') : 'desligada'}`) };
+      description: 'Liga ou desliga a IA para um contato (em todos os números em que ele conversa, ou só no número informado). responder_sozinha=true faz a resposta sair sem rascunho.',
+      inputSchema: z.object({ busca: z.string().min(2), ligar: z.boolean(), responder_sozinha: z.boolean().optional(), numero: z.string().optional() }),
+      execute: async ({ busca, ligar, responder_sozinha, numero }) => {
+        let found = await findThread(busca);
+        if (numero) found = found.filter((f) => f.instance === numero);
+        if (!found.length) return { erro: 'Não achei esse contato.' };
+        if (!found.every((f) => f.contact_id === found[0].contact_id)) return { varios: found.map((f) => `${f.contact} (número ${f.instance})`) };
+        await q(`UPDATE threads SET ai_enabled = $2, ai_auto = $3 WHERE id = ANY($1::uuid[])`, [found.map((f) => f.id), ligar, ligar && !!responder_sozinha]);
+        return { ok: done(`${found[0].contact}: IA ${ligar ? (responder_sozinha ? 'ligada, respondendo sozinha' : 'ligada, em rascunho') : 'desligada'} (${found.map((f) => f.instance).join(', ')})`) };
       },
     }),
     reconhecer_incidente: tool({

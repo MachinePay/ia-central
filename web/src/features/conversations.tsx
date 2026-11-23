@@ -239,6 +239,7 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
   const [factsText, setFactsText] = useState(JSON.stringify(d.thread.facts ?? {}, null, 2));
   const [tag, setTag] = useState('');
   const saveContact = useMutation({ mutationFn: (body: any) => patch(`/api/contacts/${c.id}`, body), onSuccess: () => { toast('Contato atualizado.'); onChanged(); }, onError: toastError });
+  const saveAi = useMutation({ mutationFn: (body: { enabled?: boolean; auto?: boolean }) => patch(`/api/threads/${d.thread.id}/ai`, body), onSuccess: () => { toast('Permissão da IA salva.'); onChanged(); }, onError: toastError });
   const saveFacts = useMutation({
     mutationFn: () => patch(`/api/threads/${d.thread.id}/facts`, { facts: JSON.parse(factsText) }),
     onSuccess: () => { toast('Fatos salvos.'); onChanged(); },
@@ -261,10 +262,15 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
         <div className="mt-2 flex flex-wrap gap-1">
           {(c.tags ?? []).map((t: string) => <Chip key={t} label={t} onRemove={() => saveContact.mutate({ tags: c.tags.filter((x: string) => x !== t) })} />)}
           <form onSubmit={(e) => { e.preventDefault(); if (tag.trim()) { saveContact.mutate({ tags: [...(c.tags ?? []), tag.trim().toUpperCase()] }); setTag(''); } }}>
-            <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="+ tag (VIP, BOT…)" className={cx(inputCls, 'h-7! w-32! text-[12px]')} />
+            <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="+ tag (VIP…)" className={cx(inputCls, 'h-7! w-32! text-[12px]')} />
           </form>
         </div>
-        {d.thread.instance && <p className="mt-2 text-[12px] text-text-2">Tag BOT: no seu número pessoal, a IA só fala com quem tem. Tag AUTO: a resposta sai sozinha para este contato (sem rascunho).</p>}
+        {d.thread.channel === 'WHATSAPP' && (
+          <div className="mt-3 flex flex-wrap gap-4 text-[13px]">
+            <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" className="size-4 accent-cyan" checked={!!d.thread.ai_enabled} onChange={(e) => saveAi.mutate({ enabled: e.target.checked })} />IA responde neste número</label>
+            <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" className="size-4 accent-coral" checked={!!d.thread.ai_auto} onChange={(e) => saveAi.mutate({ auto: e.target.checked })} />Manda sozinha (sem rascunho)</label>
+          </div>
+        )}
       </Section>
       <TreatmentSection threadId={d.thread.id} contact={c} onChanged={onChanged} />
       <Section title="Resumo da conversa"><p className="text-[13px] whitespace-pre-wrap text-text-2">{d.thread.summary ?? 'Ainda sem resumo (é feito a cada 10 mensagens).'}</p></Section>

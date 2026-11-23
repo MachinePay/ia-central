@@ -49,7 +49,7 @@ export async function styleFor(instance: string, company: string | null): Promis
 /** O que voce sabe sobre o assunto da mensagem: procedimentos, regras e respostas aprendidas neste numero. */
 export async function knowledgeFor(text: string, company: string | null, instance: string): Promise<{ text: string; evidence: string[] }> {
   if (text.trim().length < 3) return { text: '', evidence: [] };
-  const chunks = await searchKnowledge(text.slice(0, 500), company, 5, ['procedimento', 'politica', 'faq', 'produto', 'contato', 'manual'], instance).catch(() => []);
+  const chunks = await searchKnowledge(text.slice(0, 500), company, 5, ['procedimento', 'politica', 'faq', 'produto', 'contato', 'manual', 'memoria'], instance).catch(() => []);
   if (!chunks.length) return { text: '', evidence: [] };
   return {
     text: chunks.map((c) => `### ${c.title}${c.company_slug ? ` (${c.company_slug})` : ''}\n${c.content}`).join('\n\n'),

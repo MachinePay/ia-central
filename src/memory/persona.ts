@@ -68,8 +68,9 @@ export async function buildPersonaProfile(instance: string): Promise<string | un
   const work = rows.filter((r) => r.role !== 'PESSOAL').map(tag);
   const personal = rows.filter((r) => r.role === 'PESSOAL').map(tag);
   const legacy = await q<{ conteudo: string }>(
-    `SELECT conteudo FROM nucleo.conhecimento WHERE dominio = 'pessoal' AND origem IN ('observacao_gabriel', 'ensinado_pelo_dono')
-      AND conteudo ~* '(escreve|fala|jeito|tom|abrevia|responde|costuma|g[ií]ria|express)' ORDER BY criado_em DESC LIMIT 40`,
+    `SELECT conteudo FROM nucleo.conhecimento WHERE agente = $1
+      AND conteudo ~* '(escreve|fala|jeito|tom|abrevia|responde|costuma|g[ií]ria|express|cumpriment)' ORDER BY criado_em DESC LIMIT 40`,
+    [({ nucleo: 'leo', gabriel: 'gabriel', joao: 'joao', suporte: 'suporte' } as Record<string, string>)[instance] ?? instance],
   ).catch(() => [] as Array<{ conteudo: string }>);
   const r = await withFallback('summary', ({ model }) =>
     generateText({

@@ -374,7 +374,7 @@ function SettingsTab({ instance }: { instance: string }) {
         <input className={inputCls} value={cur.about} placeholder="ex.: dono da AGarraMais, atende o suporte" onChange={(e) => setF({ ...cur, about: e.target.value })} /></label>
       <label className="block space-y-1"><span className="text-[12px] font-semibold text-text-2">O que este número faz</span>
         <select className={inputCls} value={cur.role} onChange={(e) => setF({ ...cur, role: e.target.value })}>{ROLE_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select></label>
-      <p className="text-[12px] text-text-2">Em "Pessoa", a IA só fala com contatos que têm a tag BOT (e responde sozinha com AUTO). Mude isso na ficha de cada conversa.</p>
+      <p className="text-[12px] text-text-2">Quem a IA deste número responde (todos ou só os marcados) e se manda sozinha você escolhe em IAs → Cada IA.</p>
       <div className="flex justify-end"><Button variant="primary" disabled={!f} busy={save.isPending} onClick={() => save.mutate()}>Salvar</Button></div>
     </div>
   );

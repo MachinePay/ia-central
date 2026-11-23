@@ -62,6 +62,8 @@ const schema = z.object({
   MONTHLY_BUDGET_USD: z.coerce.number().default(300),
   // quem "e" cada numero: a IA escreve como essa pessoa. "gabriel:Gabriel|dono da SelfMachine;suporte:Bruna|atendimento AGarraMais"
   EMOJIS: z.string().default('off'),   // off = a IA nunca manda emoji
+  // regras de cada numero: {"joao":{"reply":"all","auto":false}} (reply: all = todos os contatos, selected = so os marcados)
+  NUMBER_RULES: z.string().default('{}'),
   PERSONAS: z.string().default('gabriel:Gabriel|fundador da SelfMachine'),
 });
 
@@ -84,7 +86,7 @@ export type Env = typeof env;
  * Ajustes feitos no painel (tabela app.settings) valem por cima das variaveis de ambiente.
  * O cache e atualizado a cada 30 s em cada processo (lib/settings.ts).
  */
-export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS'] as const;
+export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS', 'NUMBER_RULES'] as const;
 export type EditableSetting = (typeof EDITABLE_SETTINGS)[number];
 const overrides: Partial<Record<EditableSetting, string>> = {};
 export function setOverrides(o: Partial<Record<EditableSetting, string>>) {
@@ -146,4 +148,16 @@ export function approvalInstance(): string | undefined {
   if (env.APPROVAL_INSTANCE) return env.APPROVAL_INSTANCE;
   for (const [name, role] of instanceRoles()) if (role === 'ATENDIMENTO') return name;
   return undefined;
+}
+
+export type NumberRule = { reply: 'all' | 'selected'; auto: boolean };
+/** Para quem a IA de um numero responde e se manda sozinha. Padrao: pessoa = so os marcados; atendimento = todos. */
+export function numberRule(instance: string): NumberRule {
+  let all: Record<string, Partial<NumberRule>> = {};
+  try { all = JSON.parse(setting('NUMBER_RULES') || '{}'); } catch { /* ajuste invalido: usa o padrao */ }
+  const r = all[instance] ?? {};
+  return {
+    reply: r.reply === 'all' || r.reply === 'selected' ? r.reply : instanceRole(instance) === 'ATENDIMENTO' ? 'all' : 'selected',
+    auto: !!r.auto,
+  };
 }

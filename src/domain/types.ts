@@ -68,6 +68,8 @@ export type Thread = {
   last_inbound_at: Date | null;
   last_outbound_at: Date | null;
   last_bot_at: Date | null;
+  ai_enabled?: boolean; // a IA deste numero responde este contato
+  ai_auto?: boolean; // e manda sozinha, sem rascunho
 };
 
 export type Message = {

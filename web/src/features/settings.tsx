@@ -8,7 +8,7 @@ import { Button, Card, cx, ErrorState, Field, inputCls, PageHeader, Pill, Skelet
 const ROLES = [
   { v: 'ATENDIMENTO', l: 'Atendimento', d: 'O Léo roteia e os agentes respondem (rascunho ou envio)' },
   { v: 'OBSERVAR', l: 'Só aprendendo', d: 'Guarda as conversas e aprende com a equipe; nunca responde' },
-  { v: 'GABRIEL', l: 'Pessoal do Gabriel', d: 'Só fala com contatos com a tag BOT; recebe rascunhos e aprovações' },
+  { v: 'GABRIEL', l: 'Pessoal do Gabriel', d: 'Fala como a pessoa; só com os contatos marcados em IAs → Cada IA' },
   { v: 'OFF', l: 'Desligado', d: 'Ignorado pelo sistema' },
 ];
 

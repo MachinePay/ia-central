@@ -7,7 +7,7 @@ import { deliver } from '../delivery.js';
 import { getThread, setThread } from '../domain/repo.js';
 import type { Agent } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { centralInstance, EDITABLE_SETTINGS, env, instanceRoles, personaFor, setting, type EditableSetting } from '../lib/env.js';
+import { centralInstance, EDITABLE_SETTINGS, env, instanceRoles, numberRule, personaFor, setting, type EditableSetting } from '../lib/env.js';
 import { buildContactTreatment, buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
@@ -74,7 +74,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const central = centralInstance();
       const [threads, resources, monitors, approvals, incidents, numbers, runs] = await Promise.all([
         q(`SELECT * FROM (
-             SELECT t.id, t.instance, t.channel, t.active_agent, coalesce(c.name, c.phone, c.email) AS contact, c.tags, c.role,
+             SELECT t.id, t.instance, t.channel, t.active_agent, coalesce(c.name, c.phone, c.email) AS contact, c.tags, c.role, t.ai_enabled, t.ai_auto,
                     t.last_inbound_at, t.last_outbound_at, left(lm.content, 120) AS last, lm.status AS last_status,
                     row_number() OVER (PARTITION BY t.instance ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC) AS rn
                FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
@@ -131,7 +131,7 @@ export async function panelRoutes(app: FastifyInstance) {
           sub: pending ? 'Aprovação esperando você' : takeover ? 'Com você agora' : unanswered ? 'Sem resposta' : String(t.last ?? '').replace(/^⁣/, '').slice(0, 80) || 'Conversa',
           extra: {
             Canal: t.channel === 'GMAIL' ? 'Gmail' : 'WhatsApp',
-            'IA liberada': t.tags?.includes('AUTO') ? 'sim, responde sozinha' : t.tags?.includes('BOT') ? 'sim, em rascunho' : 'não',
+            'IA liberada': t.ai_auto ? 'sim, responde sozinha' : t.ai_enabled ? 'sim, em rascunho' : 'não',
             ...(t.last_status === 'DRAFT' ? { 'Última resposta': 'rascunho esperando você' } : {}),
           },
         });
@@ -177,7 +177,7 @@ export async function panelRoutes(app: FastifyInstance) {
       if (f.cursor) add(`coalesce(lm.created_at, t.updated_at) < $?::timestamptz`, f.cursor);
       const rows = await q(
         `SELECT t.id, t.channel, t.instance, t.active_agent, t.status, t.company_slug, t.subject,
-                c.id AS contact_id, coalesce(c.name, c.phone, c.email) AS contact, c.phone, c.email, c.tags, c.crm_stage, c.role,
+                c.id AS contact_id, coalesce(c.name, c.phone, c.email) AS contact, c.phone, c.email, c.tags, c.crm_stage, c.role, t.ai_enabled, t.ai_auto,
                 lm.content AS last_content, lm.direction AS last_direction, lm.sender AS last_sender, lm.status AS last_status,
                 coalesce(lm.created_at, t.updated_at) AS last_at,
                 (SELECT count(*)::int FROM app.pending_approvals a WHERE a.thread_id = t.id AND a.status = 'PENDING') AS pending,
@@ -581,6 +581,85 @@ export async function panelRoutes(app: FastifyInstance) {
       if (!b.success) return bad(reply, 'Escreva o jeito de escrever (mínimo 10 caracteres).');
       await savePersonaProfile(req.params.instance, b.data.profile, `painel:${user(req)}`);
       return { ok: true };
+    });
+
+    // ---------------------------------------------------------------- cada IA (numero): regras e contatos liberados
+    api.get('/api/numbers', async () => Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([instance, role]) => {
+      const p = await getPersonaProfile(instance);
+      const c = await one<{ total: number; marked: number; auto: number; active: number; msgs: number }>(
+        `SELECT count(*)::int total, count(*) FILTER (WHERE ai_enabled)::int marked, count(*) FILTER (WHERE ai_auto)::int auto,
+                count(*) FILTER (WHERE coalesce(last_inbound_at, updated_at) > now() - interval '7 days')::int active,
+                (SELECT count(*)::int FROM app.messages m JOIN app.threads t2 ON t2.id = m.thread_id
+                  WHERE t2.instance = $1 AND m.direction = 'OUTBOUND' AND m.sender NOT IN ('HUMAN') AND m.created_at > now() - interval '7 days') msgs
+           FROM app.threads WHERE instance = $1 AND channel = 'WHATSAPP'`,
+        [instance],
+      );
+      let state = 'desconhecido';
+      try { state = await connectionState(instance); } catch { /* Evolution fora */ }
+      return {
+        instance, role, state, persona: personaFor(instance), rule: numberRule(instance),
+        profile: p?.content ?? '', profileAt: p?.updated_at ?? null, styleMessages: await countPersonaMessages(instance),
+        contacts: c ?? { total: 0, marked: 0, auto: 0, active: 0, msgs: 0 },
+      };
+    })));
+
+    api.put<{ Params: { instance: string } }>('/api/numbers/:instance/rule', async (req, reply) => {
+      const b = z.object({ reply: z.enum(['all', 'selected']), auto: z.boolean() }).safeParse(req.body);
+      if (!b.success) return bad(reply, 'Regra inválida.');
+      if (!instanceRoles().has(req.params.instance)) return bad(reply, 'Número não encontrado.', 404);
+      let all: Record<string, unknown> = {};
+      try { all = JSON.parse(setting('NUMBER_RULES') || '{}'); } catch { /* recomeca */ }
+      all[req.params.instance] = b.data;
+      await saveSetting('NUMBER_RULES', JSON.stringify(all), user(req));
+      return { ok: true, rule: numberRule(req.params.instance) };
+    });
+
+    api.get<{ Params: { instance: string } }>('/api/numbers/:instance/contacts', async (req) => {
+      const f = req.query as Record<string, string | undefined>;
+      const params: unknown[] = [req.params.instance];
+      const where = [`t.instance = $1`, `t.channel = 'WHATSAPP'`];
+      if (f.q) { params.push(`%${f.q}%`, f.q.replace(/\D/g, '')); where.push(`(c.name ILIKE $2 OR ($3 <> '' AND c.phone LIKE '%' || $3 || '%'))`); }
+      if (f.show === 'marked') where.push('t.ai_enabled');
+      if (f.show === 'unmarked') where.push('NOT t.ai_enabled');
+      if (f.show === 'personal') where.push(`c.role = 'PESSOAL'`);
+      const rows = await q(
+        `SELECT t.id, t.ai_enabled, t.ai_auto, c.id AS contact_id, coalesce(c.name, c.phone, c.email) AS contact, c.phone, c.role,
+                c.treatment IS NOT NULL AS has_treatment,
+                coalesce(t.last_inbound_at, t.updated_at) AS last_at,
+                (SELECT count(*)::int FROM app.messages m WHERE m.thread_id = t.id) AS messages
+           FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
+          WHERE ${where.join(' AND ')}
+          ORDER BY t.ai_enabled DESC, coalesce(t.last_inbound_at, t.updated_at) DESC NULLS LAST LIMIT 500`,
+        params,
+      );
+      return { items: rows, rule: numberRule(req.params.instance) };
+    });
+
+    api.patch<{ Params: { id: string } }>('/api/threads/:id/ai', async (req, reply) => {
+      const b = z.object({ enabled: z.boolean().optional(), auto: z.boolean().optional() }).safeParse(req.body);
+      if (!b.success) return bad(reply, 'Dados inválidos.');
+      // responder sozinha liga a IA; desligar a IA desliga o "sozinha"
+      const r = await one<{ ai_enabled: boolean; ai_auto: boolean }>(
+        `UPDATE app.threads SET
+           ai_enabled = CASE WHEN $3::boolean IS TRUE THEN true ELSE coalesce($2::boolean, ai_enabled) END,
+           ai_auto = CASE WHEN $2::boolean IS FALSE THEN false ELSE coalesce($3::boolean, ai_auto) END
+         WHERE id = $1 RETURNING ai_enabled, ai_auto`,
+        [req.params.id, b.data.enabled ?? null, b.data.auto ?? null],
+      );
+      if (!r) return bad(reply, 'Conversa não encontrada.', 404);
+      return r;
+    });
+
+    api.post<{ Params: { instance: string } }>('/api/numbers/:instance/contacts/bulk', async (req, reply) => {
+      const b = z.object({ ids: z.array(z.string().uuid()).optional(), enabled: z.boolean(), auto: z.boolean().optional() }).safeParse(req.body);
+      if (!b.success) return bad(reply, 'Dados inválidos.');
+      const { ids, enabled, auto } = b.data;
+      const r = await q(
+        `UPDATE app.threads SET ai_enabled = $2, ai_auto = CASE WHEN NOT $2 THEN false ELSE coalesce($3::boolean, ai_auto) END
+          WHERE instance = $1 AND channel = 'WHATSAPP' AND ($4::uuid[] IS NULL OR id = ANY($4::uuid[])) RETURNING id`,
+        [req.params.instance, enabled, auto ?? null, ids ?? null],
+      );
+      return { changed: r.length };
     });
 
     // ---------------------------------------------------------------- configuracoes

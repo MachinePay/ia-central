@@ -2,7 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { fill, loadPrompt } from '../agents/prompts.js';
 import type { Agent, Specialist } from '../domain/types.js';
-import { instanceRole } from '../lib/env.js';
+import { instanceRole, numberRule } from '../lib/env.js';
 import { addCost, costUsd, withFallback } from '../lib/llm.js';
 import { keys, redis } from '../lib/redis.js';
 import { fence } from '../lib/util.js';
@@ -42,10 +42,12 @@ export async function preRoute(p: ContextPack): Promise<RouteDecision | { action
   if (rate === 1) await redis.expire(keys.rate(contact.id), 3600);
   if (rate > RATE_PER_HOUR) return { action: 'SILENT', reason: 'limite de respostas por hora', escalate: rate === RATE_PER_HOUR + 1 };
 
-  // numero pessoal do Gabriel: so responde quem foi liberado (tag BOT); familia e amigos ficam de fora
-  if (thread.channel === 'WHATSAPP' && instanceRole(thread.instance) === 'GABRIEL') {
-    if (!contact.tags.includes('BOT')) return { action: 'SILENT', reason: 'numero pessoal: contato nao liberado (tag BOT)' };
-    return { action: 'AGENT', agent: 'GABRIEL', level: 1, reason: 'numero pessoal do Gabriel', internalNote: '' };
+  // regra do numero: "so os marcados" = a IA so responde conversas com a caixinha marcada (configurado na tela IAs)
+  if (thread.channel === 'WHATSAPP') {
+    const allowed = !!thread.ai_enabled;
+    if (numberRule(thread.instance).reply === 'selected' && !allowed) return { action: 'SILENT', reason: 'contato nao marcado para a IA deste numero' };
+    // numero de pessoa (Gabriel, Leo...): quem responde e sempre a propria pessoa
+    if (instanceRole(thread.instance) === 'GABRIEL') return { action: 'AGENT', agent: 'GABRIEL', level: 1, reason: 'numero de pessoa', internalNote: '' };
   }
 
   if (/\b(falar com o gabriel|quero o gabriel|chama o gabriel)\b/i.test(p.blockText)) return { action: 'AGENT', agent: 'GABRIEL', level: 1, reason: 'pedido explícito', internalNote: 'Cliente pediu o Gabriel: use notify_real_gabriel.' };

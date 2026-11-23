@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { api, del, patch, post } from '../lib/api';
 import { AGENTS, ms, timeAgo, usd, type AgentKey } from '../lib/format';
 import { toast, toastError } from '../lib/toast';
+import { Numbers } from './numbers';
 import { AgentAvatar, Button, Card, cx, EmptyState, ErrorState, Field, inputCls, PageHeader, Pill, Skeleton, Tab } from '../ui';
 
 const KINDS = ['faq', 'procedimento', 'politica', 'produto', 'estilo', 'contato', 'manual'];
@@ -12,18 +13,20 @@ const KINDS = ['faq', 'procedimento', 'politica', 'produto', 'estilo', 'contato'
 export function Agents() {
   const s = useSearch({ strict: false }) as { aba?: string; q?: string };
   const navigate = useNavigate();
-  const tab = s.aba ?? 'metricas';
+  const tab = s.aba ?? 'numeros';
   const setTab = (aba: string) => navigate({ to: '/agentes', search: { aba } as any });
   const gaps = useQuery({ queryKey: ['gaps'], queryFn: () => api('/api/knowledge/gaps') });
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="IAs" accent="var(--lilac)" tabs={<>
+        <Tab active={tab === 'numeros'} onClick={() => setTab('numeros')}>Cada IA</Tab>
         <Tab active={tab === 'metricas'} onClick={() => setTab('metricas')}>Desempenho</Tab>
         <Tab active={tab === 'base'} onClick={() => setTab('base')}>Base de conhecimento</Tab>
         <Tab active={tab === 'perguntas'} onClick={() => setTab('perguntas')} count={gaps.data?.length}>Perguntas sem resposta</Tab>
         <Tab active={tab === 'empresas'} onClick={() => setTab('empresas')}>Empresas</Tab>
       </>} />
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {tab === 'numeros' && <Numbers />}
         {tab === 'metricas' && <Metrics />}
         {tab === 'base' && <Knowledge initialQ={s.q} />}
         {tab === 'perguntas' && <Gaps q={gaps} />}
