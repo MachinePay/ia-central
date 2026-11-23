@@ -68,7 +68,7 @@ app.post('/webhooks/gmail', async (req, reply) => {
 });
 
 // --------------------------------------------------------------- saude
-app.get('/health', async (_req, reply) => {
+app.get('/health', { logLevel: 'warn' }, async (_req, reply) => { // o Render chama a cada 5 s: nao poluir o log
   const checks: Record<string, string> = {};
   try { await pool.query('SELECT 1'); checks.db = 'ok'; } catch (e) { checks.db = String(e); }
   try { await redis.ping(); checks.redis = 'ok'; } catch (e) { checks.redis = String(e); }

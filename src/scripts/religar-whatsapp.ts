@@ -20,3 +20,4 @@ for (const i of list) {
   console.log('  webhook e configuracoes aplicados');
 }
 if (!apply) console.log('\nNada mudou. Rode com --apply para apontar os webhooks para a API nova.');
+process.exit(0); // a conexao do Redis (importada pelo cliente da Evolution) manteria o processo aberto
