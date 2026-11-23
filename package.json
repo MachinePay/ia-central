@@ -1,0 +1,43 @@
+{
+  "name": "selfmachine-agents",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:api": "tsx watch src/api/index.ts",
+    "dev:worker": "tsx watch src/workers/index.ts",
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/agents/prompts','dist/src/agents/prompts',{recursive:true})\"",
+    "start:api": "node dist/src/api/index.js",
+    "start:worker": "node dist/src/workers/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:migrate": "tsx src/scripts/migrar.ts",
+    "migrar:legado": "tsx src/scripts/migrar-legado.ts",
+    "whatsapp:religar": "tsx src/scripts/religar-whatsapp.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.107",
+    "@ai-sdk/openai": "^4.0.122",
+    "@bull-board/api": "^9.14.0",
+    "@bull-board/fastify": "^9.14.0",
+    "@fastify/formbody": "^9.0.2",
+    "ai": "^7.0.179",
+    "bullmq": "^6.7.8",
+    "fastify": "^5.12.8",
+    "google-auth-library": "^11.3.4",
+    "googleapis": "^190.0.0",
+    "ioredis": "^6.1.0",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "pino-pretty": "^13.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

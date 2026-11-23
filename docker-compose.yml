@@ -1,5 +1,7 @@
-# IA Central - ambiente local
-# Sobe: docker compose up -d   |   n8n: http://localhost:5678   |   WhatsApp (Evolution): http://localhost:8080
+# SelfMachine Agents - ambiente local
+#   api: http://localhost:3000  |  filas: http://localhost:3000/admin/queues  |  Evolution: http://localhost:8080
+# A Evolution e o volume das sessoes sao os MESMOS de antes: os WhatsApps conectados continuam conectados.
+name: ia-central
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -8,76 +10,55 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5433:5432"   # 5433 no PC para nao brigar com outro Postgres local
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro   # roda so na primeira vez
+    ports: ["5433:5432"]
+    volumes: [pg_data:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  n8n:
-    image: n8nio/n8n:2.47.5
+  redis:
+    image: redis:7.4.1
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "5678:5678"
+    command: redis-server --appendonly yes
+    ports: ["6379:6379"]
+    volumes: [redis_data:/data]
+
+  api:
+    build: .
+    command: node dist/src/api/index.js
+    restart: unless-stopped
+    env_file: .env
     environment:
-      # n8n guarda os proprios dados no mesmo Postgres (schema public)
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      GENERIC_TIMEZONE: America/Sao_Paulo
-      TZ: America/Sao_Paulo
-      N8N_SECURE_COOKIE: "false"          # local em http; no Render fica true
-      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
-      N8N_RUNNERS_ENABLED: "true"
-      N8N_PAYLOAD_SIZE_MAX: "64"            # audio longo chega em base64
-      N8N_RUNNERS_MAX_OLD_SPACE_SIZE: "384"
-      N8N_RUNNERS_TASK_TIMEOUT: "900"           # aprendiz com fila grande
-      WEBHOOK_URL: ${WEBHOOK_URL}
-      # chaves usadas pelos workflows
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      OPENAI_ADMIN_KEY: ${OPENAI_ADMIN_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      RENDER_API_KEY: ${RENDER_API_KEY}
-      VERCEL_TOKEN: ${VERCEL_TOKEN}
-      VERCEL_TEAM_ID: ${VERCEL_TEAM_ID}
-      EVOLUTION_URL: http://evolution:8080
-      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
-      EVOLUTION_INSTANCIA: ${EVOLUTION_INSTANCIA:-nucleo}
-      WHATSAPP_WEBHOOK_SEGREDO: ${WHATSAPP_WEBHOOK_SEGREDO}
-      WHATSAPP_WEBHOOK_BASE: http://n8n:5678   # endereco do n8n visto pela Evolution
-      CORREIO_URL: http://correio:5690         # e-mail das IAs (IMAP/SMTP/CalDAV)
-    volumes:
-      - n8n_data:/home/node/.n8n
-      - ./workflows:/import/workflows:ro
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      EVOLUTION_BASE_URL: http://evolution:8080
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
 
-  # e-mail das IAs: IMAP/SMTP/CalDAV (no Render roda dentro do conteiner do n8n). Sem porta aberta no PC.
-  correio:
-    build: ./deploy/correio
+  worker:
+    build: .
+    command: node dist/src/workers/index.js
     restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      EVOLUTION_BASE_URL: http://evolution:8080
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
 
-  # WhatsApp: conecta um numero pelo QR code (como o WhatsApp Web)
+  # WhatsApp: mesma imagem e mesmo volume de antes (nao mexer: e onde ficam as sessoes)
   evolution:
     image: evoapicloud/evolution-api:v2.3.7
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
+      postgres: { condition: service_healthy }
+    ports: ["8080:8080"]
     environment:
       SERVER_URL: http://localhost:8080
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
@@ -85,7 +66,7 @@ services:
       DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
       DATABASE_CONNECTION_CLIENT_NAME: evolution
       DATABASE_SAVE_DATA_INSTANCE: "true"
-      WEBHOOK_RETRY_MAX_ATTEMPTS: "40"          # n8n fora: reenvia por ~3h (padrao ~20 min)
+      WEBHOOK_RETRY_MAX_ATTEMPTS: "40"
       WEBHOOK_RETRY_MAX_DELAY_SECONDS: "300"
       DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
       DATABASE_SAVE_DATA_HISTORIC: "false"
@@ -100,10 +81,9 @@ services:
       DEL_INSTANCE: "false"
       LOG_LEVEL: ERROR,WARN
       TZ: America/Sao_Paulo
-    volumes:
-      - evolution_data:/evolution/instances
+    volumes: [evolution_data:/evolution/instances]
 
 volumes:
   pg_data:
-  n8n_data:
+  redis_data:
   evolution_data:

@@ -1,7 +1,8 @@
-.claude/
-.env
-.ver-execucao.txt
-dist/
 node_modules/
-workflows/credenciais.json
+dist/
 *.tsbuildinfo
+.env
+.env.*
+!.env.example
+.ver-execucao.txt
+workflows/

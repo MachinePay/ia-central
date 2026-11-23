@@ -1,299 +1,65 @@
-# IA Central
+# SelfMachine Agents
 
-Várias IAs especialistas sobre um núcleo único (memória, lembretes, contatos e monitoramento),
-com um painel futurista em React, conversa por voz e **vários usuários, cada um com a própria IA**.
+Atendimento multiagente no WhatsApp (Evolution API) e no Gmail: **Léo** (roteador), **João** (comercial),
+**Clara** (suporte) e **assistente do Gabriel**. A arquitetura completa está em [docs/arquitetura.md](docs/arquitetura.md).
 
 ```
- Painel React (PC / celular)        Chat do n8n        WhatsApp (Evolution API, QR code)
-        │  /webhook/painel  /webhook/painel-audio            │
-        ▼                                                    ▼
- API do Painel ──► regras no banco (login, quem vê o quê) ──► CÉREBRO da IA (1 por usuário)
-                                                                 │ ferramentas
-                         ┌───────────────────┬───────────────────┼───────────────┐
-                 Especialista: Sistemas   Enviar mensagem   Memória/Lembretes   Contatos
-                         │
-                 Monitor (sem IA, 1 min): sites + Render + Vercel ──► alertas WhatsApp/Telegram
- NÚCLEO: Postgres 17 + pgvector (schema nucleo)
+Evolution / Gmail ──► API (Fastify) ──► fila ingest ──► dedupe + filtros ──► mídia vira texto
+                                                                    │
+                     debounce 6 s por conversa ◄────────────────────┘
+                                │
+          lock por conversa ──► roteamento: regras ► continuidade ► Léo
+                                │
+                João / Clara / Gabriel (tools validadas no código) ──► verificador de saída
+                                │                                         │
+                   aprovação no WhatsApp do Gabriel ◄── ações sensíveis   ▼
+                                                              rascunho ou envio (fila outbound)
 ```
 
-## Estrutura
-
-| Caminho | O que é |
+| Peça | Onde |
 |---|---|
-| `docker-compose.yml` | n8n 2.47.5 + Postgres 17 com pgvector + Evolution API 2.3.7 (WhatsApp) |
-| `db/init/01-nucleo.sql` | sistemas, incidentes, alertas, contatos, memória, conversas |
-| `db/init/02-ia-pessoal.sql` | lembretes, busca na memória sem acento |
-| `db/init/03-usuarios.sql` | **usuários, login, regras de privacidade e a API do painel (`nucleo.api`)** |
-| `db/init/05-plataformas.sql` | monitor v2: Render/Vercel, tempo de resposta, avisos para admins |
-| `db/init/04-whatsapp.sql` | número do WhatsApp → usuário (com/sem o 9), registro das conversas |
-| `scripts/montar_workflows.py` | gera todos os workflows (prompts, ferramentas, modelos ficam aqui) |
-| `scripts/implantar.sh` | gera + importa + publica no n8n |
-| `scripts/testar_api.py` | teste de ponta a ponta: vários usuários, isolamento de memória, voz |
-| `scripts/testar_conversa.py` | conversa com a IA pela linha de comando |
-| `scripts/testar_whatsapp.py` | simula a Evolution mandando texto/áudio, testa segurança e status |
-| `scripts/ver-execucao.sh` | mostra o que aconteceu na última execução de um workflow |
-| `painel/` | painel React (Vite + TypeScript), instalável no celular |
+| Webhooks, `/health`, filas (`/admin/queues`) | `src/api` |
+| Filas: ingest, media, respond, summarize, outbound, maintenance | `src/workers` |
+| Roteamento (3 níveis) | `src/routing/route.ts` |
+| Prompts versionados | `src/agents/prompts/*.md` |
+| Tools (descontos, chamados, aprovações...) | `src/tools/index.ts` |
+| Verificador de saída e mascaramento | `src/guardrails` |
+| Memória (contexto, resumo, base de conhecimento) | `src/memory` |
+| Schema do banco (schema `app`) | `db/migrations` |
 
-Workflows gerados em `workflows/`:
+Mudanças em relação ao documento: SQL direto com `pg` em vez de Prisma (mesmo schema), e o número
+pessoal do Gabriel pode ser uma instância própria (papel `GABRIEL`) em que os bots só respondem contatos com a tag `BOT`.
 
-| Workflow | Id | Função |
-|---|---|---|
-| Monitor de Sistemas | `monitorSistemas01` | a cada 1 min: Render, Vercel e sites (com tempo), avisa quando cai/volta |
-| Ferramenta: Checar agora | `ferrChecarAgora1` | testa qualquer URL na hora (status, tempo, título) |
-| Cerebro IA (por usuário) | `iaCerebro00001` | a IA: recebe quem está falando e usa as ferramentas daquela pessoa |
-| Especialista: Sistemas | `espSistemas01` | status, quedas; cadastrar/pausar só admin |
-| Ferramenta: Enviar mensagem | `ferrEnviarMsg01` | Telegram para a própria pessoa ou um contato |
-| API do Painel | `apiPainel00001` | `POST /webhook/painel` — login, resumo, chat, voz (TTS), admin |
-| API do Painel (áudio) | `apiPainelAudio1` | `POST /webhook/painel-audio` — áudio → texto → IA |
-| Canal WhatsApp | `canalWhatsapp01` | `POST /webhook/whatsapp` — mensagem/áudio no WhatsApp → IA da pessoa → resposta |
-| IA Pessoal (chat n8n) | `iaPessoal00001` | chat dentro do n8n, falando como o admin |
-| Lembretes | `lembretes00001` | envia os lembretes na hora |
-
-## Subir do zero
+## Rodar local
 
 ```bash
-cp .env.example .env          # preencha senhas, OPENAI_API_KEY, ADMIN_SENHA...
-docker compose up -d
-sh scripts/implantar.sh       # banco + admin + credenciais + todos os workflows (alguns minutos)
-cd painel && npm install && npm run dev
+cp .env.example .env          # preencha (ou reaproveite o .env.legado)
+docker compose up -d postgres redis evolution
+npm install
+npm run db:migrate            # cria o schema "app"
+npm run migrar:legado         # traz o que o sistema antigo aprendeu
+npm run dev:api               # http://localhost:3000/health
+npm run dev:worker
 ```
 
-Painel: **http://localhost:5173** (entre com `ADMIN_LOGIN` / `ADMIN_SENHA` do `.env`).
-n8n: http://localhost:5678.
+## Comandos no WhatsApp (no chat do cliente, pelo celular)
 
-Mudou prompt, ferramenta ou modelo? Edite `scripts/montar_workflows.py` e publique só o que mudou:
-```bash
-sh scripts/implantar.sh cerebro especialista-sistemas
-```
-(No Git Bash os scripts já usam `MSYS_NO_PATHCONV=1`.)
-
-## Usuários e privacidade
-
-Cada usuário tem a **própria IA**: memória, lembretes, contatos e histórico de conversa separados.
-As regras ficam no banco (`nucleo.pode_ver_memoria`), não no prompt — a IA não consegue "vazar"
-a memória de alguém mesmo se for convencida a tentar.
-
-| | Vê as próprias | Vê as dos outros |
-|---|---|---|
-| Usuário, memória compartilhada **desligada** | sim | não |
-| Usuário, memória compartilhada **ligada** e participando | sim | de quem também participa |
-| Usuário que **saiu** (não participa) | sim | não — e ninguém vê as dele |
-| **Admin** pedindo "ideias de todo mundo" | sim | **todas**, sempre (mesmo se ele não participar) |
-
-- Só o admin liga/desliga a **memória compartilhada** e cria/desativa usuários (painel → Privacidade/Usuários).
-- Cada pessoa (inclusive o admin) decide se **participa**; o admin pode ficar de fora e ainda consultar todos.
-- Ao usar memória de outras pessoas, a IA diz de quem veio cada ideia.
-- Só o admin cadastra ou pausa sistemas monitorados; todos podem ver o status.
-- Senhas com bcrypt (`pgcrypto`), sessão por token de 30 dias, login errado demora de propósito.
-
-## WhatsApp
-
-Um número de WhatsApp vira o "número da IA". Cada usuário cadastra o próprio celular no painel
-(Privacidade → Meu WhatsApp) e passa a conversar com **a própria IA** mandando mensagem para esse número.
-
-1. Painel (admin) → cartão **WhatsApp** → **Conectar com QR code**.
-2. No celular do número da IA: WhatsApp → Aparelhos conectados → Conectar aparelho → leia o QR.
-   (Painel aberto no próprio celular? Digite o número e use o botão de celular: gera um código
-   de pareamento para "Conectar com número de telefone".)
-3. Cada pessoa cadastra o próprio número em "Meu WhatsApp" (o admin também, mesmo que seja o número conectado).
-
-### Dois números: Leo 2.0 e João
-
-| | **Leo 2.0** (o chefe, IA master) | **João** (o vendedor) |
-|---|---|---|
-| Número | o seu WhatsApp pessoal (instância `nucleo`) | um chip só dele (instância `joao`) |
-| Quem fala com ele | você, na conversa **"Você"**; usuários do sistema com `/ia` | clientes; você/vendedores também respondem pelo chip |
-| O que ele lê | filtro: **só escolhidos** (padrão) · **todos menos** · **todos** | filtro: **todos** (padrão) · todos menos · só escolhidos |
-| O que aprende | seu **jeito de falar**, **como você resolve** problemas e fatos importantes → memória do Leo (você aprova em "Leo aprendeu") | preços, prazos, procedimentos e o jeito de responder do time → base da empresa (você aprova em Atendimento) |
-| Usa o que aprendeu | fala com você no seu jeito; supervisiona o João (`atendimento_resumo`, muda modo, libera cliente) | responde clientes liberados com o que aprendeu |
-
-- Os avisos para você (sistemas, chamados, lembretes) saem pelo número do Leo; respostas a clientes, pelo chip do João.
-- O que o filtro deixa de fora **não é lido nem guardado**. Senhas, dados bancários, saúde e vida íntima nunca viram memória.
-- Toda resposta da IA começa com 🤖 — assim ela nunca responde a si mesma na conversa "Você".
-- A conexão é configurada para **não marcar mensagens como lidas**, não ficar "online" e ignorar grupos.
-
-O que acontece:
-- **Texto** → IA responde no estilo do WhatsApp (*negrito*, curto), com "digitando…".
-- **Áudio** → transcrito, a IA responde **em áudio** (voz da OpenAI); se falhar, responde em texto.
-- Lembretes e `enviar_mensagem` vão pelo WhatsApp quando a pessoa tem número (senão Telegram).
-- **Números não cadastrados** são ignorados (no modo dedicado aparecem no cartão WhatsApp do admin).
-  Grupos e status também são ignorados.
-- Segurança: a Evolution manda um token secreto (`WHATSAPP_WEBHOOK_SEGREDO`) em cada evento;
-  o que chegar sem ele é descartado — ninguém consegue se passar por outro número chamando o webhook.
-
-> A Evolution API usa o WhatsApp Web (não oficial). Funciona bem, mas o WhatsApp pode banir números
-> com uso abusivo (spam, muitas mensagens para quem não te conhece). No número pessoal o uso é leve
-> (você falando consigo mesmo), mas o risco não é zero — se a IA for atender muita gente, passe para
-> um chip dedicado. Para atendimento de clientes em escala, o caminho é a WhatsApp Cloud
-> API oficial (Meta) — o workflow já separa leitura da mensagem e envio, dá para trocar a ponta.
-
-## Atendente (clientes no WhatsApp)
-
-```
-Cliente ──► ATENDENTE (recepção) ──┬── Suporte    → base de conhecimento (suporte), chamados
-                                   ├── Comercial  → base (comercial), registra lead, chama vendedor
-                                   └── Sistêmico  → status dos serviços liberados para clientes
-```
-
-- Só atende de verdade com o WhatsApp no **modo dedicado** (chip só da IA). No modo pessoal os
-  desconhecidos continuam ignorados. Para testar sem chip: painel → **Atendimento → Simular cliente**.
-- **Modos:** *desligada* · **só observando** (padrão: lê as conversas e aprende, nunca responde) ·
-  *com aprovação* (a IA sugere, você aprova/edita e só então vai para o cliente) · *automática*.
-- **Para quem responde:** só os clientes **marcados** (interruptor "IA" em cada cliente) ou **todos**.
-- **Lê conversas de:** só números **cadastrados como cliente** (padrão; família e amigos ficam de fora) ou todos.
-- **Aprendiz** (a cada 30 min, ou "aprender agora"): lê as suas respostas aos clientes e extrai preços, prazos,
-  políticas, procedimentos e o seu jeito de responder — sem nome/telefone/pedido do cliente. Vira **sugestão**:
-  só entra na base depois que você aprova no painel.
-- **Persona:** responde com o nome configurado (padrão **Leo 2.0**) e escreve como gente no WhatsApp, sem se
-  anunciar como IA. Se o cliente perguntar diretamente se é robô, não mente: diz que é o assistente digital da
-  equipe e oferece passar para uma pessoa (transparência com o consumidor e regras do WhatsApp).
-- **Aprendizado:** cada resposta aprovada vira conhecimento da empresa ("aprendido" na base) e passa a ser
-  usada nas próximas perguntas parecidas.
-- **Regras fixas:** só afirma o que está na base (serviços, preços, prazos); se não souber, oferece abrir
-  chamado. Chamado só quando o cliente pede uma pessoa, reclama ou aceita retorno — e os admins são avisados.
-- Painel → Atendimento: modo, dados da empresa, fila para aprovar, base de conhecimento, chamados,
-  clientes (leads) e quais serviços os clientes podem saber se estão fora.
-- Testes: `testar_atendente.py`, `testar_observacao.py` (João) e `testar_leo.py` (Leo) — números que não existem no WhatsApp.
-
-## Atendimento multiempresa (Gira Kids, MachinePay, Self Machine...)
-
-Um número atende várias empresas. A IA entende o assunto pelo contexto, marca a empresa da conversa,
-consulta **só** as informações aprovadas daquela empresa (ou o catálogo da loja, na hora) e responde curto.
-Quando precisa, passa para uma pessoa. Tudo em `db/init/26-multiempresa.sql` + workflows
-`atendimento-multi` e `ferramenta-catalogo`. Painel → **Multiempresa**.
-
-- **Chave geral:** desligado · só observando · com aprovação · automático (começa desligado).
-- **Número que atende:** a instância escolhida ganha o papel `multi` em `whatsapp_instancias`
-  (a conversa "Você" continua com o Leo).
-- **Quem a IA responde:** só os contatos escolhidos (padrão; botão "IA responde este contato" em cada conversa,
-  lista `responde_para` com agente `multi`) ou todos. Os outros ficam guardados no painel, sem resposta.
-- **Estado de cada conversa:** `automatico` → `aguardando_humano` (a IA encaminhou) → `humano` (alguém assumiu) → `encerrado`.
-  No painel: assumir, devolver para a IA, encerrar.
-- **Responder pelo celular assume a conversa**: a IA para nela até alguém devolver — ou até a equipe ficar
-  30 min sem escrever nela (`multi_humano_minutos`); aí a próxima mensagem do cliente volta para a IA.
-- **Conferência antes de cada envio (no banco):** a conversa ainda está com a IA? o estado mudou durante a geração?
-  o cliente mandou algo mais novo? alguém da equipe respondeu? ainda está na janela de 24h? Se qualquer resposta for não, nada sai.
-- **Empresas e informações aprovadas:** cada informação tem tipo, responsável e data. Sem informação, a IA não afirma nada e oferece a equipe.
-- **Catálogo da loja:** API somente leitura cadastrada por empresa; o token fica numa variável de ambiente do n8n
-  (só o nome dela vai no painel). Especificação para a Gira Kids: [docs/api-catalogo-girakids.md](docs/api-catalogo-girakids.md).
-- **Aprende sozinho:** de hora em hora o aprendiz lê as respostas que a **equipe** deu pelo número (texto e áudio) e grava
-  na base da empresa da conversa, já valendo (responsável "Aprendiz (automatico)"). Item escrito por uma pessoa nunca é
-  sobrescrito; apague no painel o que estiver errado. `db/init/28-aprende-direto.sql`.
-- **Por que não respondeu:** o painel mostra o que impede a IA de responder sozinha (chave geral, lista vazia...) e, em cada
-  conversa, o motivo de ela não ter respondido a última mensagem.
-- **Rascunho e perguntas sem resposta:** quando passa para a equipe, a IA deixa um rascunho de resposta (vem preenchido
-  em "Responder o cliente"). Se passou porque faltou informação, a pergunta vai para **Perguntas sem resposta**
-  (perguntas iguais se juntam): responda uma vez e vira informação da empresa.
-- **Responder pelo painel:** no histórico da conversa; vale como resposta pelo celular (assume a conversa e ensina a IA).
-- **Nota da equipe:** 👍/👎 em cada resposta da IA; 👎 com a resposta certa vira informação da empresa.
-- **Regras de atendimento:** horário (dias, das/até, modo dentro e fora do horário), quanto tempo até a conversa assumida
-  voltar para a IA, "devolver todas para a IA" e o **resumo do dia** no WhatsApp dos admins (workflow `relatorio-multi`,
-  hora configurável, só se houve conversa).
-- **`/ensina` pelo WhatsApp:** na conversa "Você" do número do atendimento (ou um admin escrevendo para ele):
-  `/ensina girakids: frete grátis acima de R$ 200`. Responde confirmando; com uma empresa só, o slug é opcional.
-- **Desempenho (7 dias):** por empresa, conversas, % resolvidas só pela IA, passadas para a equipe, tempo médio e notas.
-- Informação sem atualizar há 60+ dias aparece como "revisar"; títulos repetidos, como "repetida".
-- **Avisos neste aparelho:** o sininho no topo liga notificações do navegador quando uma conversa precisa de você
-  (com o painel aberto, mesmo em segundo plano) e o título da aba mostra quantas estão esperando.
-- **Testar como cliente** (painel) passa pela mesma entrada, estado e conferência, sem enviar nada.
-
-## E-mail e agenda (cada IA)
-
-No painel, em cada IA: **Configurar → 4 · E-mail e agenda**. Cada IA pode ter várias contas:
-
-- **Gmail / Google** (Gmail + Google Agenda) e **Outlook / Microsoft** (Outlook + calendário): login OAuth.
-  As chaves do app (Client ID + secret do Google Cloud / Azure) ficam **no perfil de cada IA**, não no Render.
-  URI de redirecionamento para cadastrar no app: `https://<painel>/webhook/oauth/google` (ou `/microsoft`);
-  local: `http://localhost:5678/webhook/oauth/google`. O painel mostra o endereço certo para copiar.
-  Escopos Google: `openid email gmail.readonly gmail.compose calendar.events`.
-  Microsoft (delegadas): `openid email offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite`.
-- **Domínio próprio** (ex.: @girakids.com, que fica na Uni5): IMAP/SMTP e, se o provedor tiver, CalDAV.
-  O n8n não fala IMAP sozinho: o serviço `deploy/correio` faz isso (no Render roda dentro do contêiner do n8n;
-  local é o serviço `correio` do compose).
-
-A IA lê de hora em hora **só o que chegou de novo** (não marca como lido, não mexe na caixa), aprende só para ela
-(dentro do teto de gasto do aprendiz) e **propõe** respostas/rascunhos e eventos. Tudo aparece em **Aprovar** e só
-é executado, na conta certa, depois que você aprova. Senhas e tokens ficam criptografados no banco com a
-`N8N_ENCRYPTION_KEY` (não troque essa chave, ou as contas precisam ser conectadas de novo).
-Teste: `python scripts/testar_correio.py` (usa um servidor de e-mail de teste em contêiner).
-
-## Painel
-
-- **Voz:** toque no botão rosa para falar e toque de novo para enviar — ou segure enquanto fala
-  (walkie-talkie). O áudio é transcrito (`gpt-4o-mini-transcribe`) e a resposta pode ser falada
-  (`gpt-4o-mini-tts`, botão de alto-falante). Se a voz da OpenAI falhar, usa a voz do aparelho.
-- **Orbe:** muda de cor e pulsa com a sua voz (ouvindo), processando e com a voz da IA (falando).
-- **Celular:** layout próprio com abas IA / Painel; pode ser instalado na tela inicial (PWA).
-
-### Abrir no celular (mesma rede Wi-Fi)
-
-O navegador do celular só libera o microfone em HTTPS:
-```bash
-cd painel && npm run dev:celular
-```
-Abra no celular o endereço `https://<ip-do-pc>:5173` que aparece no terminal, aceite o aviso de
-certificado e use "Adicionar à tela inicial". Para uso fora de casa, publique (veja Render).
-
-## Modelos: OpenAI + Claude
-
-No topo de `scripts/montar_workflows.py`: `PRINCIPAL = "openai"` (gpt-5 / gpt-5-mini) e
-`RESERVA = "anthropic"` (claude-sonnet-5-5 / claude-haiku-5-5). Se o principal falhar, o agente usa a
-reserva. A reserva só é ligada se `ANTHROPIC_API_KEY` estiver no `.env`.
-
-## Monitor de sistemas (Render, Vercel e qualquer site)
-
-Roda **a cada 1 minuto** (workflow `Monitor de Sistemas`), sem IA nas regras:
-
-- **Sites:** bate em todas as URLs em paralelo e mede o **tempo de resposta**. Falha = erro HTTP (≥ 400),
-  sem resposta, DNS ou SSL quebrado, ou falta do `texto_esperado`. Mais de 8 s aparece como LENTO.
-- **Render** (`RENDER_API_KEY`): lista os serviços da conta; avisa se um serviço for **suspenso** ou se o
-  **último deploy falhar** (build/atualização). A URL de cada serviço entra sozinha no monitor de sites.
-- **Vercel** (`VERCEL_TOKEN`, e `VERCEL_TEAM_ID` se for um time): avisa se o **último deploy de produção**
-  der erro. O domínio de produção de cada projeto entra sozinho no monitor de sites.
-- Se a chave da plataforma parar de funcionar, isso também vira um alerta ("acesso à conta").
-- Só avisa depois de `falhas_para_alertar` falhas seguidas (sites: 2; deploys: 1) e só na mudança
-  (caiu / voltou), dizendo quanto tempo ficou fora.
-- **Quem recebe:** todos os **admins** (WhatsApp, na conversa "Você", ou Telegram) + contatos de `nucleo.escalonamento`.
-
-Na conversa: *"monitora https://meusite.com"*, *"checa agora se o meusite.com está no ar"* (testa na hora,
-mesmo sem cadastrar), *"como estão meus sistemas?"*, *"pausa o monitor do X"*. No painel, o botão
-**agora** no cartão Sistemas roda tudo na hora.
-
-> Serviços **free** do Render dormem depois de 15 min sem acesso; checando a cada minuto eles ficam
-> acordados (consome as horas grátis do mês) e a primeira resposta depois de dormir pode passar do tempo limite.
-
-### Chaves das plataformas (no `.env`, nunca no chat)
-
-| Variável | Onde criar |
+| Comando | Efeito |
 |---|---|
-| `RENDER_API_KEY` | dashboard.render.com → Account Settings → API Keys |
-| `VERCEL_TOKEN` | vercel.com → Account Settings → Tokens (escopo da conta ou do time) |
-| `VERCEL_TEAM_ID` | só se os projetos estão num time: Settings do time → General → Team ID |
+| qualquer mensagem sua | bots em silêncio nessa conversa por 2 h |
+| `/bot on` | devolve aos agentes |
+| `/bot off` | silencia até novo `/bot on` |
+| `/bot joao` · `/bot clara` · `/bot gabriel` | devolve e escolhe o agente |
 
-Depois: `docker compose up -d` (o n8n lê as variáveis novas) e, no painel, **agora**.
+Aprovações chegam no seu WhatsApp como `[Aprovação #A-0001]`: responda **citando a mensagem** com `1` (aprovar),
+`2` (recusar) ou o texto que deve ir para o cliente.
 
-## Testes
+## Modo sombra → envio automático
 
-```bash
-python scripts/testar_api.py                       # isolamento entre usuários + voz, limpa no final
-python scripts/testar_conversa.py "como estão os sistemas?"
-sh scripts/ver-execucao.sh apiPainel00001 v        # depurar a última execução
-```
+`SEND_MODE=draft` (padrão): nada vai para o cliente. No WhatsApp o rascunho fica no banco (e chega para você se
+`SHADOW_NOTIFY=true`); no Gmail vira rascunho na própria thread. Quando estiver bom, libere por agente com
+`AUTO_SEND_AGENTS=CLARA` ou `JOAO:WHATSAPP`, ou tudo com `SEND_MODE=auto`.
 
-## Render (produção)
+## Render
 
-- **Banco:** Render Postgres 17; rode os 3 arquivos de `db/init/` uma vez.
-- **n8n:** Web Service com `n8nio/n8n:2.47.5`, mesmas variáveis do `.env`, `N8N_SECURE_COOKIE=true`,
-  `WEBHOOK_URL=https://<n8n>.onrender.com/`. Plano pago (o free hiberna e o monitor para).
-- **WhatsApp:** Evolution como outro Web Service (`evoapicloud/evolution-api:v2.3.7`) com disco
-  persistente em `/evolution/instances`; no n8n, `EVOLUTION_URL` e `WHATSAPP_WEBHOOK_BASE` com os
-  endereços internos do Render.
-- **Painel:** Static Site com raiz `painel`, build `npm install && npm run build`, publicar `dist`,
-  variável `VITE_API_URL=https://<n8n>.onrender.com`. Em HTTPS o microfone funciona no celular.
-- Leve a mesma `N8N_ENCRYPTION_KEY` se for migrar credenciais.
-
-## Próximas etapas
-
-2. Telegram como canal de conversa (hoje só envia avisos).
-3. Escalonamento de alertas (se ninguém reconhecer em X min, avisa o próximo).
-4. Busca semântica (embeddings) na memória.
+Veja [docs/implantar.md](docs/implantar.md).

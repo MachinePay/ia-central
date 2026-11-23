@@ -1,8 +1,6 @@
-.env
-.env.*
-!.env.example
-workflows/credenciais.json
-painel/node_modules
-painel/dist
-.ver-execucao.txt
 .git
+node_modules
+dist
+.env
+workflows
+docs/*.pdf

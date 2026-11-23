@@ -1,5 +1,0 @@
-# HTTPS automático (Let's Encrypt) para o n8n. DOMINIO vem do .env (ex.: 5-75-1-2.sslip.io).
-{$DOMINIO} {
-	encode gzip
-	reverse_proxy n8n:5678
-}
