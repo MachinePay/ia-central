@@ -12,30 +12,39 @@ import { logger } from '../lib/logger.js';
 import { enqueueRespond, ingestQueue, mediaQueue } from '../lib/queues.js';
 import { describeMedia } from '../media.js';
 import { handleSentinelCommand } from '../sentinela/commands.js';
+import { answerOwner, ownerReplyTarget } from '../owner/assistant.js';
 import { applyTakeover, handleWhatsappFromMe } from '../takeover.js';
 
 const OPT_OUT = /^\s*(parar|pare|sair|stop|descadastrar|n[aã]o quero mais (receber )?mensagens?)\s*[.!]?\s*$/i;
 
 export async function ingestWorker(job: Job) {
   switch (job.name) {
-    case 'whatsapp': return ingestWhatsapp(job.data.instance, job.data.data);
+    case 'whatsapp': return ingestWhatsapp(job.data.instance, job.data.data, job.data.owner);
     case 'wa-connection': return connectionChanged(job.data.instance, job.data.state);
     case 'gmail-sync': return syncGmail();
     case 'gmail': return ingestGmail(job.data.id);
   }
 }
 
-async function ingestWhatsapp(instance: string, data: any) {
+async function ingestWhatsapp(instance: string, data: any, owner?: string) {
   if (instanceRole(instance) === 'OFF') return;
   const p = parseEvolution(instance, data);
   if (p.kind === 'ignore' || p.kind === 'reaction') return;
-  if (p.kind === 'fromMe') return handleWhatsappFromMe(instance, p); // nunca responde mensagens proprias
+  if (p.kind === 'fromMe') return handleWhatsappFromMe(instance, p, owner); // nunca responde mensagens proprias
 
   const ev = p.event;
   // comando do Sentinela vindo de um contato de alertas (ok 42, /status...)
   if (await handleSentinelCommand(ev.sender.phone ?? '', ev.content)) return;
   // resposta do Gabriel real a uma aprovacao (numero dele na allowlist)
   if (isGabrielPhone(ev.sender.phone ?? '') && (await handleGabrielReply(ev.content, ev.metadata.quotedMessageId))) return;
+  // numero da IA (central): so conversa com o dono; o resto e ignorado
+  if (instanceRole(instance) === 'CENTRAL') {
+    if (isGabrielPhone(ev.sender.phone ?? '') && !ev.metadata.late) {
+      const where = ownerReplyTarget('central');
+      if (where) await answerOwner(ev.content || '(mandou um arquivo/áudio)', where);
+    }
+    return;
+  }
   await persistAndQueue(ev);
 }
 

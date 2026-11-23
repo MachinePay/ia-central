@@ -115,7 +115,7 @@ export function personaFor(instance: string): Persona {
 }
 
 /** ATENDIMENTO: agentes atendem | GABRIEL: numero pessoal | OBSERVAR: so registra e aprende | OFF: ignora */
-export type InstanceRole = 'ATENDIMENTO' | 'GABRIEL' | 'OBSERVAR' | 'OFF';
+export type InstanceRole = 'ATENDIMENTO' | 'GABRIEL' | 'OBSERVAR' | 'CENTRAL' | 'OFF';
 
 /** "joao:ATENDIMENTO,gabriel:GABRIEL" -> Map */
 export function instanceRoles(): Map<string, InstanceRole> {
@@ -124,7 +124,7 @@ export function instanceRoles(): Map<string, InstanceRole> {
     const [name, role] = part.split(':').map((s) => s?.trim());
     if (!name) continue;
     const r = (role ?? 'ATENDIMENTO').toUpperCase();
-    m.set(name, r === 'GABRIEL' || r === 'OFF' || r === 'OBSERVAR' ? r : 'ATENDIMENTO');
+    m.set(name, r === 'GABRIEL' || r === 'OFF' || r === 'OBSERVAR' || r === 'CENTRAL' ? r : 'ATENDIMENTO');
   }
   return m;
 }
@@ -133,8 +133,16 @@ export function instanceRole(name: string): InstanceRole {
   return instanceRoles().get(name) ?? 'OFF';
 }
 
-/** Instancia que fala com o Gabriel real (aprovacoes, alertas). */
+/** O numero da IA (papel CENTRAL): orquestra as IAs e fala com o dono. */
+export function centralInstance(): string | undefined {
+  for (const [name, role] of instanceRoles()) if (role === 'CENTRAL') return name;
+  return undefined;
+}
+
+/** Instancia que fala com o Gabriel real (aprovacoes, alertas): o numero da IA se existir. */
 export function approvalInstance(): string | undefined {
+  const central = centralInstance();
+  if (central) return central;
   if (env.APPROVAL_INSTANCE) return env.APPROVAL_INSTANCE;
   for (const [name, role] of instanceRoles()) if (role === 'ATENDIMENTO') return name;
   return undefined;

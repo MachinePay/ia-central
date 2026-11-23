@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { z } from 'zod';
 import { decideApproval } from '../approvals/approvals.js';
-import { connectionState } from '../channels/whatsapp/evolution.js';
+import { connectionState, connectQr, createInstance, setSettings, setWebhook } from '../channels/whatsapp/evolution.js';
 import { deliver } from '../delivery.js';
 import { getThread, setThread } from '../domain/repo.js';
 import type { Agent } from '../domain/types.js';
@@ -66,6 +66,87 @@ export async function panelRoutes(app: FastifyInstance) {
         today: { ...(today as object), costUsd: await costToday() },
         timeline: events.map((e) => JSON.parse(e)),
       };
+    });
+
+    // ---------------------------------------------------------------- cena 3D do Inicio: tudo o que as ilhas mostram, numa chamada
+    api.get('/api/scene', async () => {
+      const [threads, resources, monitors, approvals, incidents, instances] = await Promise.all([
+        q(`SELECT t.id, t.active_agent, t.instance, t.channel, t.status, coalesce(c.name, c.phone, c.email) AS contact, c.tags,
+                  t.last_inbound_at, t.last_outbound_at, left(lm.content, 120) AS last, lm.direction AS last_dir, lm.status AS last_status
+             FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
+             LEFT JOIN LATERAL (SELECT content, direction, status FROM app.messages m WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
+            WHERE coalesce(t.last_inbound_at, t.updated_at) > now() - interval '3 days' AND c.role <> 'PESSOAL'
+            ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC LIMIT 120`),
+        q(`SELECT source, external_id, name, kind, status, url, meta FROM sentinela.resources WHERE status <> 'SUSPENDED' AND source IN ('RENDER', 'VERCEL')
+            ORDER BY (status IN ('FAIL', 'WARN')) DESC, (meta->'lastDeploy'->>'createdAt') DESC NULLS LAST, name LIMIT 14`),
+        q(`SELECT id, name, url, last_status, last_latency_ms FROM sentinela.monitors WHERE enabled ORDER BY (last_status = 'FAIL') DESC, name LIMIT 6`),
+        q(`SELECT thread_id FROM app.pending_approvals WHERE status = 'PENDING'`),
+        q(`SELECT id, severity, title, resource_id FROM sentinela.incidents WHERE status <> 'RESOLVED'`),
+        Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([name, role]) => {
+          let state = 'desconhecido';
+          try { state = await connectionState(name); } catch { /* Evolution fora */ }
+          const last = await one<{ at: Date | null; n: number }>(
+            `SELECT max(m.created_at) AS at, count(*) FILTER (WHERE m.created_at > now() - interval '24 hours')::int AS n
+               FROM app.messages m JOIN app.threads t ON t.id = m.thread_id WHERE t.instance = $1 AND m.direction = 'INBOUND'`, [name],
+          );
+          return { name, role, state, persona: personaFor(name).name, lastInboundAt: last?.at ?? null, messages24h: last?.n ?? 0 };
+        })),
+      ]);
+      const pendingSet = new Set(approvals.map((a: any) => a.thread_id));
+      const flags = threads.length ? await redis.mget(threads.map((t: any) => keys.takeover(t.id))) : [];
+      const incidentBy = new Map(incidents.map((i: any) => [i.resource_id, i]));
+      const ROLE_LABEL: Record<string, string> = { ATENDIMENTO: 'atendimento', GABRIEL: 'pessoal', OBSERVAR: 'só aprendendo' };
+      const items: any[] = [];
+      const perAgent: Record<string, number> = {};
+      threads.forEach((t: any, i: number) => {
+        const area = ({ JOAO: 'joao', CLARA: 'clara', GABRIEL: 'gabriel' } as Record<string, string>)[t.active_agent] ?? 'leo';
+        if (area === 'leo') return;
+        perAgent[area] = (perAgent[area] ?? 0) + 1;
+        if (perAgent[area] > 12) return;
+        const unanswered = t.last_inbound_at && (!t.last_outbound_at || new Date(t.last_outbound_at) < new Date(t.last_inbound_at));
+        const pending = pendingSet.has(t.id);
+        const takeover = !!flags[i];
+        const status = pending || (unanswered && Date.now() - new Date(t.last_inbound_at).getTime() > 3600_000) ? 'warn' : 'ok';
+        items.push({
+          id: `t:${t.id}`, area, name: t.contact, status, link: `/conversas/${t.id}`,
+          sub: pending ? 'Aprovação esperando você' : takeover ? 'Com você agora' : unanswered ? 'Sem resposta' : String(t.last ?? '').replace(/^⁣/, '').slice(0, 80) || 'Conversa ativa',
+          extra: { Canal: t.channel === 'GMAIL' ? 'Gmail' : `WhatsApp ${t.instance}`, ...(t.last_status === 'DRAFT' ? { 'Última resposta': 'rascunho esperando você' } : {}) },
+        });
+      });
+      for (const r of resources as any[]) {
+        const inc: any = incidentBy.get(`${String(r.source).toLowerCase()}:${r.external_id}`);
+        const dep = r.meta?.lastDeploy ?? r.meta?.production;
+        items.push({
+          id: `r:${r.source}:${r.external_id}`, area: 'sentinela', name: r.name, link: inc ? `/sentinela?incidente=${inc.id}` : '/sentinela?aba=servicos',
+          status: inc?.severity === 'CRITICAL' || r.status === 'FAIL' ? 'crit' : inc || r.status === 'WARN' ? 'warn' : 'ok',
+          sub: inc ? inc.title : `${r.source === 'RENDER' ? 'Render' : 'Vercel'} · ${r.status === 'DEPLOYING' ? 'publicando' : 'no ar'}`,
+          extra: { Provedor: r.source === 'RENDER' ? 'Render' : 'Vercel', ...(r.meta?.plan ? { Plano: r.meta.plan } : {}), ...(dep ? { 'Último deploy': `${dep.status ?? dep.state ?? ''} ${dep.commitId ?? dep.commitSha ?? ''} ${String(dep.commit ?? '').split('\n')[0].slice(0, 60)}`.trim() } : {}) },
+        });
+      }
+      for (const m of monitors as any[]) {
+        const inc: any = incidentBy.get(`url:${m.id}`);
+        items.push({
+          id: `m:${m.id}`, area: 'sentinela', name: m.name, link: inc ? `/sentinela?incidente=${inc.id}` : '/sentinela?aba=monitores',
+          status: m.last_status === 'FAIL' ? 'crit' : m.last_status === 'WARN' ? 'warn' : 'ok',
+          sub: `Site vigiado · ${m.last_status === 'FAIL' ? 'fora do ar' : m.last_latency_ms ? `${m.last_latency_ms} ms` : 'sem checagem'}`,
+          extra: { Endereço: m.url },
+        });
+      }
+      for (const n of instances) {
+        const silentH = n.lastInboundAt ? (Date.now() - new Date(n.lastInboundAt).getTime()) / 3_600_000 : null;
+        items.push({
+          id: `n:${n.name}`, area: 'numeros', name: `${n.name} · ${n.persona}`, link: '/configuracoes',
+          status: n.state !== 'open' ? 'crit' : silentH !== null && silentH > 12 && n.messages24h === 0 ? 'warn' : 'ok',
+          sub: n.state !== 'open' ? `Desconectado (${n.state})` : `${ROLE_LABEL[n.role] ?? n.role} · ${n.messages24h} mensagens em 24 h`,
+          extra: { Papel: ROLE_LABEL[n.role] ?? n.role, Conexão: n.state === 'open' ? 'conectado' : n.state },
+        });
+      }
+      const routed = await one<{ n: number; handoffs: number }>(
+        `SELECT count(*)::int n, count(*) FILTER (WHERE jsonb_array_length(coalesce(route->'handoffs', '[]')) > 0)::int handoffs
+           FROM app.agent_runs WHERE created_at::date = current_date`,
+      );
+      items.unshift({ id: 'hub', area: 'leo', name: 'Roteamento', status: 'ok', link: '/agentes', sub: 'Lendo as mensagens e escolhendo quem responde', extra: { Hoje: `${routed?.n ?? 0} execuções, ${routed?.handoffs ?? 0} trocas de agente` } });
+      return { items, threadAreas: Object.fromEntries(threads.map((t: any) => [t.id, ({ JOAO: 'joao', CLARA: 'clara', GABRIEL: 'gabriel' } as Record<string, string>)[t.active_agent] ?? 'leo'])) };
     });
 
     // ---------------------------------------------------------------- conversas
@@ -519,10 +600,49 @@ export async function panelRoutes(app: FastifyInstance) {
       for (const [k, v] of Object.entries(b.data)) {
         if (!(EDITABLE_SETTINGS as readonly string[]).includes(k)) return bad(reply, `Ajuste desconhecido: ${k}`);
         if (k === 'SEND_MODE' && !['draft', 'auto'].includes(v)) return bad(reply, 'Modo de envio inválido.');
-        if (k === 'WA_INSTANCES' && !/^([\w-]+:(ATENDIMENTO|GABRIEL|OBSERVAR|OFF),?)+$/.test(v)) return bad(reply, 'Papéis inválidos.');
+        if (k === 'WA_INSTANCES' && !/^([\w-]+:(ATENDIMENTO|GABRIEL|OBSERVAR|CENTRAL|OFF),?)+$/.test(v)) return bad(reply, 'Papéis inválidos.');
+        if (k === 'WA_INSTANCES' && (v.match(/:CENTRAL/g) ?? []).length > 1) return bad(reply, 'Só um número pode ser o número da IA (central).');
         await saveSetting(k as EditableSetting, v, user(req));
       }
+      // numero ligado: garante que o webhook dele aponta para este sistema (idempotente)
+      if (b.data.WA_INSTANCES) {
+        for (const [name, role] of instanceRoles()) if (role !== 'OFF') await setWebhook(name).catch(() => undefined);
+      }
       return { ok: true };
+    });
+
+    // ---------------------------------------------------------------- conectar numero novo (QR code)
+    api.post('/api/whatsapp/instances', async (req, reply) => {
+      const b = z.object({
+        name: z.string().regex(/^[a-z0-9-]{3,30}$/, 'Use só letras minúsculas, números e hífen (3 a 30).'),
+        role: z.enum(['CENTRAL', 'ATENDIMENTO', 'GABRIEL', 'OBSERVAR']),
+        persona: z.string().max(60).optional(),
+        about: z.string().max(200).optional(),
+      }).safeParse(req.body);
+      if (!b.success) return bad(reply, b.error.issues[0]?.message ?? 'Dados inválidos.');
+      const { name, role, persona, about } = b.data;
+      if (instanceRoles().has(name)) return bad(reply, 'Já existe um número com esse nome.');
+      if (role === 'CENTRAL' && [...instanceRoles().values()].includes('CENTRAL')) return bad(reply, 'Já existe um número da IA (central). Mude o papel dele antes.');
+      try {
+        await createInstance(name);
+      } catch (e: any) {
+        if (!/already|exist/i.test(String(e.message))) return bad(reply, `A Evolution recusou: ${String(e.message).slice(0, 200)}`);
+      }
+      await setWebhook(name).catch(() => undefined);
+      await setSettings(name, { rejectCall: role !== 'GABRIEL' }).catch(() => undefined);
+      await saveSetting('WA_INSTANCES', [...[...instanceRoles()].map(([n, r]) => `${n}:${r}`), `${name}:${role}`].join(','), user(req));
+      if (persona) {
+        const others = setting('PERSONAS').split(/[;\n]/).filter((p) => p.trim() && !p.startsWith(`${name}:`));
+        await saveSetting('PERSONAS', [...others, `${name}:${persona}|${(about ?? '').replace(/[;|]/g, ',')}`].join(';'), user(req));
+      }
+      return connectQr(name).catch(() => ({}));
+    });
+    api.get<{ Params: { name: string } }>('/api/whatsapp/instances/:name/qr', async (req, reply) => {
+      try {
+        return await connectQr(req.params.name);
+      } catch (e: any) {
+        return bad(reply, `Não consegui o QR agora: ${String(e.message).slice(0, 150)}`);
+      }
     });
 
     // ---------------------------------------------------------------- busca global

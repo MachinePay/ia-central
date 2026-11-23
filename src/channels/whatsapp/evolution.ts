@@ -20,6 +20,18 @@ export async function fetchInstances(): Promise<Array<{ name: string; connection
   return evo('GET', '/instance/fetchInstances');
 }
 
+/** Cria uma instancia nova (numero novo). O QR code vem de connectQr. */
+export async function createInstance(instance: string) {
+  return evo('POST', '/instance/create', { instanceName: instance, integration: 'WHATSAPP-BAILEYS', qrcode: true });
+}
+
+/** QR code (base64 PNG) para conectar o numero, ou o estado se ja estiver conectado. */
+export async function connectQr(instance: string): Promise<{ qr?: string; pairingCode?: string; state?: string }> {
+  const r = await evo('GET', `/instance/connect/${instance}`);
+  if (r?.base64) return { qr: r.base64, pairingCode: r.pairingCode };
+  return { state: (r?.instance ?? r)?.state };
+}
+
 export async function connectionState(instance: string): Promise<string> {
   const r = await evo('GET', `/instance/connectionState/${instance}`);
   return (r.instance ?? r).state;

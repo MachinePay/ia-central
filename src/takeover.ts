@@ -2,6 +2,7 @@ import { handleGabrielReply, isGabrielPhone } from './approvals/approvals.js';
 import { deleteForEveryone } from './channels/whatsapp/evolution.js';
 import { normalizePhone } from './lib/phone.js';
 import { handleSentinelCommand } from './sentinela/commands.js';
+import { answerOwner, ownerReplyTarget } from './owner/assistant.js';
 import { findWaThread, saveOutbound, setThread, upsertContact, upsertThread } from './domain/repo.js';
 import type { InboundEvent, Thread } from './domain/types.js';
 import { q } from './lib/db.js';
@@ -44,12 +45,16 @@ export async function handleBotCommand(thread: Thread, text: string): Promise<bo
 }
 
 /** Mensagem fromMe que nao foi o bot: o Gabriel (ou a equipe) digitou no celular. */
-export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string }) {
+export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string }, ownerJid?: string) {
   if (p.botMarked || (await redis.exists(keys.sent(p.id)))) return; // foi o proprio bot
-  // conversa "Voce" do Gabriel (consigo mesmo): e onde chegam rascunhos e aprovacoes; a resposta dele decide a aprovacao
-  if (isGabrielPhone(p.jid)) {
+  // conversa "Voce" do Gabriel (consigo mesmo, no numero dele): fala com a IA central (orquestrador)
+  const selfChat = isGabrielPhone(p.jid) && (!ownerJid || normalizePhone(ownerJid) === normalizePhone(p.jid));
+  if (selfChat) {
+    if (!p.text) return;
     if (await handleSentinelCommand(normalizePhone(p.jid), p.text)) return; // ok 42, /status, /custos...
-    await handleGabrielReply(p.text, p.quotedId);
+    if (await handleGabrielReply(p.text, p.quotedId)) return; // resposta a uma aprovacao
+    const where = ownerReplyTarget('self', instance);
+    if (where) await answerOwner(p.text, where);
     return;
   }
   let thread = await findWaThread(instance, p.jid);
