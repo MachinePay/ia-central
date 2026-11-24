@@ -70,6 +70,13 @@ const schema = z.object({
   NUMBER_RULES: z.string().default('{}'),
   // e-mail de cada numero (Gmail conectado pelo painel): {"gabriel":"gabriel@empresa.com"}
   EMAILS: z.string().default('{}'),
+  // Grupo GK (mensalidades MachinePay/CompactPay) e Girakids (catalogo, vendas): so leitura, com usuario proprio
+  GK_API_URL: z.string().default('https://grupogkbackend.onrender.com/api'),
+  GK_EMAIL: z.string().default(''),
+  GK_SENHA: z.string().default(''),
+  GIRAKIDS_API_URL: z.string().default('https://girakidsbackend.onrender.com/api'),
+  GIRAKIDS_EMAIL: z.string().default(''),
+  GIRAKIDS_SENHA: z.string().default(''),
   PERSONAS: z.string().default('gabriel:Gabriel|fundador da SelfMachine'),
 });
 

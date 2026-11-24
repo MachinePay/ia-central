@@ -17,6 +17,8 @@ import { fence, nowLabel } from '../lib/util.js';
 import { statusText } from '../sentinela/commands.js';
 import { costSummary, formatCosts } from '../sentinela/costs.js';
 import { ack } from '../sentinela/incidents.js';
+import { brl, clienteLinha, dia, gkBuscar, gkClientes, gkCobrancasMes, gkHistorico, type GkProduto } from '../integrations/gk.js';
+import { catalogo, COMO_PEDIR, girakids, produtoLinha } from '../integrations/girakids.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
 /**
@@ -140,6 +142,86 @@ function tools(log: string[], here: string) {
       description: 'Gasto do mês, projeção e por provedor.',
       inputSchema: z.object({}),
       execute: async () => formatCosts(await costSummary()),
+    }),
+
+    // ------------------------------------------------------------ Grupo GK: mensalidades MachinePay e CompactPay
+    gk_clientes: tool({
+      description: 'Clientes da MachinePay e/ou CompactPay no Grupo GK com mensalidade, máquinas e situação (em dia, em aberto, atrasado). Use para "quem está atrasado?", "quantos clientes ativos?", "quanto tenho a receber?".',
+      inputSchema: z.object({ produto: z.enum(['machinepay', 'compactpay', 'ambos']).default('ambos'), filtro: z.enum(['atrasados', 'em_aberto', 'todos']).default('todos'), busca: z.string().optional() }),
+      execute: async ({ produto, filtro, busca }) => {
+        const prods: GkProduto[] = produto === 'ambos' ? ['machinepay', 'compactpay'] : [produto];
+        let list = busca ? await gkBuscar(busca, prods) : (await Promise.all(prods.map((p) => gkClientes(p)))).flat();
+        list = list.filter((c) => c.status !== 'INATIVO' || busca);
+        if (filtro === 'atrasados') list = list.filter((c) => Number(c.valorAtrasado ?? 0) > 0);
+        if (filtro === 'em_aberto') list = list.filter((c) => Number(c.valorEmAberto ?? 0) > 0);
+        const soma = (k: 'valorAtrasado' | 'valorEmAberto' | 'valorCalculado') => brl(list.reduce((s, c) => s + Number(c[k] ?? 0), 0));
+        return {
+          total: list.length, mensalidades_somadas: soma('valorCalculado'), em_aberto: soma('valorEmAberto'), atrasado: soma('valorAtrasado'),
+          clientes: list.sort((a, b) => Number(b.valorAtrasado ?? 0) - Number(a.valorAtrasado ?? 0)).slice(0, 25).map(clienteLinha),
+        };
+      },
+    }),
+    gk_cliente: tool({
+      description: 'Ficha de um cliente MachinePay/CompactPay (por nome, CNPJ/CPF ou telefone): mensalidade, máquinas e as últimas cobranças (mês, valor, vencimento, pago ou não, PIX).',
+      inputSchema: z.object({ busca: z.string().min(2) }),
+      execute: async ({ busca }) => {
+        const found = await gkBuscar(busca);
+        if (!found.length) return { erro: 'Não achei esse cliente no Grupo GK.' };
+        if (found.length > 1 && !found.some((c) => c.nome.toLowerCase() === busca.toLowerCase())) return { varios: found.slice(0, 10).map(clienteLinha) };
+        const c = found.find((x) => x.nome.toLowerCase() === busca.toLowerCase()) ?? found[0];
+        const h = await gkHistorico(c.produto as GkProduto, c.id);
+        return {
+          cliente: clienteLinha(c), telefone: c.telefone ?? undefined, documento: c.documento ?? undefined,
+          cobrancas: h.cobrancas.slice(0, 8).map((x) => `${x.competencia}: ${brl(x.valorMes ?? x.valor)} · vence ${dia(x.vencimento)} · ${x.situacao}${x.pagoEm ? ` (pago ${dia(x.pagoEm)})` : ''}`),
+          pix_em_aberto: h.cobrancas.find((x) => (x.situacao === 'PENDENTE' || x.situacao === 'ATRASADO') && x.pixCopiaCola)?.pixCopiaCola ?? undefined,
+        };
+      },
+    }),
+    gk_cobrancas_mes: tool({
+      description: 'Resumo das cobranças de um mês (competência AAAA-MM) da MachinePay ou CompactPay: previsto, recebido, em aberto, atrasado e quantidades.',
+      inputSchema: z.object({ produto: z.enum(['machinepay', 'compactpay']), competencia: z.string().regex(/^\d{4}-\d{2}$/).optional() }),
+      execute: async ({ produto, competencia }) => {
+        const comp = competencia ?? new Intl.DateTimeFormat('en-CA', { timeZone: env.TIMEZONE }).format(new Date()).slice(0, 7);
+        const r = await gkCobrancasMes(produto, comp);
+        const s = r.resumo ?? {};
+        return { competencia: comp, previsto: brl(s.previsto), recebido: brl(s.recebido), em_aberto: brl(s.emAberto), atrasado: brl(s.atrasado), pagas: s.qtdPagas, pendentes: s.qtdPendentes, atrasadas: s.qtdAtrasadas, maquinas: s.maquinas };
+      },
+    }),
+
+    // ------------------------------------------------------------ Girakids: catalogo, vendas e boletos
+    girakids_catalogo: tool({
+      description: 'Catálogo da Girakids: produtos, preço por unidade e por pacote, estoque e como fazer o pedido.',
+      inputSchema: z.object({ busca: z.string().optional(), categoria: z.string().optional() }),
+      execute: async ({ busca, categoria }) => {
+        const r = await catalogo({ busca, categoria });
+        return { produtos: r.produtos.slice(0, 20).map(produtoLinha), total: r.total, categorias: !busca && !categoria ? (r.categorias ?? []).map((c: any) => c.nome ?? c.categoria) : undefined, como_pedir: COMO_PEDIR };
+      },
+    }),
+    girakids_vendas: tool({
+      description: 'Vendas da Girakids num período (AAAA-MM-DD; padrão: do dia 1 até hoje): total vendido, recebido, em aberto, boletos, ticket médio e produtos que mais saíram.',
+      inputSchema: z.object({ inicio: z.string().optional(), fim: z.string().optional() }),
+      execute: async ({ inicio, fim }) => {
+        const qs = new URLSearchParams({ ...(inicio && { inicio }), ...(fim && { fim }) });
+        const r: any = await girakids(`/dashboard/resumo?${qs}`);
+        const card = (k: string) => r.cards?.[k] ? `${r.cards[k].pedidos} pedidos, ${brl(r.cards[k].bruta)}` : '-';
+        return {
+          periodo: r.periodo, vendido: card('total'), recebido: card('recebida'), em_aberto: card('aberto'), boletos: card('boletos'), aguardando: card('aguardando'),
+          ticket_medio: r.extras?.ticketMedio != null ? brl(r.extras.ticketMedio) : undefined,
+          mais_vendidos: (r.topQuantidade ?? []).slice(0, 5).map((p: any) => `${p.nome ?? p.produto} (${p.quantidade ?? p.qtd ?? ''})`),
+        };
+      },
+    }),
+    girakids_boletos: tool({
+      description: 'Boletos/parcelas em aberto da Girakids (quem deve, valor, vencimento, vencidos). Período opcional (AAAA-MM-DD).',
+      inputSchema: z.object({ inicio: z.string().optional(), fim: z.string().optional() }),
+      execute: async ({ inicio, fim }) => {
+        const qs = new URLSearchParams({ por: 'vencimento', ...(inicio && { inicio }), ...(fim && { fim }) });
+        const r: any = await girakids(`/dashboard/boletos?${qs}`);
+        return {
+          total: r.total != null ? brl(r.total) : undefined, vencidos: r.vencidos,
+          linhas: (r.linhas ?? []).slice(0, 20).map((l: any) => `${l.clienteNome} · pedido ${l.numero} · ${brl(l.valor)} · vence ${dia(l.vencimento)}${l.vencido ? ' (VENCIDO)' : ''}`),
+        };
+      },
     }),
 
     // ------------------------------------------------------------ agenda, tarefas e anotacoes

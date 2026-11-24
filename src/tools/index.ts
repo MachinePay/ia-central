@@ -10,6 +10,8 @@ import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
+import { catalogo, COMO_PEDIR, LOJA_URL, produtoLinha } from '../integrations/girakids.js';
+import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
 
 /**
  * Contexto da execucao. Identidade (contato, thread) vem SEMPRE daqui, nunca de argumento do modelo:
@@ -58,6 +60,38 @@ const company = (ctx: ToolCtx, slug?: string | null) =>
 // ------------------------------------------------------------------ tools compartilhadas
 function shared(ctx: ToolCtx): ToolSet {
   return {
+    catalogo_girakids: tool({
+      description: 'Catálogo da Girakids AGORA (brinquedos e insumos no atacado para máquinas de grua e vending): produtos, preço por unidade e por pacote, estoque, categorias, e como fazer o pedido. Única fonte válida de preço da Girakids. Sem busca, lista as categorias.',
+      inputSchema: z.object({ busca: z.string().max(120).optional(), categoria: z.string().max(100).optional() }),
+      execute: wrap(ctx, 'catalogo_girakids', async ({ busca, categoria }) => {
+        const r = await catalogo({ busca, categoria });
+        return {
+          produtos: r.produtos.slice(0, 15).map(produtoLinha),
+          total: r.total,
+          categorias: !busca && !categoria ? (r.categorias ?? []).map((c: any) => c.nome ?? c.categoria) : undefined,
+          loja: `${LOJA_URL}/catalogo`,
+          como_pedir: COMO_PEDIR,
+          regra: 'Use só estes preços. Fale preço por unidade e o total do pacote. Se o produto não aparecer, diga que vai confirmar com o comercial.',
+        };
+      }),
+    }),
+    minha_mensalidade: tool({
+      description: 'Situação da mensalidade/cobrança da MachinePay ou CompactPay DESTE cliente (o contato desta conversa, pelo telefone dele): valor, vencimento, se está em dia ou atrasado e o PIX da cobrança em aberto. Nunca serve para consultar outra pessoa.',
+      inputSchema: z.object({}),
+      execute: wrap(ctx, 'minha_mensalidade', async () => {
+        if (!ctx.contact.phone) return { erro: 'Sem telefone deste contato.' };
+        const found = await gkPorTelefone(ctx.contact.phone);
+        if (!found.length) return { encontrado: false, orientacao: 'Não achei cadastro com este número. Pergunte o nome da empresa ou o CNPJ e use avisar_dono para alguém verificar.' };
+        const out = [];
+        for (const c of found.slice(0, 2)) {
+          const h = await gkHistorico(c.produto as GkProduto, c.id).catch(() => undefined);
+          const abertas = (h?.cobrancas ?? []).filter((x) => x.situacao === 'PENDENTE' || x.situacao === 'ATRASADO').slice(0, 3)
+            .map((x) => ({ competencia: x.competencia, valor: brl(x.valorMes ?? x.valor), vencimento: dia(x.vencimento), situacao: x.situacao, pix_copia_e_cola: x.pixCopiaCola ?? undefined }));
+          out.push({ resumo: clienteLinha(c), em_aberto: abertas });
+        }
+        return { encontrado: true, clientes: out, regra: 'Informe só a situação deste cliente. Não prometa baixa, desconto nem prazo; se ele disser que já pagou, agradeça e use avisar_dono.' };
+      }),
+    }),
     request_handoff: tool({
       description: 'Passa a conversa para outro especialista quando o assunto sai da sua alçada. O outro agente assume já nesta resposta.',
       inputSchema: z.object({
