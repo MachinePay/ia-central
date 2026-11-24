@@ -24,6 +24,9 @@ else {
     const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
     const r: any = await agarramais(`/relatorios/todas-lojas?dataInicio=${hoje.slice(0, 8)}01&dataFim=${hoje}`);
     console.log(`TESTE AgarraMais: ok, ${ls.length} lojas, faturamento do mes R$ ${Number(r?.totais?.faturamento ?? 0).toFixed(2)}`);
+    console.log(`TESTE AgarraMais formato: chaves ${Object.keys(r ?? {}).join(',')} | totais ${JSON.stringify(r?.totais ?? {}).slice(0, 400)}`);
+    const d: any = await agarramais(`/relatorios/dashboard?dataInicio=${hoje.slice(0, 8)}01&dataFim=${hoje}`).catch((e) => ({ erro: e.message }));
+    console.log(`TESTE AgarraMais dashboard: ${JSON.stringify(d?.totais ?? d).slice(0, 400)}`);
   } catch (e: any) {
     console.log(`TESTE AgarraMais: ERRO ${String(e.message).slice(0, 200)}`);
   }

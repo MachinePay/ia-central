@@ -24,9 +24,48 @@ export type Maquina = {
 
 const cache = new Map<Plataforma, { at: number; list: Maquina[] }>();
 
+// ------------------------------------------------------------------ painel MachinePay / Machine Coin (cyberpix)
+const painelBase = (p: Plataforma) => {
+  const u = p === 'machinepay' ? (process.env.MACHINE_PAY_LOGIN_URL || 'https://www.cyberpix.com.br/pix-adesivo-clientes/') : (process.env.MACHINE_COIN_LOGIN_URL || '');
+  return u.endsWith('/') ? u : `${u}/`;
+};
+
+/** Tela "Clientes" (usuarios.php): o ID e o nome de cada cliente da conta (como o Grupo GK le). */
+function parsearClientes(html: string): Array<{ usrId: string; nome: string }> {
+  const out = new Map<string, { usrId: string; nome: string }>();
+  for (const linha of String(html).split(/<tr[\s>]/i).slice(1)) {
+    const usrId = linha.match(/copiarDadosCadastro\((\d+)\)/)?.[1];
+    if (!usrId || out.has(usrId)) continue;
+    const nome = linha.match(/cliente-empresa\.png[^>]*>\s*<strong>([\s\S]*?)<\/strong>/)?.[1];
+    out.set(usrId, { usrId, nome: String(nome ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || `Cliente ${usrId}` });
+  }
+  return [...out.values()];
+}
+
+/** Entra uma vez e le as maquinas de todos os clientes (5 por vez). Sem clientes, le as maquinas da propria conta. */
+async function lerPainelCompleto(p: Plataforma): Promise<any[]> {
+  const svc: any = p === 'machinepay' ? mp : mc;
+  const { cookies } = await svc.loginMachinePay();
+  const base = painelBase(p);
+  const get = async (path: string) => {
+    const r = await fetch(`${base}${path}`, { headers: { Cookie: cookies, Referer: base, 'X-Requested-With': 'XMLHttpRequest' }, signal: AbortSignal.timeout(60_000) });
+    if (!r.ok) throw new Error(`painel respondeu ${r.status} em ${path.split('?')[0]}`);
+    return r.text();
+  };
+  const clientes = parsearClientes(await get('usuarios.php').catch(() => ''));
+  if (!clientes.length) return (parsearPainelMaquinas(await get('maquinas.php?acao=maquinas')) ?? []) as any[];
+  const all: any[] = [];
+  for (let i = 0; i < clientes.length; i += 5) {
+    const lote = clientes.slice(i, i + 5);
+    const res = await Promise.all(lote.map((c) => get(`maquinas.php?acao=maquinas&usr=${encodeURIComponent(c.usrId)}`).then((h) => (parsearPainelMaquinas(h) ?? []) as any[]).catch(() => [] as any[])));
+    res.forEach((rows, k) => rows.forEach((m) => all.push({ ...m, clienteNome: lote[k].nome, usrId: m.usrId ?? lote[k].usrId })));
+  }
+  return all;
+}
+
 export async function listarMaquinas(p: Plataforma, fresh = false): Promise<Maquina[]> {
   const hit = cache.get(p);
-  if (!fresh && hit && Date.now() - hit.at < 2 * 60_000) return hit.list;
+  if (!fresh && hit && Date.now() - hit.at < (p === 'compactpay' ? 2 : 5) * 60_000) return hit.list;
   let list: Maquina[];
   if (p === 'compactpay') {
     const rows: any[] = await cp.listarResumoDiaCompactPay();
@@ -37,11 +76,9 @@ export async function listarMaquinas(p: Plataforma, fresh = false): Promise<Maqu
       extra: m.status_operacional ? String(m.status_operacional) : undefined,
     }));
   } else {
-    const svc = p === 'machinepay' ? mp : mc;
-    const html: string = await svc.listarMaquinasCadastradas({});
-    const rows: any[] = parsearPainelMaquinas(html) ?? [];
+    const rows = await lerPainelCompleto(p);
     list = rows.map((m) => ({
-      plataforma: p, id: String(m.posId ?? m.idPainel ?? ''), nome: m.nomePonto || `Caixa ${m.posId}`, cliente: m.cliente ?? null,
+      plataforma: p, id: String(m.posId ?? m.idPainel ?? ''), nome: m.nomePonto || `Caixa ${m.posId}`, cliente: m.clienteNome ?? m.cliente ?? null,
       online: !!m.online, vendasHoje: m.vendasHojeValor != null ? Number(m.vendasHojeValor) : null,
       ultimaVenda: m.ultimaVendaHoje?.hora ? `hoje ${m.ultimaVendaHoje.hora}` : m.ultimaVendaOntem?.hora ? `ontem ${m.ultimaVendaOntem.hora}` : null,
       extra: m.quedasHoje ? `${m.quedasHoje} quedas hoje` : undefined,
