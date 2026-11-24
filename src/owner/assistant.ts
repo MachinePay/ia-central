@@ -19,7 +19,8 @@ import { costSummary, formatCosts } from '../sentinela/costs.js';
 import { ack } from '../sentinela/incidents.js';
 import { brl, clienteLinha, dia, gkBuscar, gkClientes, gkCobrancasMes, gkHistorico, type GkProduto } from '../integrations/gk.js';
 import { catalogo, COMO_PEDIR, girakids, produtoLinha } from '../integrations/girakids.js';
-import { fecharPedido, mandarOrcamentoAoCliente, montarOrcamento, numeroVendedor } from '../integrations/vendas.js';
+import { fecharPedido, fecharPedidoPrimeplush, mandarOrcamentoAoCliente, montarOrcamento, numeroVendedor } from '../integrations/vendas.js';
+import { catalogoPrimeplush, orcarPrimeplush, produtoLinhaPp, relatorioPrimeplush } from '../integrations/primeplush.js';
 import { acharMaquinas, enviarCredito, listarMaquinas, PLATAFORMAS, plataformasLigadas, statusMaquina, type Plataforma } from '../integrations/maquinas.js';
 import { acharLoja, agarramais, lojas } from '../integrations/agarramais.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
@@ -259,10 +260,50 @@ mandar_para_cliente: true manda o resumo ao cliente pelo WhatsApp do João (o ve
     }),
     girakids_fechar_pedido: tool({
       description: 'Transforma o orçamento da Girakids em PEDIDO (quando o dono mandar fechar ou disser que o cliente aprovou) e avisa o comercial no WhatsApp cadastrado.',
-      inputSchema: z.object({ orcamento_id: z.string().min(8) }),
-      execute: async ({ orcamento_id }) => {
-        const r = await fecharPedido(orcamento_id, { instance: numeroVendedor() });
-        return { ok: done(`pedido gerado: ${r.resumo}`) };
+      inputSchema: z.object({ orcamento_id: z.string().min(8), cliente_nome: z.string().optional(), telefone_cliente: z.string().optional().describe('com o telefone, o João manda o PDF do pedido ao cliente') }),
+      execute: async ({ orcamento_id, cliente_nome, telefone_cliente }) => {
+        const tel = (telefone_cliente ?? '').replace(/\D/g, '');
+        const r = await fecharPedido(orcamento_id, { instance: numeroVendedor(), cliente: cliente_nome, telefone: tel.length >= 10 ? (tel.startsWith('55') ? tel : `55${tel}`) : undefined });
+        return { ok: done(`pedido gerado: ${r.resumo}${r.pdf ? ` · ${r.pdf}` : ''}`) };
+      },
+    }),
+
+    // ------------------------------------------------------------ PrimePlush (pelucias)
+    primeplush_catalogo: tool({
+      description: 'Catálogo da PrimePlush (loja de pelúcias): preço por unidade e estoque. Busca por nome ou categoria.',
+      inputSchema: z.object({ busca: z.string().optional(), categoria: z.string().optional() }),
+      execute: async ({ busca, categoria }) => {
+        const r = await catalogoPrimeplush(busca, categoria);
+        return { total: r.length, produtos: r.slice(0, 30).map(produtoLinhaPp) };
+      },
+    }),
+    primeplush_vendas: tool({
+      description: 'Relatório da PrimePlush no período: faturamento, pedidos, cancelados, ticket médio, mais vendidos, alertas de estoque e quanto falta pagar à Girakids. Sem datas: mês atual.',
+      inputSchema: z.object({ inicio: z.string().optional().describe('AAAA-MM-DD'), fim: z.string().optional().describe('AAAA-MM-DD') }),
+      execute: async ({ inicio, fim }) => {
+        const now = new Date();
+        const ini = inicio ? new Date(`${inicio}T00:00:00-03:00`) : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 3));
+        const end = fim ? new Date(`${fim}T23:59:59-03:00`) : now;
+        return relatorioPrimeplush(ini, end);
+      },
+    }),
+    primeplush_pedido: tool({
+      description: `Orçamento e pedido na PrimePlush a pedido do dono. itens: produto = nome do catálogo, quantidade = unidades.
+fechar=false (padrão): só calcula o orçamento e mostra ao dono. fechar=true: cria o pedido (precisa nome e CPF/CNPJ do cliente) e, com o telefone do cliente, o João manda o PDF do pedido a ele.`,
+      inputSchema: z.object({
+        itens: z.array(z.object({ produto: z.string().min(1), quantidade: z.number().int().min(1) })).min(1),
+        fechar: z.boolean().default(false),
+        cliente_nome: z.string().optional(), documento: z.string().optional(), telefone_cliente: z.string().optional(),
+        pagamento: z.enum(['pix', 'credit', 'debit', 'cash', 'boleto']).optional(), observacao: z.string().max(300).optional(),
+      }),
+      execute: async ({ itens, fechar, cliente_nome, documento, telefone_cliente, pagamento, observacao }) => {
+        const orc = await orcarPrimeplush(itens);
+        if ('erro' in orc) return orc;
+        if (!fechar) return { orcamento: orc.resumo, proximo: 'Mostre ao dono e pergunte se fecha; para fechar precisa do nome e CPF/CNPJ do cliente.' };
+        if (!cliente_nome || !documento) return { erro: 'Para fechar o pedido preciso do nome completo e do CPF ou CNPJ do cliente.' };
+        const tel = (telefone_cliente ?? '').replace(/\D/g, '');
+        const r = await fecharPedidoPrimeplush(orc, { nome: cliente_nome, documento, pagamento, observacao }, { instance: numeroVendedor(), telefone: tel.length >= 10 ? (tel.startsWith('55') ? tel : `55${tel}`) : undefined });
+        return { ok: done(`${r.resumo}${r.pdf ? ` · ${r.pdf}` : ''}`) };
       },
     }),
 

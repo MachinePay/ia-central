@@ -16,7 +16,7 @@ type Rule = { id: number; kind: 'from' | 'domain' | 'subject'; pattern: string; 
 
 const ACTIONS: Record<Rule['action'], { l: string; d: string; icon: typeof Bot; tone: 'cyan' | 'crit' | 'amber' | 'default' }> = {
   reply: { l: 'IA responde sempre', d: 'A IA deste número responde, mesmo que o contato não esteja marcado', icon: Bot, tone: 'cyan' },
-  notify: { l: 'Avisar no WhatsApp', d: 'Manda um aviso no "Você" do número (ou pela IA central)', icon: Bell, tone: 'amber' },
+  notify: { l: 'Avisar no WhatsApp', d: 'Manda um aviso no "Você" do número (ou pelo Maestro)', icon: Bell, tone: 'amber' },
   ignore: { l: 'Só guardar', d: 'Fica registrado aqui, mas a IA não responde', icon: Inbox, tone: 'default' },
   delete: { l: 'Apagar sempre', d: 'Vai direto para a lixeira (dá para recuperar no webmail)', icon: Trash2, tone: 'crit' },
 };

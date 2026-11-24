@@ -1,4 +1,6 @@
-import { sendText } from '../channels/whatsapp/evolution.js';
+import { sendDocument, sendText } from '../channels/whatsapp/evolution.js';
+import { pdfPedido } from '../lib/pdf-pedido.js';
+import { criarPedidoPrimeplush, pdfPedidoPrimeplush, type OrcamentoPp } from './primeplush.js';
 import { saveOutbound, upsertContact, upsertThread } from '../domain/repo.js';
 import type { InboundEvent } from '../domain/types.js';
 import { q } from '../lib/db.js';
@@ -38,15 +40,48 @@ export function numeroVendedor(): string | undefined {
 }
 
 /** Orcamento -> pedido e aviso no WhatsApp configurado (ou no "Voce" do numero de quem vendeu). */
-export async function fecharPedido(orcamentoId: string, quem: { cliente?: string; instance?: string }): Promise<{ pedido: PedidoResumo; resumo: string }> {
+export async function fecharPedido(orcamentoId: string, quem: { cliente?: string; instance?: string; telefone?: string }): Promise<{ pedido: PedidoResumo; resumo: string; pdf?: string }> {
   const pedido = await gerarPedido(orcamentoId);
   const resumo = resumoPedido(pedido);
-  const texto = `Pedido novo pela IA${quem.cliente ? ` (${quem.cliente})` : ''}: ${resumo}`;
-  const aviso = setting('GIRAKIDS_AVISO_PEDIDOS').replace(/\D/g, '');
   const via = quem.instance ?? numeroVendedor();
+  await avisarPedido(`Pedido novo Girakids pela IA${quem.cliente ? ` (${quem.cliente})` : ''}: ${resumo}`, via);
+  let pdf: string | undefined;
+  if (quem.telefone && via) {
+    pdf = await (async () => {
+      const buf = await pdfPedido({
+        loja: 'Girakids', titulo: 'Pedido', numero: pedido.numero, cliente: quem.cliente,
+        itens: (pedido.itens ?? []).map((i) => ({ nome: i.nome, detalhe: `${i.unidadesPacote} un por pacote · R$ ${Number(i.precoUnitario).toFixed(2).replace('.', ',')} a unidade`, quantidade: `${i.quantidade} pct`, total: Number(i.total) })),
+        subtotal: pedido.subtotal != null ? Number(pedido.subtotal) : undefined, frete: pedido.frete ? Number(pedido.frete) : undefined, total: Number(pedido.total),
+        rodape: ['Girakids · Av. Cachoeira Paulista, 17', 'Pagamento e entrega combinados com o comercial.'],
+      });
+      await sendDocument(via, normalizePhone(quem.telefone!), buf, `pedido-girakids-${pedido.numero}.pdf`);
+      return 'PDF do pedido enviado ao cliente';
+    })().catch((e) => `PDF não foi enviado (${String((e as Error).message ?? e).slice(0, 120)})`);
+  }
+  return { pedido, resumo, pdf };
+}
+
+/** Aviso de pedido novo no numero cadastrado (GIRAKIDS_AVISO_PEDIDOS), ou no "Voce" do numero de quem vendeu. */
+async function avisarPedido(texto: string, via?: string) {
+  const aviso = setting('GIRAKIDS_AVISO_PEDIDOS').replace(/\D/g, '');
   if (aviso && via) await sendText(via, aviso, texto).catch(() => notifyGabriel(texto, via));
   else await notifyGabriel(texto, via);
-  return { pedido, resumo };
+}
+
+/** PrimePlush: cria o pedido com os itens do orcamento, avisa e manda ao cliente o PDF gerado pelo proprio sistema. */
+export async function fecharPedidoPrimeplush(orc: OrcamentoPp, cliente: { nome: string; documento: string; pagamento?: string; observacao?: string }, quem: { instance?: string; telefone?: string }) {
+  const pedido = await criarPedidoPrimeplush({ itens: orc.itens, total: orc.total, nome: cliente.nome, documento: cliente.documento, pagamento: cliente.pagamento, observacao: cliente.observacao });
+  const resumo = `Pedido PrimePlush ${pedido.id}: ${orc.resumo}`;
+  const via = quem.instance ?? numeroVendedor();
+  await avisarPedido(`Pedido novo PrimePlush pela IA (${cliente.nome}): ${orc.resumo}`, via);
+  let pdf: string | undefined;
+  if (quem.telefone && via) {
+    pdf = await pdfPedidoPrimeplush(pedido.id)
+      .then((buf) => sendDocument(via, normalizePhone(quem.telefone!), buf, `pedido-primeplush.pdf`))
+      .then(() => 'PDF do pedido enviado ao cliente')
+      .catch((e) => `PDF não foi enviado (${String((e as Error).message ?? e).slice(0, 120)})`);
+  }
+  return { pedido, resumo, pdf };
 }
 
 /**

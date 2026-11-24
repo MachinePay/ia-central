@@ -26,7 +26,6 @@ export function encrypt(text: string): string {
   const data = Buffer.concat([c.update(text, 'utf8'), c.final()]);
   return [iv, c.getAuthTag(), data].map((b) => b.toString('base64')).join('.');
 }
-export function decryptForDiag(enc: string): string { return decrypt(enc); }
 function decrypt(enc: string): string {
   const [iv, tag, data] = enc.split('.').map((s) => Buffer.from(s, 'base64'));
   const d = createDecipheriv('aes-256-gcm', key(), iv);
@@ -174,19 +173,26 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent, 
     const pendentes = await q<{ message_id: string }>(
       `SELECT message_id FROM app.emails WHERE account = $1 AND action = 'apagado' AND NOT trashed AND received_at > now() - interval '30 days'`, [a.email],
     );
-    for (const p of pendentes) {
-      const mid = p.message_id.replace(`mail:${a.email}:`, '');
-      const uids = await imap.search({ header: { 'message-id': mid } }, { uid: true }).catch(() => [] as number[]);
-      for (const u of uids || []) if (!apagar.includes(u)) apagar.push(u);
-    }
-    if (apagar.length) {
-      try {
-        await moveToTrash(imap, apagar);
-        if (pendentes.length) await q(`UPDATE app.emails SET trashed = true WHERE account = $1 AND action = 'apagado' AND NOT trashed`, [a.email]);
-        logger.info({ account: a.email, n: apagar.length }, 'e-mails movidos para a lixeira');
-      } catch (e) {
-        logger.warn({ err: String(e), account: a.email }, 'e-mail nao foi para a lixeira');
+    if (pendentes.length) {
+      // a busca por cabecalho nao funciona nesse servidor: le o Message-ID dos e-mails dos ultimos 30 dias e compara
+      const ids = new Set(pendentes.map((p) => p.message_id.replace(`mail:${a.email}:`, '').trim()));
+      const desde = new Date(Date.now() - 31 * 86400_000);
+      const uidsRecentes = (await imap.search({ since: desde }, { uid: true }).catch(() => [] as number[])) || [];
+      if (uidsRecentes.length) {
+        const achados: number[] = [];
+        for await (const m of imap.fetch(uidsRecentes.join(','), { uid: true, envelope: true }, { uid: true })) {
+          if (m.envelope?.messageId && ids.has(m.envelope.messageId.trim())) achados.push(m.uid);
+        }
+        for (const u of achados) if (!apagar.includes(u)) apagar.push(u);
       }
+    }
+    try {
+      if (apagar.length) await moveToTrash(imap, apagar);
+      // os pendentes que nem estao mais na caixa de entrada tambem saem da fila
+      if (pendentes.length || apagar.length) await q(`UPDATE app.emails SET trashed = true WHERE account = $1 AND action = 'apagado' AND NOT trashed`, [a.email]);
+      if (apagar.length) logger.info({ account: a.email, n: apagar.length }, 'e-mails movidos para a lixeira');
+    } catch (e) {
+      logger.warn({ err: String(e), account: a.email }, 'e-mail nao foi para a lixeira');
     }
   } finally {
     lock.release();
@@ -197,7 +203,8 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent, 
 /** Move para a Lixeira (nao apaga de vez: da para recuperar no webmail). */
 async function moveToTrash(imap: ImapFlow, uids: number[]) {
   const boxes = await imap.list();
-  const trash = boxes.find((b) => b.specialUse === '\\Trash') ?? boxes.find((b) => /^(trash|lixeira|lixo|deleted|itens exclu)/i.test(b.name) || /(trash|lixeira|deleted)/i.test(b.path));
+  // webmail em portugues usa a pasta "Lixeira" (o servidor marca outra como \Trash): prefere a que tem esse nome
+  const trash = boxes.find((b) => /^lixeira$/i.test(b.name)) ?? boxes.find((b) => b.specialUse === '\\Trash') ?? boxes.find((b) => /^(trash|lixeira|lixo|deleted|itens exclu)/i.test(b.name) || /(trash|lixeira|deleted)/i.test(b.path));
   const range = uids.join(',');
   if (trash) await imap.messageMove(range, trash.path, { uid: true });
   else await imap.messageDelete(range, { uid: true }); // sem lixeira: marca apagado e expurga

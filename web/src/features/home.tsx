@@ -266,7 +266,7 @@ function CentralPanel({ item }: { item?: SceneItem }) {
   const [connecting, setConnecting] = useState(false);
   return (
     <div className="space-y-3 px-2 text-[14px]">
-      <p className="leading-relaxed">O orquestrador lê as mensagens de todos os números, escolhe quem responde e fala com você. É por ele que chegam alertas, rascunhos e aprovações.</p>
+      <p className="leading-relaxed">O Maestro (orquestrador) lê as mensagens de todos os números, escolhe quem responde e fala com você. É por ele que chegam alertas, rascunhos e aprovações.</p>
       {item && <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">{Object.entries(item.extra).flatMap(([k, v]) => [<dt key={`k${k}`} className="text-text-2">{k}</dt>, <dd key={`v${k}`}>{v}</dd>])}</dl>}
       <div className="rounded-[6px] border border-line p-3">
         <p className="font-semibold">Como falar com ele</p>
@@ -278,7 +278,7 @@ function CentralPanel({ item }: { item?: SceneItem }) {
       {!central && (connecting ? <ConnectNumber onDone={() => setConnecting(false)} /> : (
         <div className="rounded-[6px] border border-dashed border-line p-3">
           <p className="font-semibold">Número próprio da IA</p>
-          <p className="mt-1 text-[13px] text-text-2">Com um chip só para a IA, os alertas e a conversa com o orquestrador saem da sua conversa "Você" e passam para esse número.</p>
+          <p className="mt-1 text-[13px] text-text-2">Com um chip só para a IA, os alertas e a conversa com o Maestro saem da sua conversa "Você" e passam para esse número.</p>
           <Button className="mt-2" variant="primary" icon={<QrCode size={14} />} onClick={() => setConnecting(true)}>Conectar número da IA</Button>
         </div>
       ))}
@@ -291,7 +291,7 @@ function ConnectNumber({ onDone }: { onDone: () => void }) {
   const [qr, setQr] = useState<string | null>(null);
   const [state, setState] = useState<string>('');
   const create = useMutation({
-    mutationFn: () => post('/api/whatsapp/instances', { name: 'central', role: 'CENTRAL', persona: 'IA central', about: 'orquestrador' }),
+    mutationFn: () => post('/api/whatsapp/instances', { name: 'central', role: 'CENTRAL', persona: 'Maestro', about: 'orquestrador' }),
     onSuccess: (r: any) => { setQr(r.qr ?? null); setState(r.state ?? ''); },
     onError: toastError,
   });

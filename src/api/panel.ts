@@ -159,7 +159,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const incidentBy = new Map(incidents.map((i: any) => [i.resource_id, i]));
       const ROLE_LABEL: Record<string, string> = { ATENDIMENTO: 'atende clientes', GABRIEL: 'pessoa · só contatos liberados', OBSERVAR: 'só aprendendo', CENTRAL: 'orquestrador' };
       const areas = [
-        { id: 'central', kind: 'hub', name: 'IA central', who: central ? `Orquestrador · número ${central}` : 'Orquestrador · fala com você pela conversa "Você"', state: central ? (numbers.find((n) => n.name === central)?.state ?? 'desconhecido') : 'open' },
+        { id: 'central', kind: 'hub', name: 'Maestro', who: central ? `orquestrador · número ${central}` : 'orquestrador · fala com você pela conversa "Você"', state: central ? (numbers.find((n) => n.name === central)?.state ?? 'desconhecido') : 'open' },
         ...roles.map(([name, role]) => {
           const n = numbers.find((x) => x.name === name)!;
           return { id: name, kind: 'desks', name: n.persona, who: `${ROLE_LABEL[role] ?? role} · número ${name}`, role, state: n.state, about: n.about, messages24h: n.messages24h, active24h: n.active24h };
@@ -167,7 +167,7 @@ export async function panelRoutes(app: FastifyInstance) {
         { id: 'sentinela', kind: 'racks', name: 'Sentinela', who: 'Render, Vercel e sites vigiados', state: 'open' },
       ];
       const items: any[] = [{
-        id: 'hub', area: 'central', name: 'Orquestrador', status: 'ok', link: '/agentes',
+        id: 'hub', area: 'central', name: 'Maestro', status: 'ok', link: '/agentes',
         sub: 'Lê as mensagens, escolhe quem responde e fala com você',
         extra: { Hoje: `${runs?.n ?? 0} execuções · ${runs?.sent ?? 0} enviadas · ${runs?.drafts ?? 0} rascunhos`, Número: central ?? 'ainda sem número próprio' },
       }];

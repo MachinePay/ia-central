@@ -11,7 +11,8 @@ import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
 import { catalogo, COMO_PEDIR, cotarFrete, LOJA_URL, produtoLinha } from '../integrations/girakids.js';
-import { fecharPedido, montarOrcamento } from '../integrations/vendas.js';
+import { fecharPedido, fecharPedidoPrimeplush, montarOrcamento } from '../integrations/vendas.js';
+import { catalogoPrimeplush, orcarPrimeplush, produtoLinhaPp, type OrcamentoPp } from '../integrations/primeplush.js';
 import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
 
 /**
@@ -192,8 +193,38 @@ Depois mande ao cliente o resumo (itens, total) e pergunte se aprova. Só gere o
       execute: wrap(ctx, 'girakids_aprovar_orcamento', async ({ orcamento_id }) => {
         const id = orcamento_id ?? (ctx.thread.facts as any)?.orcamento_girakids;
         if (!id) return { erro: 'Não há orçamento nesta conversa. Monte um com girakids_orcamento.' };
-        const r = await fecharPedido(id, { cliente: ctx.contact.name ?? ctx.contact.phone ?? undefined, instance: ctx.thread.instance });
-        return { ok: true, pedido: r.resumo, orientacao: 'Confirme ao cliente o número do pedido e diga que o comercial segue com pagamento e entrega.' };
+        const r = await fecharPedido(id, { cliente: ctx.contact.name ?? ctx.contact.phone ?? undefined, instance: ctx.thread.instance, telefone: ctx.thread.channel === 'WHATSAPP' ? ctx.contact.phone ?? undefined : undefined });
+        return { ok: true, pedido: r.resumo, pdf: r.pdf, orientacao: `Confirme ao cliente o número do pedido${r.pdf?.startsWith('PDF do pedido enviado') ? ' e diga que mandou o PDF' : ''} e que o comercial segue com pagamento e entrega.` };
+      }),
+    }),
+    catalogo_primeplush: tool({
+      description: 'Catálogo da PrimePlush (loja de pelúcias): nome, categoria, preço por unidade e estoque. Busque pelo nome (ex.: "urso", "stitch") ou categoria.',
+      inputSchema: z.object({ busca: z.string().optional(), categoria: z.string().optional() }),
+      execute: wrap(ctx, 'catalogo_primeplush', async ({ busca, categoria }) => {
+        const r = await catalogoPrimeplush(busca, categoria);
+        return { total: r.length, produtos: r.slice(0, 25).map(produtoLinhaPp) };
+      }),
+    }),
+    primeplush_orcamento: tool({
+      description: `Monta o ORÇAMENTO da PrimePlush com os preços do catálogo (produto = nome do catálogo, quantidade = unidades). Confere o estoque.
+Mande ao cliente o resumo com o total e pergunte uma vez "posso fechar o pedido?". A PrimePlush não calcula frete: entrega e pagamento a loja combina.`,
+      inputSchema: z.object({ itens: z.array(z.object({ produto: z.string().min(1), quantidade: z.number().int().min(1) })).min(1) }),
+      execute: wrap(ctx, 'primeplush_orcamento', async ({ itens }) => {
+        const r = await orcarPrimeplush(itens);
+        if ('erro' in r) return r;
+        await q(`UPDATE threads SET facts = jsonb_set(coalesce(facts, '{}'), '{orcamento_primeplush}', $2::jsonb) WHERE id = $1`, [ctx.thread.id, JSON.stringify(r)]);
+        return { ok: true, resumo: r.resumo, proximo_passo: 'Mande o resumo e pergunte se pode fechar. Para fechar precisa do nome completo e CPF ou CNPJ; depois use primeplush_fechar_pedido.' };
+      }),
+    }),
+    primeplush_fechar_pedido: tool({
+      description: 'Fecha o PEDIDO na PrimePlush com o último orçamento desta conversa (primeplush_orcamento), avisa a loja e manda o PDF do pedido ao cliente. Só depois de um "sim/pode fechar" claro. Precisa do nome completo e CPF ou CNPJ.',
+      inputSchema: z.object({ nome: z.string().min(3), documento: z.string().min(11), pagamento: z.enum(['pix', 'credit', 'debit', 'cash', 'boleto']).optional(), observacao: z.string().max(300).optional() }),
+      execute: wrap(ctx, 'primeplush_fechar_pedido', async ({ nome, documento, pagamento, observacao }) => {
+        const orc = (ctx.thread.facts as any)?.orcamento_primeplush as OrcamentoPp | undefined;
+        if (!orc?.itens?.length) return { erro: 'Não há orçamento da PrimePlush nesta conversa. Monte com primeplush_orcamento.' };
+        const r = await fecharPedidoPrimeplush(orc, { nome, documento, pagamento, observacao }, { instance: ctx.thread.instance, telefone: ctx.thread.channel === 'WHATSAPP' ? ctx.contact.phone ?? undefined : undefined });
+        await q(`UPDATE threads SET facts = facts - 'orcamento_primeplush' WHERE id = $1`, [ctx.thread.id]);
+        return { ok: true, pedido: r.resumo, pdf: r.pdf, orientacao: `Confirme o pedido ao cliente${r.pdf?.startsWith('PDF do pedido enviado') ? ' e diga que mandou o PDF' : ''}; pagamento e entrega a loja combina.` };
       }),
     }),
     get_product_catalog: catalogTool(ctx),

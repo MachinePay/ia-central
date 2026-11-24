@@ -9,7 +9,7 @@ const ROLES = [
   { v: 'ATENDIMENTO', l: 'Atendimento', d: 'João (comercial) e Clara (suporte) atendem como a pessoa deste número' },
   { v: 'OBSERVAR', l: 'Só aprendendo', d: 'Guarda as conversas e aprende com a equipe; nunca responde' },
   { v: 'GABRIEL', l: 'Pessoa', d: 'Fala como a pessoa deste número; responde quem você marcar em IAs → Cada IA' },
-  { v: 'CENTRAL', l: 'IA central (orquestrador)', d: 'Fala só com você: manda alertas, rascunhos e aprovações e responde o que você perguntar' },
+  { v: 'CENTRAL', l: 'Maestro (orquestrador)', d: 'Fala só com você: manda alertas, rascunhos e aprovações e responde o que você perguntar' },
   { v: 'OFF', l: 'Desligado', d: 'Ignorado pelo sistema' },
 ];
 
@@ -158,14 +158,14 @@ export function Settings() {
 function CentralRow() {
   const [qr, setQr] = useState(false);
   const create = useMutation({
-    mutationFn: () => post('/api/whatsapp/instances', { name: 'central', role: 'CENTRAL', persona: 'IA central', about: 'orquestrador' }),
+    mutationFn: () => post('/api/whatsapp/instances', { name: 'central', role: 'CENTRAL', persona: 'Maestro', about: 'orquestrador' }),
     onSuccess: () => setQr(true),
     onError: (e: any) => { if (/existe/i.test(String(e?.message))) setQr(true); else toastError(e); },
   });
   return (
     <div className="my-3 rounded-[12px] border border-line p-3">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="w-32"><p className="serif text-[24px] leading-none">IA central</p><p className="mt-1 text-[11px] text-text-2">orquestrador</p><Pill tone="amber">sem número próprio</Pill></div>
+        <div className="w-32"><p className="serif text-[24px] leading-none">Maestro</p><p className="mt-1 text-[11px] text-text-2">orquestrador</p><Pill tone="amber">sem número próprio</Pill></div>
         <p className="flex-1 text-[12px] text-text-2">Comanda todas as IAs e fala só com você: alertas, rascunhos e aprovações, e responde o que você perguntar. Enquanto não tiver número próprio, tudo chega no "Você" de cada número.</p>
         {!qr && <Button size="sm" variant="primary" busy={create.isPending} onClick={() => create.mutate()}>Conectar número da IA</Button>}
       </div>

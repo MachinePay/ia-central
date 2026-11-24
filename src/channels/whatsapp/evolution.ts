@@ -82,6 +82,14 @@ export async function sendText(instance: string, number: string, text: string, q
   return id;
 }
 
+/** Manda um arquivo (ex.: PDF do pedido) como documento. */
+export async function sendDocument(instance: string, number: string, file: Buffer, fileName: string, caption?: string, mimetype = 'application/pdf'): Promise<string | undefined> {
+  const r = await evo('POST', `/message/sendMedia/${instance}`, { number, mediatype: 'document', mimetype, fileName, caption: caption ?? '', media: file.toString('base64') });
+  const id: string | undefined = r?.key?.id;
+  if (id) await redis.set(keys.sent(id), '1', 'EX', 600);
+  return id;
+}
+
 /** Baixa a midia. Manda a mensagem inteira (com a chave de midia): so o id nao basta, a Evolution nao guarda mensagens. */
 export async function getMediaBase64(instance: string, key: unknown, message: unknown): Promise<{ base64: string; mimetype?: string } | undefined> {
   for (const body of [{ message: { key, message }, convertToMp4: false }, { message: { key }, convertToMp4: false }]) {

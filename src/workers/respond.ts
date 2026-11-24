@@ -137,7 +137,7 @@ async function respond(threadId: string, started: number) {
     text: reply, channel: thread.channel, agent, evidence: result?.ctx.evidence ?? [],
     facts: thread.facts, kbConsulted: result?.ctx.kbConsulted ?? false,
     intimateAllowed: INTIMATE_RE.test(pack.contact.treatment ?? '') || pack.recent.some((m) => m.sender === 'HUMAN' && INTIMATE_RE.test(m.content)),
-    didAction: (result?.ctx.log ?? []).some((l) => /^girakids_(orcamento|aprovar_orcamento)$/.test(l.tool) && !(l.output as any)?.erro && !(l.output as any)?.error),
+    didAction: (result?.ctx.log ?? []).some((l) => /^(girakids_(orcamento|aprovar_orcamento)|primeplush_(orcamento|fechar_pedido))$/.test(l.tool) && !(l.output as any)?.erro && !(l.output as any)?.error),
     clientAskedBot: ASKS_BOT.test(pack.blockText), shortClient: pack.block.every((m) => isSmallTalk(m.content)),
     personal: pack.contact.role === 'PESSOAL',
     vocab: pack.contact.role === 'PESSOAL' ? await ownerVocabulary(thread.instance).catch(() => undefined) : undefined,
