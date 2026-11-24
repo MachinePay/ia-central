@@ -12,6 +12,7 @@ import { addCost, costToday, costUsd, withFallback } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { normalizePhone } from '../lib/phone.js';
 import { keys, redis } from '../lib/redis.js';
+import { TAKEOVER_SECONDS } from '../takeover.js';
 import { fence, nowLabel } from '../lib/util.js';
 import { statusText } from '../sentinela/commands.js';
 import { costSummary, formatCosts } from '../sentinela/costs.js';
@@ -112,7 +113,7 @@ function tools(log: string[]) {
         const found = await findThread(busca);
         if (found.length !== 1) return found.length ? { varios: found.map((f) => `${f.contact} (${f.phone ?? ''}, número ${f.instance})`) } : { erro: 'Não achei esse contato.' };
         const th = (await getThread(found[0].id))!;
-        await redis.set(keys.takeover(th.id), '1', 'EX', 7200); // voce falou: a IA daquela conversa fica quieta 2 h
+        await redis.set(keys.takeover(th.id), '1', 'EX', TAKEOVER_SECONDS); // voce falou: a IA daquela conversa fica quieta 30 min
         await deliver({ thread: th, agent: 'HUMAN', text: texto, force: true });
         return { ok: done(`mandado para ${found[0].contact} pelo número ${th.instance}`) };
       },

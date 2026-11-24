@@ -150,12 +150,12 @@ function ThreadView({ id, back }: { id: string; back: () => void }) {
           <AgentAvatar agent={d.takeover.on ? 'HUMAN' : d.thread.active_agent} size={30} />
           <div className="min-w-0">
             <p className="truncate font-semibold">{contactName}</p>
-            <p className="text-[12px] text-text-2">{d.thread.channel === 'GMAIL' ? d.contact.email : phone(d.contact.phone)} · número {d.thread.instance} · {d.takeover.on ? 'com a equipe' : `atendido por ${AGENTS[d.thread.active_agent as AgentKey]?.name}`}</p>
+            <p className="text-[12px] text-text-2">{d.thread.channel === 'GMAIL' ? d.contact.email : phone(d.contact.phone)} · número {d.thread.instance} · {d.takeover.on ? `com você${d.takeover.until ? ` até ${new Date(d.takeover.until).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}` : `atendido por ${AGENTS[d.thread.active_agent as AgentKey]?.name}`}</p>
           </div>
           <div className="ml-auto flex flex-wrap gap-1.5">
             {d.takeover.on ? (
               <>
-                <Button size="sm" icon={<Undo2 size={14} />} onClick={() => act.mutate({ path: `/api/threads/${id}/release`, body: {} })}>Devolver para a IA</Button>
+                <Button size="sm" icon={<Undo2 size={14} />} onClick={() => act.mutate({ path: `/api/threads/${id}/release`, body: {} })}>IA assume</Button>
                 <select className={cx(inputCls, 'h-7! w-auto! text-[12px]')} value="" onChange={(e) => e.target.value && act.mutate({ path: `/api/threads/${id}/release`, body: { agent: e.target.value } })} aria-label="Devolver para um agente">
                   <option value="">Devolver para…</option><option value="JOAO">João</option><option value="CLARA">Clara</option><option value="GABRIEL">Gabriel (IA)</option>
                 </select>
@@ -173,7 +173,7 @@ function ThreadView({ id, back }: { id: string; back: () => void }) {
           <div ref={endRef} />
         </div>
         <form className="flex items-end gap-2 border-t border-line p-3" onSubmit={(e) => { e.preventDefault(); if (text.trim()) act.mutate({ path: `/api/threads/${id}/send`, body: { text } }); }}>
-          <textarea ref={composerRef} rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Escrever como você (sai na hora e a IA fica em silêncio por 2 h)… · atalho R"
+          <textarea ref={composerRef} rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Escrever como você (sai na hora e a IA fica em silêncio por 30 min)… · atalho R"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); (e.currentTarget.form as HTMLFormElement).requestSubmit(); } }}
             className="min-h-[44px] flex-1 resize-y rounded-[6px] border border-line bg-bg px-3 py-2 text-[16px] focus:border-cyan focus:outline-none" />
           <Button variant="primary" type="submit" icon={<Send size={14} />} busy={act.isPending && act.variables?.path.endsWith('/send')}>Enviar</Button>

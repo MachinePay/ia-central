@@ -11,7 +11,7 @@ import { logger } from './lib/logger.js';
 import { cancelPendingRespond } from './lib/queues.js';
 import { keys, redis } from './lib/redis.js';
 
-const TAKEOVER_SECONDS = 2 * 3600;
+export const TAKEOVER_SECONDS = 30 * 60; // voce falou com o contato: a IA daquela conversa fica quieta 30 min
 const OLD_FROM_ME_SECONDS = 5 * 60;
 
 export async function isTakeover(threadId: string): Promise<boolean> {
@@ -25,7 +25,7 @@ export async function applyTakeover(thread: Thread, text: string | undefined, ex
   }
   await redis.set(keys.takeover(thread.id), '1', 'EX', TAKEOVER_SECONDS);
   await cancelPendingRespond(thread.id);
-  logger.info({ threadId: thread.id }, 'takeover humano: bots em silencio por 2 h');
+  logger.info({ threadId: thread.id }, 'takeover humano: IA em silencio por 30 min');
 }
 
 /** Retorna true se era um comando /bot (ja tratado). */

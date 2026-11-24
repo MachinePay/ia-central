@@ -15,7 +15,7 @@ type NumberInfo = {
 };
 type Row = {
   id: string; ai_enabled: boolean; ai_auto: boolean; contact: string; phone: string | null; role: string;
-  has_treatment: boolean; last_at: string | null; messages: number;
+  has_treatment: boolean; last_at: string | null; messages: number; with_you: boolean;
 };
 
 const ROLES: Record<string, { l: string; d: string; tone: 'cyan' | 'amber' | 'default' | 'ok' }> = {
@@ -157,6 +157,11 @@ function Contacts({ n }: { n: NumberInfo }) {
     onSuccess: (r, enabled) => { toast(`${r.changed} contato(s) ${enabled ? 'marcados' : 'desmarcados'}.`); refresh(); },
     onError: toastError,
   });
+  const release = useMutation({
+    mutationFn: (id: string) => post<{ answering: boolean }>(`/api/threads/${id}/release`, {}),
+    onSuccess: (r) => { toast(r.answering ? 'A IA assumiu e já vai responder.' : 'A IA assumiu a conversa.'); refresh(); },
+    onError: toastError,
+  });
   const marked = useMemo(() => items.filter((r) => r.ai_enabled).length, [items]);
   const scope = search || show ? 'da lista' : 'todos';
   return (
@@ -191,7 +196,7 @@ function Contacts({ n }: { n: NumberInfo }) {
               {items.map((r) => (
                 <tr key={r.id} className={cx('border-t border-line', r.ai_enabled && 'bg-cyan/5')}>
                   <td className="px-3 py-2">
-                    <p className="font-semibold">{r.contact}</p>
+                    <p className="flex items-center gap-2 font-semibold">{r.contact}{r.with_you && <Pill tone="amber" title="Você falou com ele há pouco: a IA fica quieta 30 min">com você</Pill>}</p>
                     <p className="text-[12px] text-text-2">{phone(r.phone)}{r.role === 'PESSOAL' ? ' · pessoal' : ''}{r.has_treatment ? ' · jeito com ele aprendido' : ''}</p>
                   </td>
                   <td className="px-3 py-2 text-center">
@@ -203,14 +208,14 @@ function Contacts({ n }: { n: NumberInfo }) {
                       onChange={(e) => toggle.mutate({ id: r.id, body: { auto: e.target.checked } })} />
                   </td>
                   <td className="hidden px-3 py-2 text-[12px] text-text-2 md:table-cell">{r.last_at ? timeAgo(r.last_at) : '—'} · {r.messages} msgs</td>
-                  <td className="px-3 py-2 text-right"><Link to="/conversas/$id" params={{ id: r.id } as any} className="text-text-2 hover:text-cyan" aria-label="Abrir conversa"><MessageSquare size={15} /></Link></td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">{r.with_you && <button onClick={() => release.mutate(r.id)} className="mr-3 cursor-pointer text-[12px] font-semibold text-cyan hover:underline">IA assume</button>}<Link to="/conversas/$id" params={{ id: r.id } as any} className="text-text-2 hover:text-cyan" aria-label="Abrir conversa"><MessageSquare size={15} /></Link></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      <p className="mt-2 text-[12px] text-text-2">"IA responde": a IA deste número pode falar com o contato. "Sozinha": a resposta sai direto, sem rascunho para você.</p>
+      <p className="mt-2 text-[12px] text-text-2">"IA responde": a IA deste número pode falar com o contato. "Sozinha": a resposta sai direto, sem rascunho para você. Quando você mesmo fala com o contato, a IA fica quieta 30 min ("com você"); "IA assume" devolve na hora.</p>
     </Card>
   );
 }

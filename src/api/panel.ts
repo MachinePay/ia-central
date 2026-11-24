@@ -12,7 +12,8 @@ import { buildContactTreatment, buildPersonaProfile, countPersonaMessages, getPe
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
 import { normalizePhone } from '../lib/phone.js';
-import { cancelPendingRespond } from '../lib/queues.js';
+import { cancelPendingRespond, enqueueRespond } from '../lib/queues.js';
+import { TAKEOVER_SECONDS } from '../takeover.js';
 import { keys, redis, redisOptions } from '../lib/redis.js';
 import { saveSetting } from '../lib/settings.js';
 import { addKnowledge } from '../memory/kb.js';
@@ -216,11 +217,11 @@ export async function panelRoutes(app: FastifyInstance) {
       };
     });
 
-    // assumir (bots em silencio ate devolver) / devolver
+    // assumir (IA em silencio por 30 min, ou ate devolver) / devolver
     api.post<{ Params: { id: string } }>('/api/threads/:id/takeover', async (req, reply) => {
       const thread = await getThread(req.params.id);
       if (!thread) return bad(reply, 'Conversa não encontrada.', 404);
-      await redis.set(keys.takeover(thread.id), user(req));
+      await redis.set(keys.takeover(thread.id), user(req), 'EX', TAKEOVER_SECONDS);
       await cancelPendingRespond(thread.id);
       return { ok: true };
     });
@@ -230,7 +231,10 @@ export async function panelRoutes(app: FastifyInstance) {
       if (!thread) return bad(reply, 'Conversa não encontrada.', 404);
       await redis.del(keys.takeover(thread.id));
       await setThread(thread.id, { status: 'OPEN', ...(b.agent ? { active_agent: b.agent, pending_handoff: null } : {}) });
-      return { ok: true };
+      // a IA assume de volta: se o contato ficou sem resposta, ela responde agora
+      const unanswered = thread.last_inbound_at && (!thread.last_outbound_at || new Date(thread.last_outbound_at) < new Date(thread.last_inbound_at));
+      if (unanswered) await enqueueRespond(thread.id, thread.channel, { now: true });
+      return { ok: true, answering: !!unanswered };
     });
     api.post<{ Params: { id: string } }>('/api/threads/:id/status', async (req, reply) => {
       const b = z.object({ status: z.enum(['OPEN', 'PAUSED', 'CLOSED']) }).safeParse(req.body);
@@ -238,13 +242,13 @@ export async function panelRoutes(app: FastifyInstance) {
       await setThread(req.params.id, { status: b.data.status });
       return { ok: true };
     });
-    // escrever como humano: sai na hora e coloca a conversa com voce por 2 h
+    // escrever como humano: sai na hora e coloca a conversa com voce por 30 min
     api.post<{ Params: { id: string } }>('/api/threads/:id/send', async (req, reply) => {
       const b = z.object({ text: z.string().min(1).max(4000) }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Escreva a mensagem.');
       const thread = await getThread(req.params.id);
       if (!thread) return bad(reply, 'Conversa não encontrada.', 404);
-      if (!(await redis.exists(keys.takeover(thread.id)))) await redis.set(keys.takeover(thread.id), user(req), 'EX', 7200);
+      if (!(await redis.exists(keys.takeover(thread.id)))) await redis.set(keys.takeover(thread.id), user(req), 'EX', TAKEOVER_SECONDS);
       await cancelPendingRespond(thread.id);
       await deliver({ thread, agent: 'HUMAN', text: b.data.text, force: true });
       return { ok: true };
@@ -632,7 +636,8 @@ export async function panelRoutes(app: FastifyInstance) {
           ORDER BY t.ai_enabled DESC, coalesce(t.last_inbound_at, t.updated_at) DESC NULLS LAST LIMIT 500`,
         params,
       );
-      return { items: rows, rule: numberRule(req.params.instance) };
+      const tk = rows.length ? await redis.mget(rows.map((r: any) => keys.takeover(r.id))) : [];
+      return { items: rows.map((r: any, i) => ({ ...r, with_you: !!tk[i] })), rule: numberRule(req.params.instance) };
     });
 
     api.patch<{ Params: { id: string } }>('/api/threads/:id/ai', async (req, reply) => {
