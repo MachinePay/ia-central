@@ -4,6 +4,7 @@ import { centralInstance, emailsByNumber, env, instanceRoles, personaFor } from 
 import { logger } from '../lib/logger.js';
 import { ownPhone } from '../lib/owners.js';
 import { normalizePhone } from '../lib/phone.js';
+import { fmtWhen, parseLocal, type AgendaItem } from './agenda.js';
 
 /**
  * Resumo do dia (toda manha): o que cada IA fez nas ultimas 24 h, o que ficou pendente e quem esta esperando.
@@ -16,7 +17,24 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 const NAME_SQL = `coalesce(cn.name, c.name, c.phone, c.email)`;
 const NAME_JOIN = `LEFT JOIN app.contact_names cn ON cn.instance = t.instance AND cn.phone = c.phone`;
 
-async function numberBrief(instance: string, ours: string[]): Promise<NumberBrief> {
+async function agendaLines(instance: string, kind: 'manha' | 'noite'): Promise<string[]> {
+  // janela: hoje (de manha) ou amanha (a noite), no fuso configurado
+  const day = new Date(Date.now() + (kind === 'noite' ? 86_400_000 : 0));
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: env.TIMEZONE }).format(day);
+  const from = parseLocal(`${ymd}T00:00`)!.at, to = parseLocal(`${ymd}T23:59`)!.at;
+  const events = await q<AgendaItem>(`SELECT * FROM app.agenda WHERE instance = $1 AND done_at IS NULL AND kind <> 'nota' AND due_at BETWEEN $2 AND $3 ORDER BY due_at`, [instance, from, to]);
+  const pending = await q<AgendaItem>(
+    `SELECT * FROM app.agenda WHERE instance = $1 AND done_at IS NULL AND kind = 'tarefa' AND (due_at IS NULL OR due_at < now()) ORDER BY due_at NULLS LAST, created_at LIMIT 15`,
+    [instance],
+  );
+  const hour = (d: Date | null, allDay: boolean) => (allDay || !d ? 'dia todo' : new Intl.DateTimeFormat('pt-BR', { timeZone: env.TIMEZONE, hour: '2-digit', minute: '2-digit' }).format(new Date(d)));
+  return [
+    events.length ? `${kind === 'noite' ? 'Amanhã' : 'Hoje'}: ${events.map((e) => `${hour(e.due_at, e.all_day)} ${e.title} (#${e.id})`).join('; ')}.` : `${kind === 'noite' ? 'Amanhã' : 'Hoje'}: nada marcado.`,
+    pending.length ? `Tarefas pendentes: ${pending.map((t) => `${t.title} (#${t.id}${t.due_at ? `, venceu ${fmtWhen(t.due_at, t.all_day)}` : ''})`).join('; ')}.` : '',
+  ].filter(Boolean);
+}
+
+async function numberBrief(instance: string, ours: string[], kind: 'manha' | 'noite' = 'manha'): Promise<NumberBrief> {
   const persona = personaFor(instance);
   const accounts = [instance, ...Object.entries(emailsByNumber()).filter(([i]) => i === instance).map(([, mail]) => mail.toLowerCase())];
   const [stats] = await q<{ convs: number; sent: number; drafts: number; mine: number }>(
@@ -67,6 +85,7 @@ async function numberBrief(instance: string, ours: string[]): Promise<NumberBrie
     mail?.n ? `E-mails: ${plural(mail.n, 'recebido', 'recebidos')} (${mail.ia} para a IA, ${mail.kept} só guardados${mail.del ? `, ${mail.del} apagados` : ''}).` : '',
     approvals.length ? `Aprovações esperando: ${approvals.map((a) => `#${a.code} (${a.name})`).join(', ')}.` : '',
     waiting.length ? `Esperando resposta: ${waiting.map((w) => `${w.name} (${ago(w.since)})`).join(', ')}.` : 'Ninguém esperando resposta.',
+    ...(await agendaLines(instance, kind).catch(() => [] as string[])),
   ].filter(Boolean);
   return { instance, name: persona.name, text: lines.join('\n') };
 }
@@ -81,11 +100,12 @@ async function sentinelBrief(): Promise<string> {
 }
 
 /** Monta e manda os resumos. Retorna o que foi enviado (para o teste pelo painel). */
-export async function sendDailyBrief(): Promise<Array<{ to: string; via: string; text: string }>> {
+export async function sendDailyBrief(kind: 'manha' | 'noite' = 'manha'): Promise<Array<{ to: string; via: string; text: string }>> {
+  const hello = kind === 'noite' ? 'Boa noite' : 'Bom dia';
   const numbers = [...instanceRoles()].filter(([, r]) => r !== 'OFF' && r !== 'CENTRAL').map(([n]) => n);
   const ours = (await Promise.all([...instanceRoles().keys()].map((i) => ownPhone(i).catch(() => undefined)))).filter(Boolean) as string[];
   const briefs: NumberBrief[] = [];
-  for (const n of numbers) briefs.push(await numberBrief(n, ours).catch((e) => ({ instance: n, name: n, text: `(não consegui montar: ${String(e).slice(0, 80)})` })));
+  for (const n of numbers) briefs.push(await numberBrief(n, ours, kind).catch((e) => ({ instance: n, name: n, text: `(não consegui montar: ${String(e).slice(0, 80)})` })));
   const sentinel = await sentinelBrief();
   const date = new Intl.DateTimeFormat('pt-BR', { timeZone: env.TIMEZONE, weekday: 'long', day: '2-digit', month: '2-digit' }).format(new Date());
   const out: Array<{ to: string; via: string; text: string }> = [];
@@ -97,14 +117,14 @@ export async function sendDailyBrief(): Promise<Array<{ to: string; via: string;
   const central = centralInstance();
   if (central && gabriel) {
     // com numero da IA: o Gabriel recebe tudo junto, pelo orquestrador
-    await send(central, gabriel, [`Bom dia. Resumo de ${date}:`, ...briefs.map((b) => b.text), sentinel].join('\n\n'));
+    await send(central, gabriel, [`${hello}. Resumo de ${date}:`, ...briefs.map((b) => b.text), sentinel].join('\n\n'));
   }
   for (const b of briefs) {
     const self = await ownPhone(b.instance).catch(() => undefined);
     if (!self) continue;
     if (central && self === gabriel) continue; // o Gabriel ja recebeu o resumo completo pelo orquestrador
     const withSentinel = self === gabriel; // o numero do Gabriel tambem leva o Sentinela
-    await send(b.instance, self, [`Bom dia, ${b.name}. Resumo de ${date}:`, b.text, withSentinel ? sentinel : ''].filter(Boolean).join('\n\n'));
+    await send(b.instance, self, [`${hello}, ${b.name}. Resumo de ${date}:`, b.text, withSentinel ? sentinel : ''].filter(Boolean).join('\n\n'));
   }
   logger.info({ sent: out.length }, 'resumo do dia enviado');
   return out;

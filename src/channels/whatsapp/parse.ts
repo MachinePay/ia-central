@@ -6,7 +6,7 @@ const LATE_SECONDS = 15 * 60;
 
 export type ParsedWa =
   | { kind: 'ignore'; reason: string }
-  | { kind: 'fromMe'; jid: string; text: string; id: string; botMarked: boolean; quotedId?: string; ts: number }
+  | { kind: 'fromMe'; jid: string; text: string; id: string; botMarked: boolean; quotedId?: string; ts: number; media?: { item: MediaItem; raw: { key: unknown; message: unknown; base64?: string } } }
   | { kind: 'reaction' }
   | { kind: 'inbound'; event: InboundEvent };
 
@@ -43,7 +43,10 @@ export function parseEvolution(instance: string, data: any): ParsedWa {
 
   if (d.key.fromMe) {
     const quotedId = m.extendedTextMessage?.contextInfo?.stanzaId;
-    return { kind: 'fromMe', jid, text, id: d.key.id, botMarked: text.startsWith(BOT_MARK), quotedId, ts: +d.messageTimestamp || Math.floor(Date.now() / 1000) };
+    const raw = { key: d.key, message: m, base64: m.base64 ?? d.base64 };
+    const media = m.audioMessage ? { item: { kind: 'audio' as const, description: '', mimeType: m.audioMessage.mimetype, seconds: +m.audioMessage.seconds || 0 }, raw }
+      : m.imageMessage ? { item: { kind: 'image' as const, description: '', mimeType: m.imageMessage.mimetype }, raw } : undefined;
+    return { kind: 'fromMe', jid, text, id: d.key.id, botMarked: text.startsWith(BOT_MARK), quotedId, ts: +d.messageTimestamp || Math.floor(Date.now() / 1000), media };
   }
   // mensagem de um dos nossos numeros (rascunho, aprovacao, alerta): nunca vira conversa de cliente
   if (text.startsWith(BOT_MARK)) return { kind: 'ignore', reason: 'mensagem de outro numero do sistema' };

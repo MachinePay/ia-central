@@ -13,7 +13,7 @@ import { enqueueRespond, ingestQueue, mediaQueue } from '../lib/queues.js';
 import { describeMedia } from '../media.js';
 import { handleSentinelCommand } from '../sentinela/commands.js';
 import { answerOwner, ownerReplyTarget } from '../owner/assistant.js';
-import { applyTakeover, handleWhatsappFromMe } from '../takeover.js';
+import { applyTakeover, handleWhatsappFromMe, mediaToText } from '../takeover.js';
 import { rememberOwnPhone } from '../lib/owners.js';
 import { mailAccounts, pollAccount } from '../channels/mail/imap.js';
 import { decideEmail, linkEmailThread } from '../mail/inbox.js';
@@ -46,7 +46,12 @@ async function ingestWhatsapp(instance: string, data: any, owner?: string) {
   if (instanceRole(instance) === 'CENTRAL') {
     if (isGabrielPhone(ev.sender.phone ?? '') && !ev.metadata.late) {
       const where = ownerReplyTarget('central');
-      if (where) await answerOwner(ev.content || '(mandou um arquivo/áudio)', where);
+      let text = ev.content;
+      if (ev.needsMedia && ev.media[0]) {
+        const raw = ev.metadata.raw as { key: unknown; message: unknown; base64?: string } | undefined;
+        if (raw) text = [text, await mediaToText(instance, { item: ev.media[0], raw })].filter(Boolean).join('\n');
+      }
+      if (where) await answerOwner(text || '(mandou um arquivo que não consegui abrir)', where);
     }
     return;
   }

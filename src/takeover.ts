@@ -10,6 +10,9 @@ import { instanceRole } from './lib/env.js';
 import { logger } from './lib/logger.js';
 import { cancelPendingRespond } from './lib/queues.js';
 import { keys, redis } from './lib/redis.js';
+import { getMediaBase64 } from './channels/whatsapp/evolution.js';
+import type { MediaItem } from './domain/types.js';
+import { describeMedia } from './media.js';
 
 export const TAKEOVER_SECONDS = 30 * 60; // voce falou com o contato: a IA daquela conversa fica quieta 30 min
 const OLD_FROM_ME_SECONDS = 5 * 60;
@@ -49,7 +52,7 @@ export async function handleBotCommand(thread: Thread, text: string): Promise<bo
 }
 
 /** Mensagem fromMe que nao foi o bot: o Gabriel (ou a equipe) digitou no celular. */
-export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string; ts?: number }, ownerJid?: string) {
+export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string; ts?: number; media?: { item: MediaItem; raw: { key: unknown; message: unknown; base64?: string } } }, ownerJid?: string) {
   if (p.botMarked || (await redis.exists(keys.sent(p.id)))) return; // foi o proprio bot
   // mensagem antiga reenviada pelo WhatsApp (sincronizacao ao reconectar): so entra no historico, com o horario real
   const at = p.ts ? new Date(p.ts * 1000) : undefined;
@@ -59,7 +62,9 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
   // (vale para o "Voce" de qualquer numero: cada numero recebe os proprios avisos e responde comandos ali)
   const selfChat = ownerJid ? normalizePhone(ownerJid) === normalizePhone(p.jid) : isGabrielPhone(p.jid);
   if (selfChat) {
-    if (!p.text || old) return; // pedido antigo reenviado: nao responde de novo
+    if (old) return; // pedido antigo reenviado: nao responde de novo
+    if (!p.text && p.media) p = { ...p, text: await mediaToText(instance, p.media) };
+    if (!p.text) return;
     if (await handleSentinelCommand(normalizePhone(p.jid), p.text)) return; // ok 42, /status, /custos...
     if (await handleGabrielReply(p.text, p.quotedId)) return; // resposta a uma aprovacao
     const where = { instance, to: normalizePhone(p.jid) }; // responde no proprio "Voce" deste numero
@@ -86,4 +91,10 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
     return;
   }
   await applyTakeover(thread, p.text || '[mensagem/mídia enviada pela equipe]', `wa:${instance}:${p.id}`);
+}
+
+/** Audio (ou imagem) mandado para a IA: vira texto (transcricao) para ela entender. */
+export async function mediaToText(instance: string, media: { item: MediaItem; raw: { key: unknown; message: unknown; base64?: string } }): Promise<string> {
+  const b64 = media.raw.base64 ?? (await getMediaBase64(instance, media.raw.key, media.raw.message).catch(() => undefined))?.base64;
+  return describeMedia(media.item, b64).catch(() => '');
 }

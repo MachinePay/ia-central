@@ -27,6 +27,7 @@ import { google } from 'googleapis';
 import { GMAIL_SCOPES, gmailAccounts, oauthClient } from '../channels/gmail/gmail.js';
 import { renewGmailWatch } from '../workers/maintenance.js';
 import { sendDailyBrief } from '../owner/brief.js';
+import { addItem, listItems, parseLocal, removeItem, updateItem, type AgendaKind } from '../owner/agenda.js';
 import { guessServers, mailAccounts, saveAccount, testAccount } from '../channels/mail/imap.js';
 
 const gmailRedirectUri = () => `${env.PUBLIC_URL.replace(/\/$/, '')}/api/gmail/callback`;
@@ -854,6 +855,36 @@ export async function panelRoutes(app: FastifyInstance) {
       return { ok: true };
     });
 
+    // ---------------------------------------------------------------- agenda de cada IA
+    api.get('/api/agenda', async (req) => {
+      const f = req.query as Record<string, string | undefined>;
+      return listItems({
+        instance: f.instance || undefined,
+        from: f.from ? parseLocal(`${f.from.slice(0, 10)}T00:00`)?.at : undefined,
+        to: f.to ? parseLocal(`${f.to.slice(0, 10)}T23:59`)?.at : undefined,
+        includeDone: f.done === '1',
+        kind: (f.kind as AgendaKind) || undefined,
+      });
+    });
+    const AgendaBody = z.object({
+      instance: z.string().min(1), kind: z.enum(['evento', 'tarefa', 'nota']), title: z.string().trim().min(1),
+      notes: z.string().nullable().optional(), when: z.string().nullable().optional(), reminders: z.array(z.number().int().min(0)).optional(), done: z.boolean().optional(),
+    });
+    api.post('/api/agenda', async (req, reply) => {
+      const b = AgendaBody.safeParse(req.body);
+      if (!b.success) return bad(reply, 'Escreva o título.');
+      if (b.data.when && !parseLocal(b.data.when)) return bad(reply, 'Data inválida.');
+      return addItem({ instance: b.data.instance, kind: b.data.kind, title: b.data.title, notes: b.data.notes ?? undefined, when: b.data.when ?? undefined, reminders: b.data.reminders, via: 'painel' });
+    });
+    api.patch<{ Params: { id: string } }>('/api/agenda/:id', async (req, reply) => {
+      const b = AgendaBody.partial().safeParse(req.body);
+      if (!b.success) return bad(reply, 'Dados inválidos.');
+      if (b.data.when && !parseLocal(b.data.when)) return bad(reply, 'Data inválida.');
+      const it = await updateItem(Number(req.params.id), b.data);
+      return it ?? bad(reply, 'Item não encontrado.', 404);
+    });
+    api.delete<{ Params: { id: string } }>('/api/agenda/:id', async (req) => { await removeItem(Number(req.params.id)); return { ok: true }; });
+
     // ---------------------------------------------------------------- pagina E-mail
     api.get('/api/email/accounts', async () => {
       const google = new Set((await gmailAccounts()).map((a) => a.email));
@@ -912,7 +943,7 @@ export async function panelRoutes(app: FastifyInstance) {
     });
 
     // resumo do dia: manda agora (teste)
-    api.post('/api/brief/send', async () => ({ sent: await sendDailyBrief() }));
+    api.post('/api/brief/send', async (req) => ({ sent: await sendDailyBrief((req.body as any)?.kind === 'noite' ? 'noite' : 'manha') }));
 
     // ---------------------------------------------------------------- busca global
     api.get('/api/search', async (req) => {

@@ -17,6 +17,7 @@ import { fence, nowLabel } from '../lib/util.js';
 import { statusText } from '../sentinela/commands.js';
 import { costSummary, formatCosts } from '../sentinela/costs.js';
 import { ack } from '../sentinela/incidents.js';
+import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
 /**
  * IA central: o orquestrador. Conversa so com o dono, pelo numero da IA (papel CENTRAL)
@@ -45,7 +46,7 @@ async function findThread(search: string) {
   );
 }
 
-function tools(log: string[]) {
+function tools(log: string[], here: string) {
   const done = (s: string) => { log.push(s); return s; };
   return {
     visao_geral: tool({
@@ -140,21 +141,77 @@ function tools(log: string[]) {
       inputSchema: z.object({}),
       execute: async () => formatCosts(await costSummary()),
     }),
+
+    // ------------------------------------------------------------ agenda, tarefas e anotacoes
+    agenda_criar: tool({
+      description: `Marca um compromisso, cria uma tarefa ou guarda uma anotação na agenda de uma IA.
+- compromisso: tem dia e hora (quando). Se a pessoa não disse dia/hora, não invente: crie como tarefa (fica pendente e entra no resumo diário).
+- tarefa: algo a fazer; pode ter prazo (quando) ou não.
+- anotacao: só guardar uma informação.
+quando: data/hora LOCAL no formato AAAA-MM-DDTHH:MM (ou só AAAA-MM-DD se for o dia todo), calculada a partir de "agora".
+avisar_antes_min: minutos antes para avisar (ex.: [1440, 60] = 1 dia e 1 hora antes; [30] = meia hora). Só passe se a pessoa pediu; o padrão é 1 dia e 1 hora antes.
+ia: de quem é a agenda (nome da pessoa ou do número). Sem dizer, é a agenda de quem está falando.`,
+      inputSchema: z.object({
+        tipo: z.enum(['compromisso', 'tarefa', 'anotacao']),
+        titulo: z.string().min(2).max(300),
+        quando: z.string().optional(),
+        detalhes: z.string().max(2000).optional(),
+        avisar_antes_min: z.array(z.number().int().min(0).max(60 * 24 * 30)).optional(),
+        ia: z.string().optional(),
+      }),
+      execute: async ({ tipo, titulo, quando, detalhes, avisar_antes_min, ia }) => {
+        const inst = resolveInstance(ia, here);
+        if (quando && !parseLocal(quando)) return { erro: 'Data inválida: use AAAA-MM-DDTHH:MM.' };
+        const it = await addItem({ instance: inst, kind: tipo === 'compromisso' ? 'evento' : tipo === 'tarefa' ? 'tarefa' : 'nota', title: titulo, notes: detalhes, when: quando, reminders: avisar_antes_min, via: 'whatsapp' });
+        const what = it.kind === 'evento' ? 'compromisso marcado' : it.kind === 'tarefa' ? (it.due_at ? 'tarefa com prazo criada' : 'tarefa pendente criada (sem data: entra no resumo diário)') : 'anotação guardada';
+        return { ok: done(`${what}: #${it.id} ${it.title}${it.due_at ? ` · ${fmtWhen(it.due_at, it.all_day)}` : ''} · agenda de ${personaFor(inst).name}${it.kind !== 'nota' && it.due_at ? ` · aviso ${remindersText(it.remind_minutes)}` : ''}`) };
+      },
+    }),
+    agenda_listar: tool({
+      description: 'Lista compromissos, tarefas e anotações. Use para "o que tenho amanhã?", "minhas tarefas", "o que anotei sobre X". de/ate: AAAA-MM-DD (local).',
+      inputSchema: z.object({ de: z.string().optional(), ate: z.string().optional(), tipo: z.enum(['compromisso', 'tarefa', 'anotacao']).optional(), ia: z.string().optional(), todas_as_ias: z.boolean().optional(), incluir_feitas: z.boolean().optional() }),
+      execute: async ({ de, ate, tipo, ia, todas_as_ias, incluir_feitas }) => {
+        const from = de ? parseLocal(`${de.slice(0, 10)}T00:00`)?.at : undefined;
+        const to = ate ? parseLocal(`${ate.slice(0, 10)}T23:59`)?.at : undefined;
+        const items = await listItems({ instance: todas_as_ias ? undefined : resolveInstance(ia, here), from, to, includeDone: incluir_feitas, kind: tipo === 'compromisso' ? 'evento' : tipo === 'tarefa' ? 'tarefa' : tipo === 'anotacao' ? 'nota' : undefined });
+        if (!items.length) return { itens: 'nada encontrado' };
+        return { itens: items.slice(0, 40).map((i) => `${itemLine(i)}${todas_as_ias ? ` (${personaFor(i.instance).name})` : ''}${i.notes ? ` — ${i.notes.slice(0, 120)}` : ''}`) };
+      },
+    }),
+    agenda_alterar: tool({
+      description: 'Muda um item da agenda pelo número (#id): data/hora (quando, AAAA-MM-DDTHH:MM; vazio tira a data), título, detalhes, avisos ou marca como feito.',
+      inputSchema: z.object({ id: z.number().int(), quando: z.string().nullable().optional(), titulo: z.string().optional(), detalhes: z.string().optional(), avisar_antes_min: z.array(z.number().int().min(0)).optional(), feito: z.boolean().optional() }),
+      execute: async ({ id, quando, titulo, detalhes, avisar_antes_min, feito }) => {
+        if (quando && !parseLocal(quando)) return { erro: 'Data inválida: use AAAA-MM-DDTHH:MM.' };
+        const it = await updateItem(id, { when: quando === undefined ? undefined : quando || null, title: titulo, notes: detalhes, reminders: avisar_antes_min, done: feito,
+          ...(quando ? { kind: 'evento' as const } : {}) });
+        if (!it) return { erro: 'Não achei esse item.' };
+        return { ok: done(`atualizado: ${itemLine(it)}${it.due_at && !it.done_at ? ` · aviso ${remindersText(it.remind_minutes)}` : ''}`) };
+      },
+    }),
+    agenda_apagar: tool({
+      description: 'Apaga um item da agenda pelo número (#id). Só quando a pessoa pedir para apagar/cancelar.',
+      inputSchema: z.object({ id: z.number().int() }),
+      execute: async ({ id }) => { await removeItem(id); return { ok: done(`item #${id} apagado`) }; },
+    }),
   };
 }
 
 /** Responde o dono. Retorna o texto enviado. */
 export async function answerOwner(text: string, where: Where): Promise<string | undefined> {
-  const history: ModelMessage[] = (await redis.lrange(HISTORY_KEY, -16, -1)).map((h) => JSON.parse(h));
+  const isCentral = where.instance === centralInstance();
+  const here = isCentral ? ([...instanceRoles()].find(([n, r]) => r === 'GABRIEL' && n === 'gabriel')?.[0] ?? [...instanceRoles()].find(([, r]) => r === 'GABRIEL')?.[0] ?? where.instance) : where.instance;
+  const historyKey = `${HISTORY_KEY}:${here}`;
+  const history: ModelMessage[] = (await redis.lrange(historyKey, -16, -1)).map((h) => JSON.parse(h));
   const log: string[] = [];
-  const owner = personaFor('gabriel').name || 'Gabriel';
+  const owner = personaFor(here).name || 'Gabriel';
   try {
     const r = await withFallback('agent', ({ model }) =>
       generateText({
         model,
         system: fill(loadPrompt('central'), { OWNER: owner, TODAY: nowLabel(env.TIMEZONE) }),
         messages: [...history, { role: 'user', content: fence('mensagem_do_dono', text) }],
-        tools: tools(log),
+        tools: tools(log, here),
         stopWhen: stepCountIs(6),
         abortSignal: AbortSignal.timeout(60_000),
         maxRetries: 1,
@@ -165,8 +222,8 @@ export async function answerOwner(text: string, where: Where): Promise<string | 
     await addCost(costUsd(r.modelSpec, r.totalUsage?.inputTokens ?? 0, r.totalUsage?.outputTokens ?? 0));
     const reply = stripEmojis(r.text.trim()) || (log.length ? log.join('\n') : 'feito');
     await redis.multi()
-      .rpush(HISTORY_KEY, JSON.stringify({ role: 'user', content: text }), JSON.stringify({ role: 'assistant', content: reply }))
-      .ltrim(HISTORY_KEY, -30, -1).expire(HISTORY_KEY, 3 * 86400).exec();
+      .rpush(historyKey, JSON.stringify({ role: 'user', content: text }), JSON.stringify({ role: 'assistant', content: reply }))
+      .ltrim(historyKey, -30, -1).expire(historyKey, 3 * 86400).exec();
     for (const bubble of reply.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean).slice(0, 4)) await sendText(where.instance, where.to, bubble);
     return reply;
   } catch (e) {
