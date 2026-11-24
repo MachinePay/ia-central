@@ -383,7 +383,7 @@ const capturarValorPorLabel = (rowHtml, label) => {
   // No HTML real o <b>valor</b> e o <span>rótulo</span> são irmãos dentro
   // de uma div flex, sem <br> entre eles — só espaço/quebra de linha.
   const regex = new RegExp(
-    `<b[^>]*>([^<]*)<\\/b>\\s*<span[^>]*>\\s*${label}\\s*<\\/span>`,
+    `<b[^>]*>([^<]*)<\\/b>\\s*(?:<br\\s*\\/?>\\s*)*<span[^>]*>\\s*${label}\\s*<\\/span>`, // Machine Coin poe um <br> no meio
     "i",
   );
   const match = rowHtml.match(regex);

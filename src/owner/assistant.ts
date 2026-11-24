@@ -2,7 +2,7 @@ import { generateText, stepCountIs, tool, type ModelMessage } from 'ai';
 import { z } from 'zod';
 import { fill, loadPrompt } from '../agents/prompts.js';
 import { decideApproval } from '../approvals/approvals.js';
-import { sendText } from '../channels/whatsapp/evolution.js';
+import { sendDocument, sendText } from '../channels/whatsapp/evolution.js';
 import { stripEmojis } from '../channels/whatsapp/format.js';
 import { deliver } from '../delivery.js';
 import { getThread } from '../domain/repo.js';
@@ -21,7 +21,7 @@ import { brl, clienteLinha, dia, gkBuscar, gkClientes, gkCobrancasMes, gkHistori
 import { catalogo, COMO_PEDIR, girakids, produtoLinha } from '../integrations/girakids.js';
 import { fecharPedido, fecharPedidoPrimeplush, mandarOrcamentoAoCliente, montarOrcamento, numeroVendedor } from '../integrations/vendas.js';
 import { catalogoPrimeplush, orcarPrimeplush, produtoLinhaPp, relatorioPrimeplush } from '../integrations/primeplush.js';
-import { acharMaquinas, enviarCredito, listarMaquinas, PLATAFORMAS, plataformasLigadas, statusMaquina, type Plataforma } from '../integrations/maquinas.js';
+import { acharMaquinas, desfazerFechamento, enviarCredito, fecharMaquina, pdfExtratoMaquina, listarMaquinas, PLATAFORMAS, plataformasLigadas, statusMaquina, type Plataforma } from '../integrations/maquinas.js';
 import { acharLoja, agarramais, lojas } from '../integrations/agarramais.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
@@ -52,8 +52,21 @@ async function findThread(search: string) {
   );
 }
 
-function tools(log: string[], here: string) {
+function tools(log: string[], here: string, where?: Where) {
   const done = (s: string) => { log.push(s); return s; };
+  const diasAtras = (n: number) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() - n * 86400_000));
+  const umaMaquina = async (busca: string, plataforma?: string) => {
+    const found = (await acharMaquinas(busca, plataforma as Plataforma | undefined)).filter((m) => m.plataforma !== 'compactpay');
+    if (!found.length) return { erro: 'Não achei essa máquina na MachinePay nem na Machine Coin.' } as const;
+    if (found.length > 1) return { varias: found.slice(0, 10).map((m) => `${PLATAFORMAS[m.plataforma]} · ${m.nome} [${m.id}]${m.cliente ? ` · ${m.cliente}` : ''}`), pedir: 'Pergunte qual delas.' } as const;
+    return found[0];
+  };
+  const mandarPdf = async (m: Awaited<ReturnType<typeof acharMaquinas>>[number], desde: string) => {
+    const { pdf, resumo } = await pdfExtratoMaquina(m, desde);
+    if (!where) return `PDF gerado, mas sem conversa para mandar (${resumo})`;
+    await sendDocument(where.instance, where.to, pdf, `extrato-${m.nome.replace(/[^w-]+/g, '-').toLowerCase()}-${desde}.pdf`, resumo);
+    return `PDF do extrato enviado aqui (${resumo})`;
+  };
   return {
     visao_geral: tool({
       description: 'Como está tudo agora: aprovações pendentes, incidentes, conversas sem resposta, números de WhatsApp e gasto do dia.',
@@ -358,6 +371,47 @@ Ele pode pedir direto e já confirmado ("manda 5 reais na máquina 123, pode man
       },
     }),
 
+    // ------------------------------------------------------------ extrato em PDF, fechamento e desfazer (MachinePay e Machine Coin)
+    maquina_extrato_pdf: tool({
+      description: 'Gera o PDF do extrato de uma máquina da MachinePay ou Machine Coin (pagamentos, bruto, taxas, líquido e comissão) e manda aqui no WhatsApp. desde = AAAA-MM-DD (padrão: últimos 30 dias, como o painel).',
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^d{4}-d{2}-d{2}$/).optional() }),
+      execute: async ({ busca, plataforma, desde }) => {
+        const m = await umaMaquina(busca, plataforma);
+        if ('erro' in m || 'varias' in m) return m;
+        const r = await mandarPdf(m, desde ?? diasAtras(30));
+        return { ok: done(r) };
+      },
+    }),
+    maquina_fechamento: tool({
+      description: `Faz o FECHAMENTO de uma máquina da MachinePay ou Machine Coin (igual ao botão do painel): antes manda o PDF do extrato aqui no WhatsApp, depois fecha o período (desde, padrão últimos 30 dias, até agora). As vendas saem do bruto; dá para desfazer com maquina_desfazer_fechamento.
+Confirme antes em uma linha (máquina, número, período). Só chame com confirmado=true depois do sim. Se ele já pediu confirmando ("fecha a máquina X, pode fazer"), confirmado=true.`,
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(), confirmado: z.boolean().default(false) }),
+      execute: async ({ busca, plataforma, desde, confirmado }) => {
+        const m = await umaMaquina(busca, plataforma);
+        if ('erro' in m || 'varias' in m) return m;
+        const ini = desde ?? diasAtras(30);
+        const alvo = `${m.nome} [${m.id}] (${PLATAFORMAS[m.plataforma]}${m.cliente ? `, ${m.cliente}` : ''}) de ${ini.split('-').reverse().join('/')} até agora`;
+        if (!confirmado) return { confirmar: `Confirma o fechamento da ${alvo}? Mando o PDF antes.` };
+        const pdf = await mandarPdf(m, ini).catch((e) => `PDF não foi gerado (${String((e as Error).message ?? e).slice(0, 120)})`);
+        const r = await fecharMaquina(m, ini);
+        return r.ok
+          ? { ok: done(`fechamento feito: ${alvo} · bruto antes ${r.bruto_antes ?? '-'} · comissão ${r.comissao} · ${pdf}`), desfazer: 'Se precisar, dá para desfazer com maquina_desfazer_fechamento (mesmo período).' }
+          : { erro: `o painel não fechou: ${r.mensagem}`, pdf };
+      },
+    }),
+    maquina_desfazer_fechamento: tool({
+      description: 'DESFAZ o fechamento de uma máquina da MachinePay ou Machine Coin: as vendas do período voltam a contar no bruto. desde/ate = AAAA-MM-DD (use o mesmo início do fechamento; padrão últimos 30 dias até amanhã). Confirme antes; confirmado=true depois do sim.',
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(), ate: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(), confirmado: z.boolean().default(false) }),
+      execute: async ({ busca, plataforma, desde, ate, confirmado }) => {
+        const m = await umaMaquina(busca, plataforma);
+        if ('erro' in m || 'varias' in m) return m;
+        const ini = desde ?? diasAtras(30);
+        if (!confirmado) return { confirmar: `Confirma desfazer o fechamento da ${m.nome} [${m.id}] desde ${ini.split('-').reverse().join('/')}?` };
+        const r = await desfazerFechamento(m, ini, ate);
+        return r.ok ? { ok: done(`fechamento desfeito: ${m.nome} [${m.id}] · ${r.reabertos} pagamentos voltaram a contar`) } : { erro: 'o painel não confirmou o desfazer' };
+      },
+    }),
+
     // ------------------------------------------------------------ AgarraMais: faturamento e lojas
     agarramais_faturamento: tool({
       description: 'Faturamento, lucro, custos, fichas, dinheiro e PIX da AgarraMais num período (todas as lojas ou uma). Datas AAAA-MM-DD; padrão: mês atual até hoje. Traz também ranking das lojas.',
@@ -470,7 +524,7 @@ export async function answerOwner(text: string, where: Where): Promise<string | 
         model,
         system: fill(loadPrompt('central'), { OWNER: owner, TODAY: nowLabel(env.TIMEZONE) }),
         messages: [...history, { role: 'user', content: fence('mensagem_do_dono', text) }],
-        tools: allowedTools(tools(log, here), isCentral || instanceRole(here) === 'GABRIEL'),
+        tools: allowedTools(tools(log, here, where), isCentral || instanceRole(here) === 'GABRIEL'),
         stopWhen: stepCountIs(6),
         abortSignal: AbortSignal.timeout(60_000),
         maxRetries: 1,
