@@ -30,7 +30,12 @@ const scripts = grab(page, /src="([^"]+\.js[^"]*)"/gi).map((s) => s.replace(/^sr
 show('scripts', scripts.join(', '));
 for (const s of scripts.filter((x) => !/jquery|bootstrap|cdn|google|font/i.test(x))) {
   const js = await get(s.startsWith('http') ? s : base + s.replace(/^\.?\//, '')).catch(() => '');
-  for (const m of grab(js, RE).slice(0, 25)) show(`js ${s}`, m);
+  for (const fn of ["fecha_pagto", "fechar_pag", "ver_fechamento", "desfazer", "excluir_fech", "apagar_fech", "historico_fech"]) {
+    const i = js.indexOf(`function ${fn}`);
+    if (i >= 0) show(`js funcao ${fn}`, js.slice(i, i + 2500));
+  }
+  show("js acoes", grab(js, /acao=[a-z_]+/gi).join(" "));
+  for (const m of grab(js, /.{0,120}(desfaz|reabr|excluir_f|apagar_f|cancelar_f|fechamentos).{0,120}/gi).slice(0, 15)) show("js desfazer?", m);
 }
 for (const m of grab(page, RE).slice(0, 25)) show('maquinas.php', m);
 
