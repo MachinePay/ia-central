@@ -194,22 +194,23 @@ export async function pdfExtratoMaquina(m: Maquina, inicio: string): Promise<{ p
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
     const parts: Buffer[] = [];
     doc.on('data', (c: Buffer) => parts.push(c)); doc.on('end', () => resolve(Buffer.concat(parts))); doc.on('error', reject);
+    const reais = e.transacoes.filter((x) => Number(x.valor) > 0 || /devolv/i.test(x.status || '')); // sem valor e sem situação = crédito manual ou de teste
+    const liquido = reais.reduce((t, x) => t + (/devolv/i.test(x.status || '') ? 0 : Number(x.liquido || 0)), 0);
     doc.font('Helvetica-Bold').fontSize(16).text(`Extrato ${PLATAFORMAS[m.plataforma]} · ${m.nome}`);
     doc.font('Helvetica').fontSize(10).fillColor('#444').text(`Caixa ${m.id}${m.cliente ? ` · ${m.cliente}` : ''} · de ${e.inicio.split('-').reverse().join('/')} até ${e.fim.slice(0, 10).split('-').reverse().join('/')} ${e.fim.slice(11)}`);
-    if (e.totais) doc.text(`PIX ${brl(e.totais.pix)} · Débito ${brl(e.totais.debito)} · Crédito ${brl(e.totais.credito)} · Bruto ${brl(e.totais.brutoComTaxasMp)} · Taxas ${brl(e.totais.taxas)} · Líquido ${brl(e.totais.liquido)} · Comissão ${e.comissao}`);
+    if (e.totais) doc.text(`PIX ${brl(e.totais.pix)} · Débito ${brl(e.totais.debito)} · Crédito ${brl(e.totais.credito)} · Bruto ${brl(e.totais.brutoComTaxasMp)} · Taxas ${brl(e.totais.taxas)} · Líquido ${brl(liquido)} · Comissão ${e.comissao}`);
     doc.moveDown(0.8).fillColor('#111');
-    const reais = e.transacoes.filter((x) => x.pagamentoReal);
     doc.font('Courier-Bold').fontSize(7.5).text('Data e hora            Situação                     Meio                        Valor        Taxa        Líquido');
     doc.font('Courier');
     for (const x of reais) {
-      const d = x.data ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'medium' }).format(new Date(x.data)) : '-';
-      doc.text(`${d.padEnd(22)} ${String(x.status || '-').padEnd(28).slice(0, 28)} ${String(x.tipo || '-').slice(0, 24).padEnd(24)} ${brl(x.valor).padStart(11)} ${brl(x.taxa).padStart(10)} ${brl(x.liquido).padStart(11)}`);
+      const d = x.data ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', dateStyle: 'short', timeStyle: 'medium' /* o painel ja manda no horario de Brasilia */ }).format(new Date(x.data)) : '-';
+      doc.text(`${d.padEnd(22)} ${String(x.status || '-').padEnd(28).slice(0, 28)} ${String(/^transa/i.test(x.tipo || '') ? '-' : x.tipo || '-').slice(0, 24).padEnd(24)} ${brl(x.valor).padStart(11)} ${brl(x.taxa).padStart(10)} ${brl(x.liquido).padStart(11)}`);
     }
     const testes = e.transacoes.length - reais.length;
-    doc.moveDown(0.6).font('Helvetica').fontSize(9).fillColor('#666').text(`${reais.length} pagamentos reais · ${testes} créditos manuais ou de teste (fora da soma). Gerado pelo Maestro.`);
+    doc.moveDown(0.6).font('Helvetica').fontSize(9).fillColor('#666').text(`${reais.length} pagamentos · ${testes} créditos manuais ou de teste (fora da lista). Gerado pelo Maestro.`);
     doc.end();
   });
-  const resumo = `${m.nome} [${m.id}] de ${e.inicio.split('-').reverse().join('/')} até agora: ${e.totais ? `bruto ${brl(e.totais.brutoComTaxasMp)}, líquido ${brl(e.totais.liquido)}` : `${e.quantidade} pagamentos`}, comissão ${e.comissao}`;
+  const resumo = `${m.nome} [${m.id}] de ${e.inicio.split('-').reverse().join('/')} até agora: ${e.totais ? `bruto ${brl(e.totais.brutoComTaxasMp)}` : `${e.quantidade} pagamentos`}, comissão ${e.comissao}`;
   return { pdf, resumo };
 }
 
