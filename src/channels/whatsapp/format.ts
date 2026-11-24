@@ -43,7 +43,7 @@ export function toBubbles(text: string): string[] {
 
 /** "digitando" proporcional ao tamanho: 30 ms por caractere, entre 1,5 e 6 s. */
 /** "digitando" proporcional ao tamanho (como alguem digitando no celular), com variacao para nao parecer robo. */
-export const typingMs = (text: string) => Math.round(Math.min(7000, Math.max(1200, text.length * 45)) * (0.85 + Math.random() * 0.3));
+export const typingMs = (text: string) => Math.round(Math.min(3500, Math.max(800, text.length * 25)) * (0.85 + Math.random() * 0.3));
 
 /** Sem reticencias e sem barra separando frases: ninguem escreve assim no WhatsApp. */
 export function cleanHumanText(t: string): string {

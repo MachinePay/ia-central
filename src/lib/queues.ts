@@ -13,8 +13,8 @@ export const maintenanceQueue = new Queue('maintenance', base);
 
 export const allQueues = [ingestQueue, mediaQueue, respondQueue, summarizeQueue, outboundQueue, maintenanceQueue];
 
-const DEBOUNCE_MS = { WHATSAPP: 6000, GMAIL: 1000 } as const;
-const MAX_WAIT_MS = 20_000;
+const DEBOUNCE_MS = { WHATSAPP: 3000, GMAIL: 1000 } as const; // espera o cliente terminar de digitar
+const MAX_WAIT_MS = 12_000;
 
 /**
  * Debounce por thread: cada mensagem nova reinicia a janela (6 s no WhatsApp).

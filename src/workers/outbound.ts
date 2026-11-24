@@ -51,7 +51,7 @@ export async function outboundWorker(job: Job) {
     for (const [i, b] of bubbles.entries()) {
       if (sent[i]) continue; // retentativa: nao repete bolhas ja enviadas
       const typing = typingMs(b);
-      if (i > 0) await sleep(400 + Math.random() * 900); // pausa curta entre uma bolha e outra
+      if (i > 0) await sleep(250 + Math.random() * 500); // pausa curta entre uma bolha e outra
       await sendPresence(thread.instance, number, typing);
       await sleep(typing);
       const id = await sendText(thread.instance, number, b, i === 0 ? msg.metadata?.quotedId : undefined);

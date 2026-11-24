@@ -83,6 +83,7 @@ export async function checkOutput(o: {
         system: 'Você revisa uma mensagem de WhatsApp antes do envio. Reescreva corrigindo APENAS os problemas listados, mantendo tom, idioma (pt-BR), abreviações e o jeito simples de quem escreveu. Use palavras simples do dia a dia, sem reticências nem barra. Mensagens separadas por linha em branco. Devolva só o texto final, sem comentários.',
         prompt: `${fence('problemas', issues.map((i) => `- ${i}`).join('\n'))}\n${fence('resposta', o.text)}\n${fence('dados_confirmados', evidence.slice(0, 6000))}`,
         maxRetries: 1,
+        providerOptions: { openai: { reasoningEffort: 'minimal' } }, // so reescreve: resposta rapida
       }),
     );
     await addCost(costUsd(r.modelSpec, r.usage.inputTokens, r.usage.outputTokens));

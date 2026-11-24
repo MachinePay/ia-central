@@ -79,8 +79,8 @@ async function continuity(p: ContextPack): Promise<boolean> {
           fence('ultima_resposta_do_agente', lastBot?.content ?? ''),
           fence('mensagem_cliente', p.blockText),
         ].join('\n'),
-        temperature: 0,
         maxRetries: 1,
+        providerOptions: { openai: { reasoningEffort: 'minimal' } }, // tarefa simples: resposta rapida
       }),
     );
     await addCost(costUsd(r.modelSpec, r.usage.inputTokens, r.usage.outputTokens));
@@ -105,6 +105,7 @@ async function leo(p: ContextPack): Promise<RouterOut | undefined> {
           fence('mensagem_cliente', p.blockText),
         ].join('\n'),
         maxRetries: 1,
+        providerOptions: { openai: { reasoningEffort: 'minimal' } }, // tarefa simples: resposta rapida
         abortSignal: AbortSignal.timeout(20_000),
       }),
     );

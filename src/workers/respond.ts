@@ -8,6 +8,7 @@ import type { Agent, Specialist, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { emojisAllowed, env, setting } from '../lib/env.js';
 import { cleanHumanText, stripEmojis } from '../channels/whatsapp/format.js';
+import { sendPresence } from '../channels/whatsapp/evolution.js';
 import { addCost, costToday, costUsd } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { enqueueRespond, summarizeQueue } from '../lib/queues.js';
@@ -120,6 +121,8 @@ async function respond(threadId: string, started: number) {
     if (decision.notifyGabriel) {
       await notifyGabriel(`🚨 Cliente irritado com urgência alta: ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email} — ${decision.reason}`).catch(() => undefined);
     }
+    // o cliente ja ve "digitando..." enquanto a resposta e pensada
+    if (thread.channel === 'WHATSAPP') void sendPresence(thread.instance, thread.external_id, 20_000);
     const out = await runWithHandoff(agent, thread, pack, decision);
     result = out.result;
     agent = out.agent;
