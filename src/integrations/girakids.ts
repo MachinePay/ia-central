@@ -54,11 +54,53 @@ async function login() {
   token = { value: j.token, at: Date.now() };
   return j.token;
 }
-export async function girakids<T = any>(path: string): Promise<T> {
+export async function girakids<T = any>(path: string, init?: { method: string; body?: unknown }): Promise<T> {
   if (!girakidsLogado()) throw new Error('Girakids sem login configurado (faltam GIRAKIDS_EMAIL e GIRAKIDS_SENHA no Render)');
   const t = token && Date.now() - token.at < 24 * 3600_000 ? token.value : await login();
-  let r = await fetch(`${BASE()}${path}`, { headers: { authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(45_000) });
-  if (r.status === 401) r = await fetch(`${BASE()}${path}`, { headers: { authorization: `Bearer ${await login()}` }, signal: AbortSignal.timeout(45_000) });
-  if (!r.ok) throw new Error(`Girakids respondeu ${r.status} em ${path}`);
+  const go = (tk: string) => fetch(`${BASE()}${path}`, {
+    method: init?.method ?? 'GET', signal: AbortSignal.timeout(45_000),
+    headers: { authorization: `Bearer ${tk}`, ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+  });
+  let r = await go(t);
+  if (r.status === 401) r = await go(await login());
+  if (!r.ok) {
+    const msg = await r.text().catch(() => '');
+    let err = msg; try { err = JSON.parse(msg).error ?? JSON.parse(msg).message ?? msg; } catch { /* texto */ }
+    throw new Error(`Girakids: ${String(err).slice(0, 200) || r.status}`);
+  }
   return r.json() as Promise<T>;
+}
+
+// ------------------------------------------------------------------ orcamento -> pedido (usuario da IA com permissao VENDAS)
+export type ItemPedido = { produto: string; pacotes: number };
+export type ClientePedido = { nome: string; telefone?: string; documento?: string; email?: string; cep?: string; rua?: string; numero?: string; complemento?: string; bairro?: string; cidade?: string; estado?: string };
+
+/** Acha o produto do catalogo pelo SKU (exato) ou pelo nome. */
+export async function acharProduto(ref: string): Promise<GkProduto | { varios: string[] } | undefined> {
+  const r = await catalogo({ busca: ref });
+  const bySku = r.produtos.find((p) => p.sku.toLowerCase() === ref.trim().toLowerCase());
+  if (bySku) return bySku;
+  const exact = r.produtos.filter((p) => p.nome.toLowerCase() === ref.trim().toLowerCase());
+  if (exact.length === 1) return exact[0];
+  if (r.produtos.length === 1) return r.produtos[0];
+  if (r.produtos.length > 1) return { varios: r.produtos.slice(0, 8).map(produtoLinha) };
+  return undefined;
+}
+
+export type PedidoResumo = { id: string; numero: number; tipo: string; total: number; subtotal?: number; frete?: number; itens: Array<{ nome: string; quantidade: number; unidadesPacote: number; precoUnitario: number; total: number }> };
+
+export async function criarOrcamento(o: { itens: Array<{ produtoId: string; quantidade: number }>; cliente: ClientePedido; metodoEnvio?: string; formaPagamento?: string; observacoes?: string }): Promise<PedidoResumo> {
+  return girakids<PedidoResumo>('/orcamentos', { method: 'POST', body: {
+    itens: o.itens, cliente: o.cliente, ...o.cliente,
+    metodoEnvio: o.metodoEnvio || undefined, formaPagamento: o.formaPagamento || 'A_DEFINIR',
+    observacoes: o.observacoes ?? 'Orçamento feito pela IA (WhatsApp).',
+  } });
+}
+
+export const gerarPedido = (orcamentoId: string) => girakids<PedidoResumo>(`/orcamentos/${orcamentoId}/gerar-pedido`, { method: 'POST', body: {} });
+
+export function resumoPedido(p: PedidoResumo): string {
+  const itens = (p.itens ?? []).map((i) => `${i.quantidade} pct ${i.nome} (${i.unidadesPacote} un) = ${brl(Number(i.total))}`).join('; ');
+  return `${p.tipo === 'ORCAMENTO' ? 'Orçamento' : 'Pedido'} nº ${p.numero}: ${itens}${p.frete ? ` + frete ${brl(Number(p.frete))}` : ''} · total ${brl(Number(p.total))}`;
 }

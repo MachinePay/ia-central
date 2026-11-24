@@ -70,6 +70,8 @@ const schema = z.object({
   NUMBER_RULES: z.string().default('{}'),
   // e-mail de cada numero (Gmail conectado pelo painel): {"gabriel":"gabriel@empresa.com"}
   EMAILS: z.string().default('{}'),
+  // WhatsApp que recebe o aviso quando a IA tira um pedido na Girakids
+  GIRAKIDS_AVISO_PEDIDOS: z.string().default(''),
   // Grupo GK (mensalidades MachinePay/CompactPay) e Girakids (catalogo, vendas): so leitura, com usuario proprio
   GK_API_URL: z.string().default('https://grupogkbackend.onrender.com/api'),
   GK_EMAIL: z.string().default(''),
@@ -99,7 +101,7 @@ export type Env = typeof env;
  * Ajustes feitos no painel (tabela app.settings) valem por cima das variaveis de ambiente.
  * O cache e atualizado a cada 30 s em cada processo (lib/settings.ts).
  */
-export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS', 'NUMBER_RULES', 'EMAILS'] as const;
+export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS', 'NUMBER_RULES', 'EMAILS', 'GIRAKIDS_AVISO_PEDIDOS'] as const;
 export type EditableSetting = (typeof EDITABLE_SETTINGS)[number];
 const overrides: Partial<Record<EditableSetting, string>> = {};
 export function setOverrides(o: Partial<Record<EditableSetting, string>>) {

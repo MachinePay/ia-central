@@ -90,6 +90,16 @@ export function Settings() {
             </Card>
           ) : null}
 
+          <Card className="p-4">
+            <h2 className="font-semibold">Pedidos da Girakids</h2>
+            <p className="mb-3 text-[13px] text-text-2">Quando o João monta um orçamento e o cliente aprova, ele gera o pedido no sistema da Girakids e avisa este WhatsApp.</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="WhatsApp que recebe o aviso (com DDD)"><input className={cx(inputCls, 'w-64!')} placeholder="11999998888" value={v.GIRAKIDS_AVISO_PEDIDOS ?? ''} onChange={(e) => setV({ ...v, GIRAKIDS_AVISO_PEDIDOS: e.target.value })} /></Field>
+              <Button variant="primary" onClick={() => save.mutate({ GIRAKIDS_AVISO_PEDIDOS: (v.GIRAKIDS_AVISO_PEDIDOS ?? '').replace(/\D/g, '') ? `55${(v.GIRAKIDS_AVISO_PEDIDOS ?? '').replace(/\D/g, '').replace(/^55/, '')}` : '' })}>Salvar</Button>
+            </div>
+            <p className="mt-2 text-[12px] text-text-2">Vazio: o aviso chega no "Você" do número do João. Para o João acessar o sistema da Girakids, coloque GIRAKIDS_EMAIL e GIRAKIDS_SENHA (um usuário com permissão de Vendas) no Render.</p>
+          </Card>
+
           <PersonaProfiles />
 
           <Card className="p-4">

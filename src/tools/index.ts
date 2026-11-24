@@ -10,7 +10,8 @@ import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
-import { catalogo, COMO_PEDIR, LOJA_URL, produtoLinha } from '../integrations/girakids.js';
+import { acharProduto, catalogo, COMO_PEDIR, criarOrcamento, gerarPedido, LOJA_URL, produtoLinha, resumoPedido } from '../integrations/girakids.js';
+import { sendText } from '../channels/whatsapp/evolution.js';
 import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
 
 /**
@@ -157,6 +158,51 @@ function catalogTool(ctx: ToolCtx) {
 
 function joaoTools(ctx: ToolCtx): ToolSet {
   return {
+    girakids_orcamento: tool({
+      description: `Monta um ORÇAMENTO no sistema da Girakids (não é pedido ainda). Use quando o cliente (ou o dono) quiser comprar ou pedir preço fechado.
+Itens: produto = SKU ou nome exato do catálogo (consulte catalogo_girakids antes) e pacotes = quantidade de PACOTES.
+Cliente: nome; telefone (sem dizer, usa o desta conversa); CPF/CNPJ e endereço se já tiver (para virar pedido o CPF/CNPJ é obrigatório).
+entrega: RETIRAR_LOCAL, TRANSPORTADORA, PAC ou SEDEX. pagamento: PIX_ONLINE, CREDITO_LINK, BOLETO, TRANSFERENCIA, A_DEFINIR (combinar).
+Depois mande ao cliente o resumo (itens, total) e pergunte se aprova. Só gere o pedido com girakids_aprovar_orcamento depois de um "sim/pode fechar/aprovado" claro.`,
+      inputSchema: z.object({
+        itens: z.array(z.object({ produto: z.string().min(1), pacotes: z.number().int().min(1) })).min(1),
+        cliente: z.object({ nome: z.string().min(2), telefone: z.string().optional(), documento: z.string().optional(), email: z.string().optional(), cep: z.string().optional(), rua: z.string().optional(), numero: z.string().optional(), complemento: z.string().optional(), bairro: z.string().optional(), cidade: z.string().optional(), estado: z.string().optional() }),
+        entrega: z.enum(['RETIRAR_LOCAL', 'TRANSPORTADORA', 'PAC', 'SEDEX']).optional(),
+        pagamento: z.enum(['PIX_ONLINE', 'CREDITO_LINK', 'BOLETO', 'TRANSFERENCIA', 'A_DEFINIR']).optional(),
+        observacoes: z.string().max(500).optional(),
+      }),
+      execute: wrap(ctx, 'girakids_orcamento', async ({ itens, cliente, entrega, pagamento, observacoes }) => {
+        const resolved: Array<{ produtoId: string; quantidade: number }> = [];
+        for (const it of itens) {
+          const p = await acharProduto(it.produto);
+          if (!p) return { erro: `Não achei "${it.produto}" no catálogo. Confirme o nome ou SKU com catalogo_girakids.` };
+          if ('varios' in p) return { erro: `"${it.produto}" bate com vários produtos; pergunte qual:`, opcoes: p.varios };
+          if (!p.disponivel) return { erro: `${p.nome} está esgotado.` };
+          resolved.push({ produtoId: p.id, quantidade: it.pacotes });
+        }
+        const orc = await criarOrcamento({
+          itens: resolved, metodoEnvio: entrega, formaPagamento: pagamento,
+          cliente: { ...cliente, telefone: cliente.telefone ?? ctx.contact.phone ?? undefined, email: cliente.email ?? ctx.contact.email ?? undefined },
+          observacoes: observacoes ? `${observacoes} (feito pela IA no WhatsApp)` : undefined,
+        });
+        await q(`UPDATE threads SET facts = jsonb_set(coalesce(facts, '{}'), '{orcamento_girakids}', to_jsonb($2::text)) WHERE id = $1`, [ctx.thread.id, orc.id]);
+        return { ok: true, orcamento_id: orc.id, resumo: resumoPedido(orc), proximo_passo: 'Mande o resumo ao cliente e pergunte se aprova. Se aprovar, use girakids_aprovar_orcamento.' };
+      }),
+    }),
+    girakids_aprovar_orcamento: tool({
+      description: 'Transforma o orçamento da Girakids em PEDIDO e avisa o comercial. Só use depois que o cliente aprovou claramente o resumo nesta conversa. Sem orcamento_id usa o último orçamento desta conversa.',
+      inputSchema: z.object({ orcamento_id: z.string().optional() }),
+      execute: wrap(ctx, 'girakids_aprovar_orcamento', async ({ orcamento_id }) => {
+        const id = orcamento_id ?? (ctx.thread.facts as any)?.orcamento_girakids;
+        if (!id) return { erro: 'Não há orçamento nesta conversa. Monte um com girakids_orcamento.' };
+        const pedido = await gerarPedido(id);
+        const aviso = setting('GIRAKIDS_AVISO_PEDIDOS').replace(/\D/g, '');
+        const texto = `Pedido novo pela IA (${ctx.contact.name ?? ctx.contact.phone ?? ''}): ${resumoPedido(pedido)}`;
+        if (aviso) await sendText(ctx.thread.instance, aviso, texto).catch(() => notifyGabriel(texto, ctx.thread.instance));
+        else await notifyGabriel(texto, ctx.thread.instance);
+        return { ok: true, pedido: resumoPedido(pedido), orientacao: 'Confirme ao cliente o número do pedido e diga que o comercial segue com pagamento e entrega.' };
+      }),
+    }),
     get_product_catalog: catalogTool(ctx),
     create_or_update_lead: tool({
       description: 'Registra o que já se sabe do lead (qualificação). Chame sempre que descobrir algo novo.',

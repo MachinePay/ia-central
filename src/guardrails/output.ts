@@ -47,6 +47,8 @@ export async function checkOutput(o: {
   clientAskedBot?: boolean; shortClient?: boolean;
   /** o jeito com este contato (ou o historico) ja tem esse tipo de carinho/apelido */
   intimateAllowed?: boolean;
+  /** a IA executou de verdade uma acao (orcamento/pedido no sistema): pode dizer que fez */
+  didAction?: boolean;
   /** conversa pessoal: curto e so com palavras que o dono do numero ja usou */
   personal?: boolean; vocab?: Set<string>;
 }): Promise<OutputCheck> {
@@ -56,7 +58,7 @@ export async function checkOutput(o: {
   if (CLAIMS_HUMAN.test(o.text)) issues.push('nega ser IA: se perguntaram, diga com leveza que usa um assistente para responder rápido e que a pessoa acompanha tudo');
   // humano substituto: so fala de "assistente" quando o cliente perguntou se e robo
   if (!o.clientAskedBot && SELF_AS_BOT.test(o.text)) issues.push('se apresenta como assistente/robô sem o cliente perguntar: escreva em primeira pessoa como a própria pessoa, sem mencionar assistente');
-  if (PROMISES_ACTION.test(o.text)) issues.push('promete ou diz que fez uma ação (liberar, reiniciar, enviar, estornar...): troque por acalmar e dizer que vai averiguar, ex.: "vou dar uma averiguada, so um instante"');
+  if (!o.didAction && PROMISES_ACTION.test(o.text)) issues.push('promete ou diz que fez uma ação (liberar, reiniciar, enviar, estornar...): troque por acalmar e dizer que vai averiguar, ex.: "vou dar uma averiguada, so um instante"');
   if (/\b(olhada remota|acesso remoto|remotamente|conex[aã]o remota|reinici(o|ar) remot)/i.test(o.text)) issues.push('oferece acesso/olhada remota, que você não consegue fazer: troque por "vou ver aqui e te falo"');
   if (!o.intimateAllowed && INTIMATE_RE.test(o.text)) issues.push('usa apelido ou carinho (amor, bb...) com quem você não trata assim: fale do seu jeito geral, sem apelidos');
   if (o.channel === 'WHATSAPP' && /^\s*[•\-*]\s/m.test(o.text)) issues.push('tem lista com marcadores: escreva em frases normais, como no WhatsApp');
