@@ -2,7 +2,10 @@
 // Machine Coin: painel igual ao da Machine Pay (cyberpix), em outro endereco. Copia do cliente da Machine Pay com variaveis MACHINE_COIN_*.
 import WebSocketClient from "ws";
 
-const COIN_BASE = () => { const u = process.env.MACHINE_COIN_LOGIN_URL || ""; return u && !u.endsWith("/") ? `${u}/` : u; };
+// limpa o endereco cadastrado (tira "#..." e "?...") para todas as chamadas
+if (process.env.MACHINE_COIN_LOGIN_URL) { const u = process.env.MACHINE_COIN_LOGIN_URL.replace(/[#?].*$/, ""); process.env.MACHINE_COIN_LOGIN_URL = u.endsWith("/") ? u : `${u}/`; }
+
+const COIN_BASE = () => { const u = (process.env.MACHINE_COIN_LOGIN_URL || "").replace(/[#?].*$/, ""); return u && !u.endsWith("/") ? `${u}/` : u; };
 
 const DEFAULT_LOGIN_URL =
   COIN_BASE() + "";

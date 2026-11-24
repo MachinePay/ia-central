@@ -333,11 +333,19 @@ Ele pode pedir direto e já confirmado ("manda 5 reais na máquina 123, pode man
           return { loja: ls[0].nome, periodo: `${di} a ${df}`, faturamento: brl(t.faturamento), lucro: brl(t.lucro), custo_total: brl(t.custoTotal), dinheiro: brl(t.dinheiro), pix: brl(t.pix), fichas: t.fichas, saidas: t.saidas,
             maquinas: (r.performanceMaquinas ?? []).slice(0, 10).map((m: any) => `${m.nome ?? m.maquina}: ${brl(m.faturamento ?? m.receita)}`) };
         }
-        const r: any = await agarramais(`/relatorios/todas-lojas?dataInicio=${di}&dataFim=${df}`);
-        const t = r.totais ?? {};
-        const rank = r.graficos?.rankingLucroLojas ?? [];
-        return { periodo: `${di} a ${df}`, faturamento: brl(t.faturamento), lucro: brl(t.lucro), custo_total: brl(t.custoTotal), dinheiro: brl(t.dinheiro), pix: brl(t.pix), fichas: t.fichas,
-          destaques: r.destaques, lojas: rank.slice(0, 15).map((l: any) => `${l.nome ?? l.loja}: lucro ${brl(l.lucro ?? l.valor)}${l.faturamento != null ? `, faturamento ${brl(l.faturamento)}` : ''}`) };
+        const [d, r]: any[] = await Promise.all([
+          agarramais(`/relatorios/dashboard?dataInicio=${di}&dataFim=${df}`),
+          agarramais(`/relatorios/todas-lojas?dataInicio=${di}&dataFim=${df}`).catch(() => ({})),
+        ]);
+        const t = d.totais ?? {};
+        const num = (o: any) => Object.entries(o ?? {}).filter(([k, v]) => typeof v === 'number' && !/id$/i.test(k)).map(([k, v]) => `${k} ${/fichas|quantidade|qtd|saidas/i.test(k) ? v : brl(v as number)}`).join(', ');
+        const rank = (r.graficos?.rankingLucroLojas ?? []) as any[];
+        return {
+          periodo: `${di} a ${df}`, faturamento: brl(t.faturamento), lucro: brl(t.lucro), custo_total: brl(t.custoTotal), custo_produtos: brl(t.custoProdutosTotal),
+          taxa_cartao: brl(t.taxaDeCartao), dinheiro: brl(t.dinheiro), pix: brl(t.pix), fichas: t.fichas, saidas_produtos: t.saidas,
+          lojas: rank.slice(0, 15).map((l: any) => `${l.nome ?? l.loja ?? l.lojaNome}: ${num(l)}`),
+          destaques: r.destaques,
+        };
       },
     }),
     agarramais_lojas: tool({

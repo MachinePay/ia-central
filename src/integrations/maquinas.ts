@@ -26,7 +26,7 @@ const cache = new Map<Plataforma, { at: number; list: Maquina[] }>();
 
 // ------------------------------------------------------------------ painel MachinePay / Machine Coin (cyberpix)
 const painelBase = (p: Plataforma) => {
-  const u = p === 'machinepay' ? (process.env.MACHINE_PAY_LOGIN_URL || 'https://www.cyberpix.com.br/pix-adesivo-clientes/') : (process.env.MACHINE_COIN_LOGIN_URL || '');
+  const u = (p === 'machinepay' ? (process.env.MACHINE_PAY_LOGIN_URL || 'https://www.cyberpix.com.br/pix-adesivo-clientes/') : (process.env.MACHINE_COIN_LOGIN_URL || '')).replace(/[#?].*$/, '');
   return u.endsWith('/') ? u : `${u}/`;
 };
 
