@@ -4,6 +4,8 @@ import { normalizePhone, phoneVariants } from '../lib/phone.js';
 import type { Agent, Contact, InboundEvent, Message, Thread } from './types.js';
 
 export async function upsertContact(ev: InboundEvent): Promise<Contact> {
+  // "Você" e o nome que o WhatsApp da para a conversa consigo mesmo: nao serve de nome de contato
+  if (ev.sender.name && /^(voc[eê]|you)$/i.test(ev.sender.name.trim())) ev = { ...ev, sender: { ...ev.sender, name: undefined } };
   if (ev.channel === 'WHATSAPP') {
     const phone = normalizePhone(ev.sender.phone ?? '');
     const jid = ev.sender.jid ?? null;

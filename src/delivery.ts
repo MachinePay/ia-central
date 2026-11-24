@@ -3,7 +3,8 @@ import { sendText } from './channels/whatsapp/evolution.js';
 import { saveOutbound } from './domain/repo.js';
 import { one } from './lib/db.js';
 import type { Agent, Thread } from './domain/types.js';
-import { approvalInstance, autoSendAgents, env, numberRule, sendMode, shadowNotify } from './lib/env.js';
+import { approvalInstance, autoSendAgents, centralInstance, env, instanceRole, numberRule, sendMode, shadowNotify } from './lib/env.js';
+import { ownPhone } from './lib/owners.js';
 import { logger } from './lib/logger.js';
 import { outboundQueue } from './lib/queues.js';
 
@@ -41,13 +42,23 @@ export async function deliver(i: DeliverInput): Promise<'DRAFT' | 'QUEUED'> {
       backoff: { type: 'exponential', delay: 3000 },
     });
   } else if (shadowNotify()) {
-    await notifyGabriel(`📝 Rascunho (${i.agent}) para ${i.thread.external_id.split('@')[0]}:\n\n${i.text}`).catch(() => undefined);
+    await notifyGabriel(`📝 Rascunho (${i.agent}) para ${i.thread.external_id.split('@')[0]}:\n\n${i.text}`, i.thread.instance).catch(() => undefined);
   }
   return status;
 }
 
-/** Mensagem para o WhatsApp pessoal do Gabriel real (aprovacoes, alertas). */
-export async function notifyGabriel(text: string): Promise<string | undefined> {
+/**
+ * Aviso para o dono (aprovacoes, rascunhos, alertas).
+ * Com numero da IA (central): sai dele para o Gabriel. Sem ele: cai no "Voce" do proprio numero da conversa
+ * (o numero manda para si mesmo). Sem numero conhecido: vai para o Gabriel pelo numero das aprovacoes.
+ */
+export async function notifyGabriel(text: string, instance?: string): Promise<string | undefined> {
+  const central = centralInstance();
+  if (central && env.GABRIEL_PERSONAL_PHONE) return sendText(central, env.GABRIEL_PERSONAL_PHONE, text);
+  if (instance && instanceRole(instance) !== 'OFF') {
+    const self = await ownPhone(instance).catch(() => undefined);
+    if (self) return sendText(instance, self, text);
+  }
   const inst = approvalInstance();
   if (!inst || !env.GABRIEL_PERSONAL_PHONE) {
     logger.warn({ text }, 'aviso para o Gabriel sem GABRIEL_PERSONAL_PHONE/APPROVAL_INSTANCE');

@@ -56,13 +56,14 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
   const old = !!p.ts && Date.now() / 1000 - p.ts > OLD_FROM_ME_SECONDS;
   if (old && !p.text) return;
   // conversa "Voce" do Gabriel (consigo mesmo, no numero dele): fala com a IA central (orquestrador)
-  const selfChat = isGabrielPhone(p.jid) && (!ownerJid || normalizePhone(ownerJid) === normalizePhone(p.jid));
+  // (vale para o "Voce" de qualquer numero: cada numero recebe os proprios avisos e responde comandos ali)
+  const selfChat = ownerJid ? normalizePhone(ownerJid) === normalizePhone(p.jid) : isGabrielPhone(p.jid);
   if (selfChat) {
     if (!p.text || old) return; // pedido antigo reenviado: nao responde de novo
     if (await handleSentinelCommand(normalizePhone(p.jid), p.text)) return; // ok 42, /status, /custos...
     if (await handleGabrielReply(p.text, p.quotedId)) return; // resposta a uma aprovacao
-    const where = ownerReplyTarget('self', instance);
-    if (where) await answerOwner(p.text, where);
+    const where = { instance, to: normalizePhone(p.jid) }; // responde no proprio "Voce" deste numero
+    await answerOwner(p.text, where);
     return;
   }
   let thread = await findWaThread(instance, p.jid);

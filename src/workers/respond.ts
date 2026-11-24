@@ -65,7 +65,7 @@ async function respond(threadId: string, started: number) {
   const decision = await route(pack);
 
   if (decision.action === 'SILENT') {
-    if (decision.escalate) await notifyGabriel(`⚠️ Limite de respostas/hora atingido com ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email}. Bots em silêncio nessa conversa.`).catch(() => undefined);
+    if (decision.escalate) await notifyGabriel(`⚠️ Limite de respostas/hora atingido com ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email}. Bots em silêncio nessa conversa.`, thread.instance).catch(() => undefined);
     if (decision.reason !== 'nada novo para responder') {
       await saveRun(threadId, { agent: thread.active_agent, model: '-', route: decision, toolCalls: [], inTok: 0, outTok: 0, latency: 0, outcome: 'SILENT' });
     }
@@ -88,7 +88,7 @@ async function respond(threadId: string, started: number) {
     const n = await one<{ n: number }>(`SELECT count(*)::int n FROM messages WHERE thread_id = $1 AND direction = 'OUTBOUND' AND sender <> 'HUMAN' AND created_at > now() - interval '1 hour'`, [threadId]);
     if ((n?.n ?? 0) >= 3) {
       await setThread(threadId, { status: 'PAUSED' });
-      await notifyGabriel(`⏸️ Thread de e-mail com ${pack.contact.email} pausada (muitas respostas do bot em 1 h). Revise.`).catch(() => undefined);
+      await notifyGabriel(`⏸️ Thread de e-mail com ${pack.contact.email} pausada (muitas respostas do bot em 1 h). Revise.`, thread.instance).catch(() => undefined);
       return;
     }
   }
@@ -111,7 +111,7 @@ async function respond(threadId: string, started: number) {
     if (agent !== thread.active_agent && thread.active_agent !== 'LEO') {
       if (switchLimitReached(thread.agent_switches)) {
         await setThread(threadId, { status: 'PAUSED' });
-        await notifyGabriel(`🔁 Conversa com ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email} trocou de agente 3 vezes em 30 min. Pausei os bots: assume você? (/bot on para devolver)`).catch(() => undefined);
+        await notifyGabriel(`🔁 Conversa com ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email} trocou de agente 3 vezes em 30 min. Pausei os bots: assume você? (/bot on para devolver)`, thread.instance).catch(() => undefined);
         await saveRun(threadId, { agent, model: '-', route: decision, toolCalls: [], inTok: 0, outTok: 0, latency: 0, outcome: 'ESCALATED' });
         return;
       }
@@ -142,7 +142,7 @@ async function respond(threadId: string, started: number) {
     vocab: pack.contact.role === 'PESSOAL' ? await ownerVocabulary(thread.instance).catch(() => undefined) : undefined,
   });
   if (check.blocked) {
-    await notifyGabriel(`🛑 Resposta bloqueada pelo verificador (${agent}) para ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email}: ${check.issues.join('; ')}\n\nRascunho: ${reply}`).catch(() => undefined);
+    await notifyGabriel(`🛑 Resposta bloqueada pelo verificador (${agent}) para ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email}: ${check.issues.join('; ')}\n\nRascunho: ${reply}`, thread.instance).catch(() => undefined);
     await saveRun(threadId, runLog(agent, result, { ...(routeLog as object), guard: check.issues }, started, 'ESCALATED', reply));
     return;
   }

@@ -91,7 +91,7 @@ function shared(ctx: ToolCtx): ToolSet {
         const { redis } = await import('../lib/redis.js');
         if (!(await redis.set(key, '1', 'EX', 1200, 'NX'))) return { ok: true, note: 'Já avisado há pouco. Só tranquilize o cliente.' };
         const who = ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email;
-        await notifyGabriel(`${urgency === 'HIGH' ? '🚨' : '🙋'} ${who} (número ${ctx.thread.instance}) precisa de você: ${what}`).catch(() => undefined);
+        await notifyGabriel(`${urgency === 'HIGH' ? '🚨' : '🙋'} ${who} (número ${ctx.thread.instance}) precisa de você: ${what}`, ctx.thread.instance).catch(() => undefined);
         return { ok: true, note: 'Avisado. Diga ao cliente só que vai averiguar (sem prometer o que vai ser feito).' };
       }),
     }),
@@ -153,7 +153,7 @@ function joaoTools(ctx: ToolCtx): ToolSet {
       inputSchema: z.object({ topic: z.string().max(200), preferred: z.string().max(200).describe('preferência de dia/horário do cliente') }),
       execute: wrap(ctx, 'schedule_meeting', async ({ topic, preferred }) => {
         await q(`INSERT INTO meetings (contact_id, thread_id, topic, preferred) VALUES ($1, $2, $3, $4)`, [ctx.contact.id, ctx.thread.id, topic, preferred]);
-        await notifyGabriel(`📅 Pedido de reunião: ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} — ${topic} (prefere: ${preferred})`).catch(() => undefined);
+        await notifyGabriel(`📅 Pedido de reunião: ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} — ${topic} (prefere: ${preferred})`, ctx.thread.instance).catch(() => undefined);
         return { ok: true, note: 'Pedido registrado. Diga que a equipe confirma o horário em breve.' };
       }),
     }),
@@ -225,7 +225,7 @@ function claraTools(ctx: ToolCtx): ToolSet {
           [ctx.contact.id, ctx.thread.id, i.priority, i.category, i.summary, JSON.stringify(i.tested_steps), i.status],
         );
         if (i.status === 'OPEN' && (i.priority === 'HIGH' || i.priority === 'CRITICAL')) {
-          await notifyGabriel(`🛠️ Chamado ${i.priority} (${i.category}) — ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email}: ${clip(i.summary, 300)}`).catch(() => undefined);
+          await notifyGabriel(`🛠️ Chamado ${i.priority} (${i.category}) — ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email}: ${clip(i.summary, 300)}`, ctx.thread.instance).catch(() => undefined);
         }
         return { ok: true, ticket: t?.id.slice(0, 8) };
       }),
@@ -234,7 +234,7 @@ function claraTools(ctx: ToolCtx): ToolSet {
       description: 'Segunda via de boleto ou nota fiscal.',
       inputSchema: z.object({ what: z.string().max(200) }),
       execute: wrap(ctx, 'get_invoice_copy', async ({ what }) => {
-        await notifyGabriel(`🧾 ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} pediu segunda via: ${what}`).catch(() => undefined);
+        await notifyGabriel(`🧾 ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} pediu segunda via: ${what}`, ctx.thread.instance).catch(() => undefined);
         return { available: false, note: 'Ainda não há integração com o financeiro. Diga que a equipe envia a segunda via por aqui ainda hoje (em horário comercial).' };
       }),
     }),
@@ -273,7 +273,7 @@ function gabrielTools(ctx: ToolCtx): ToolSet {
       description: 'Chama o Gabriel em pessoa (cliente estratégico irritado, incidente grave, proposta grande, pedido explícito).',
       inputSchema: z.object({ urgency: z.enum(['LOW', 'MEDIUM', 'HIGH']), summary: z.string().max(600) }),
       execute: wrap(ctx, 'notify_real_gabriel', async ({ urgency, summary }) => {
-        await notifyGabriel(`${urgency === 'HIGH' ? '🚨' : '👋'} ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} precisa de você (${urgency}): ${summary}`);
+        await notifyGabriel(`${urgency === 'HIGH' ? '🚨' : '👋'} ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} precisa de você (${urgency}): ${summary}`, ctx.thread.instance);
         return { ok: true, note: 'Gabriel avisado. Diga que ele vai falar pessoalmente assim que possível, sem prometer horário.' };
       }),
     }),

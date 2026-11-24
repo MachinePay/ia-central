@@ -48,7 +48,7 @@ export async function requestApproval(o: {
     `Rascunho: "${clip(o.draftReply, 600)}"`,
     `Responda citando esta mensagem: 1 aprovar · 2 recusar · ou escreva sua versão`,
   ].join('\n');
-  const msgId = await notifyGabriel(text).catch((e) => logger.error(e, 'falha ao avisar aprovacao'));
+  const msgId = await notifyGabriel(text, thread.instance).catch((e) => logger.error(e, 'falha ao avisar aprovacao'));
   if (msgId) await q(`UPDATE pending_approvals SET notify_msg_id = $2 WHERE id = $1`, [a.id, msgId]);
   await publish('approval.created', { id: a.id, code: a.code, threadId: o.threadId });
   return { status: 'APPROVAL_REQUESTED', code: a.code, tell_client: NEUTRAL_REPLY };
@@ -72,16 +72,20 @@ export async function handleGabrielReply(text: string, quotedWaId?: string): Pro
     if (pend.length === 1 && /^\s*[12]\s*$/.test(text)) a = pend[0];
   }
   if (!a) return false;
+  const inst = await approvalNumber(a);
   if (a.status !== 'PENDING') {
-    await notifyGabriel(`A aprovação #${a.code} já foi decidida (${a.status}).`);
+    await notifyGabriel(`A aprovação #${a.code} já foi decidida (${a.status}).`, inst);
     return true;
   }
   const body = text.replace(/#?\bA-\d{4,}\b/i, '').trim();
   const decision = /^1$/.test(body) ? 'APPROVE' : /^2$/.test(body) ? 'REJECT' : 'EDIT';
   const status = await applyDecision(a, decision, body, 'WhatsApp');
-  await notifyGabriel(`✅ #${a.code} ${status === 'APPROVED' ? 'aprovada' : status === 'REJECTED' ? 'recusada' : 'enviada com o seu texto'}.`);
+  await notifyGabriel(`✅ #${a.code} ${status === 'APPROVED' ? 'aprovada' : status === 'REJECTED' ? 'recusada' : 'enviada com o seu texto'}.`, inst);
   return true;
 }
+
+/** Numero da conversa da aprovacao: o aviso cai no "Voce" dele. */
+const approvalNumber = async (a: Approval) => (await one<{ instance: string }>(`SELECT instance FROM threads WHERE id = $1`, [a.thread_id]))?.instance;
 
 /** Decisao vinda do painel. */
 export async function decideApproval(id: string, decision: 'APPROVE' | 'REJECT' | 'EDIT', text?: string): Promise<string> {
@@ -138,7 +142,7 @@ export async function sweepApprovals() {
     `UPDATE pending_approvals SET reminded_at = now() WHERE status = 'PENDING' AND reminded_at IS NULL
        AND created_at < now() - interval '4 hours' RETURNING *`,
   );
-  for (const a of remind) await notifyGabriel(`⏰ Lembrete: aprovação #${a.code} ainda pendente (${ACTION_LABEL[a.action]}).`).catch(() => undefined);
+  for (const a of remind) await notifyGabriel(`⏰ Lembrete: aprovação #${a.code} ainda pendente (${ACTION_LABEL[a.action]}).`, await approvalNumber(a)).catch(() => undefined);
   const expired = await q<Approval>(
     `UPDATE pending_approvals SET status = 'EXPIRED', decided_at = now() WHERE status = 'PENDING'
        AND created_at < now() - interval '24 hours' RETURNING *`,

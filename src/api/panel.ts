@@ -16,6 +16,7 @@ import { cancelPendingRespond, enqueueRespond } from '../lib/queues.js';
 import { TAKEOVER_SECONDS } from '../takeover.js';
 import { keys, redis, redisOptions } from '../lib/redis.js';
 import { saveSetting } from '../lib/settings.js';
+import { ownPhones } from '../lib/owners.js';
 import { addKnowledge } from '../memory/kb.js';
 import { checkUrl } from '../sentinela/collectors/urls.js';
 import { costSummary } from '../sentinela/costs.js';
@@ -24,6 +25,17 @@ import { sendAlert } from '../sentinela/notify.js';
 import { login, requireAuth } from './auth.js';
 
 const user = (req: any): string => req.user ?? 'painel';
+
+/** Nossos proprios numeros aparecem pelo nome da IA ("Gabriel", "Léo"); o numero do proprio numero aparece como "Você". */
+async function nameResolver() {
+  const phones = await ownPhones([...instanceRoles().keys()]).catch(() => new Map<string, string>());
+  return (instance: string, phone: string | null | undefined, name: string | null | undefined) => {
+    const owner = phone ? phones.get(phone) : undefined;
+    if (owner === instance) return 'Você';
+    if (owner) return `${personaFor(owner).name} (número ${owner})`;
+    return name && !/^(voc[eê]|you)$/i.test(name.trim()) ? name : phone ?? name ?? '';
+  };
+}
 const bad = (reply: any, msg: string, code = 400) => reply.code(code).send({ error: msg });
 
 export async function panelRoutes(app: FastifyInstance) {
@@ -191,7 +203,8 @@ export async function panelRoutes(app: FastifyInstance) {
         params,
       );
       const flags = rows.length ? await redis.mget(rows.map((r: any) => keys.takeover(r.id))) : [];
-      let out = rows.map((r: any, i) => ({ ...r, last_content: String(r.last_content ?? '').replace(/^⁣/, '').slice(0, 140), takeover: !!flags[i] }));
+      const nameOf = await nameResolver();
+      let out = rows.map((r: any, i) => ({ ...r, contact: r.channel === 'WHATSAPP' ? nameOf(r.instance, r.phone, r.contact) : r.contact, last_content: String(r.last_content ?? '').replace(/^⁣/, '').slice(0, 140), takeover: !!flags[i] }));
       if (f.takeover === '1') out = out.filter((r) => r.takeover);
       return { items: out, nextCursor: rows.length === 50 ? (rows[49] as any).last_at : null };
     });
@@ -210,6 +223,8 @@ export async function panelRoutes(app: FastifyInstance) {
         q(`SELECT id, channel, instance, summary, updated_at FROM app.threads WHERE contact_id = $1 AND id <> $2`, [thread.contact_id, thread.id]),
         redis.ttl(keys.takeover(thread.id)),
       ]);
+      const nameOf = await nameResolver();
+      if (contact && thread.channel === 'WHATSAPP') (contact as any).name = nameOf(thread.instance, (contact as any).phone, (contact as any).name);
       return {
         thread, contact, approvals, tickets, runs, otherThreads: other,
         takeover: takeover === -1 ? { on: true, until: null } : takeover > 0 ? { on: true, until: new Date(Date.now() + takeover * 1000) } : { on: false },
@@ -637,7 +652,8 @@ export async function panelRoutes(app: FastifyInstance) {
         params,
       );
       const tk = rows.length ? await redis.mget(rows.map((r: any) => keys.takeover(r.id))) : [];
-      return { items: rows.map((r: any, i) => ({ ...r, with_you: !!tk[i] })), rule: numberRule(req.params.instance) };
+      const nameOf = await nameResolver();
+      return { items: rows.map((r: any, i) => ({ ...r, contact: nameOf(req.params.instance, r.phone, r.contact), with_you: !!tk[i] })), rule: numberRule(req.params.instance) };
     });
 
     api.patch<{ Params: { id: string } }>('/api/threads/:id/ai', async (req, reply) => {

@@ -14,6 +14,7 @@ import { describeMedia } from '../media.js';
 import { handleSentinelCommand } from '../sentinela/commands.js';
 import { answerOwner, ownerReplyTarget } from '../owner/assistant.js';
 import { applyTakeover, handleWhatsappFromMe } from '../takeover.js';
+import { rememberOwnPhone } from '../lib/owners.js';
 
 const OPT_OUT = /^\s*(parar|pare|sair|stop|descadastrar|n[aã]o quero mais (receber )?mensagens?)\s*[.!]?\s*$/i;
 
@@ -28,6 +29,7 @@ export async function ingestWorker(job: Job) {
 
 async function ingestWhatsapp(instance: string, data: any, owner?: string) {
   if (instanceRole(instance) === 'OFF') return;
+  if (owner) await rememberOwnPhone(instance, owner).catch(() => undefined); // o "Voce" deste numero
   const p = parseEvolution(instance, data);
   if (p.kind === 'ignore' || p.kind === 'reaction') return;
   if (p.kind === 'fromMe') return handleWhatsappFromMe(instance, p, owner); // nunca responde mensagens proprias
@@ -56,7 +58,7 @@ async function persistAndQueue(ev: InboundEvent) {
 
   if (OPT_OUT.test(ev.content) && !contact.opted_out) {
     await q(`UPDATE contacts SET opted_out = true, updated_at = now() WHERE id = $1`, [contact.id]);
-    await notifyGabriel(`🔕 ${contact.name ?? contact.phone ?? contact.email} pediu para não receber mais mensagens (opt-out).`).catch(() => undefined);
+    await notifyGabriel(`🔕 ${contact.name ?? contact.phone ?? contact.email} pediu para não receber mais mensagens (opt-out).`, thread.instance).catch(() => undefined);
     return;
   }
   if (ev.metadata.late) return; // reenvio atrasado: so registra, nao responde horas depois
