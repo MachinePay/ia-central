@@ -818,7 +818,7 @@ export async function panelRoutes(app: FastifyInstance) {
     // e-mail que nao e Google: descobre os servidores pelo dominio
     api.get('/api/mail/guess', async (req, reply) => {
       const email = String((req.query as any).email ?? '').trim().toLowerCase();
-      if (!/^[^@s]+@[^@s]+.[^@s]+$/.test(email)) return bad(reply, 'E-mail inválido.');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad(reply, 'E-mail inválido.');
       const g = await guessServers(email);
       return { ...g, google: /google|gmail/i.test(g.provider) };
     });
