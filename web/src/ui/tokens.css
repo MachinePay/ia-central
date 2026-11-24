@@ -1,46 +1,23 @@
 @import 'tailwindcss';
 
-/* Identidade: o azul-petroleo do vidro de um totem desligado, o ambar dos LEDs e o ciano das telas acesas. */
+/* Identidade (Centro de Comando novo): cinza claro com vidro, tinta quase preta e azul de destaque; escuro segue o sistema. */
 :root {
-  --bg: #0f2830;
-  --surface: #163641;
-  --line: #21495a;
-  --text: #e6efee;
-  --text-2: #9fb4b6;
-  --amber: #f2b33d;
-  --cyan: #5cc8d7;
-  --ok: #43b884;
-  --warn: #f2b33d;
-  --crit: #ef5a5a;
-  --idle: #6c8487;
-  --lilac: #a796e8;
-  --coral: #f08a6c;
-  --on-amber: #1b1405;
-  color-scheme: dark;
+  --bg: #E6E8EC; --surface: #FFFFFF; --line: #D9DDE3; --text: #14161B; --text-2: #5C6370; --amber: #B7791F; --cyan: #3253FF; --ok: #1F8A5B; --warn: #B7791F; --crit: #D2353F; --idle: #8A909B; --lilac: #7A5AF8; --coral: #D9643F; --on-amber: #FFFFFF;
+  --glass: rgba(255,255,255,.72); --hover: rgba(20,22,27,.06); --shadow: 0 10px 30px rgba(20,22,27,.08); --floor: #DCE0E5; --grid: #C6CCD4; --grid-strong: #B3BAC4; --island: #EEF0F3; --scene-bg: #E6E8EC; --accent-ink: #FFFFFF; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+  --bg: #101217; --surface: #1A1D23; --line: #2A2E36; --text: #EEF0F3; --text-2: #9AA1AD; --amber: #F0B45A; --cyan: #8EA2FF; --ok: #4CC38A; --warn: #F0B45A; --crit: #FF6B6B; --idle: #6B7280; --lilac: #B39DFF; --coral: #FF9470; --on-amber: #14161B;
+  --glass: rgba(24,27,33,.72); --hover: rgba(238,240,243,.07); --shadow: 0 10px 30px rgba(0,0,0,.35); --floor: #0D0F13; --grid: #1F232A; --grid-strong: #2A2F38; --island: #2A2E36; --scene-bg: #101217; --accent-ink: #0E1014; color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --bg: #101217; --surface: #1A1D23; --line: #2A2E36; --text: #EEF0F3; --text-2: #9AA1AD; --amber: #F0B45A; --cyan: #8EA2FF; --ok: #4CC38A; --warn: #F0B45A; --crit: #FF6B6B; --idle: #6B7280; --lilac: #B39DFF; --coral: #FF9470; --on-amber: #14161B;
+  --glass: rgba(24,27,33,.72); --hover: rgba(238,240,243,.07); --shadow: 0 10px 30px rgba(0,0,0,.35); --floor: #0D0F13; --grid: #1F232A; --grid-strong: #2A2F38; --island: #2A2E36; --scene-bg: #101217; --accent-ink: #0E1014; color-scheme: dark;
 }
 :root[data-theme='light'] {
-  --bg: #eef3f2;
-  --surface: #ffffff;
-  --line: #cad8d8;
-  --text: #102a31;
-  --text-2: #4d6569;
-  --amber: #b97e0e;
-  --cyan: #127a89;
-  --ok: #1e7f55;
-  --warn: #9a6408;
-  --crit: #b3261e;
-  --idle: #7a8e90;
-  --lilac: #6a55c4;
-  --coral: #b4512f;
-  --on-amber: #ffffff;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme='dark']):not([data-theme='light']) {
-    --bg: #eef3f2; --surface: #ffffff; --line: #cad8d8; --text: #102a31; --text-2: #4d6569;
-    --amber: #b97e0e; --cyan: #127a89; --ok: #1e7f55; --warn: #9a6408; --crit: #b3261e; --idle: #7a8e90;
-    --lilac: #6a55c4; --coral: #b4512f; --on-amber: #ffffff; color-scheme: light;
-  }
+  --bg: #E6E8EC; --surface: #FFFFFF; --line: #D9DDE3; --text: #14161B; --text-2: #5C6370; --amber: #B7791F; --cyan: #3253FF; --ok: #1F8A5B; --warn: #B7791F; --crit: #D2353F; --idle: #8A909B; --lilac: #7A5AF8; --coral: #D9643F; --on-amber: #FFFFFF;
+  --glass: rgba(255,255,255,.72); --hover: rgba(20,22,27,.06); --shadow: 0 10px 30px rgba(20,22,27,.08); --floor: #DCE0E5; --grid: #C6CCD4; --grid-strong: #B3BAC4; --island: #EEF0F3; --scene-bg: #E6E8EC; --accent-ink: #FFFFFF; color-scheme: light;
 }
 
 @theme inline {
@@ -57,7 +34,8 @@
   --color-idle: var(--idle);
   --color-lilac: var(--lilac);
   --color-coral: var(--coral);
-  --font-sans: 'Schibsted Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Hanken Grotesk', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
 }
@@ -73,7 +51,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .tabular { font-variant-numeric: tabular-nums; }
-:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 4px; }
 ::selection { background: color-mix(in srgb, var(--cyan) 35%, transparent); }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 
@@ -88,33 +66,40 @@ body {
 .uplot { font-family: var(--font-sans) !important; }
 .u-legend { color: var(--text-2); font-size: 12px; }
 
-/* ---------------------------------------------------------------- Centro de Comando 3D */
-:root { --scene-bg: #0B2128; --grid: #143540; --grid-strong: #235566; --slab-base: #16394A; --desk: #24505F; --agent: #AFC3C4; --rack: #1C4452; --glass: rgba(18, 46, 56, .80); }
-:root[data-theme='light'] { --scene-bg: #E1EBEA; --grid: #CFDCDC; --grid-strong: #A7C0C1; --slab-base: #F4F8F8; --desk: #C3D3D4; --agent: #5E7C82; --rack: #AFC3C5; --glass: rgba(255, 255, 255, .84); }
-.glass { background: var(--glass); border: 1px solid var(--line); border-radius: 10px; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+/* ---------------------------------------------------------------- Centro de Comando */
+.serif { font-family: var(--font-serif); font-weight: 400; letter-spacing: -.01em; }
+.glass { background: var(--glass); border: 1px solid var(--line); border-radius: 16px; -webkit-backdrop-filter: blur(18px) saturate(1.3); backdrop-filter: blur(18px) saturate(1.3); box-shadow: var(--shadow); }
 .cc-labels { position: absolute; inset: 0; pointer-events: none; z-index: 3; overflow: hidden; }
-.lbl { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 6px;
-  background: var(--surface); color: var(--text); border: 1px solid var(--line); border-left: 3px solid var(--c); font-size: 12px; font-weight: 600; white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0,0,0,.18); transition: opacity .15s; font-family: var(--font-sans); }
-.lbl .n { color: var(--text-2); font-weight: 400; font-variant-numeric: tabular-nums; }
+.lbl { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 9px; border-radius: 999px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--line); font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: var(--shadow); transition: opacity .15s; font-family: var(--font-sans); }
+.lbl::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--cyan)); flex: none; }
+.lbl .n { color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; }
 .lbl.dim { opacity: .35; }
-.lbl.portal { font-weight: 400; cursor: default; }
+.lbl.portal { font-weight: 500; cursor: default; }
 .bad { font-size: 11px; font-weight: 600; border-radius: 9px; padding: 1px 6px; font-variant-numeric: tabular-nums; }
 .bad.crit { background: var(--crit); color: #fff; }
-.bad.warn { background: var(--warn); color: #10262c; }
-.cc-tip { position: absolute; pointer-events: none; z-index: 7; max-width: 260px; padding: 8px 10px; font-size: 12px; line-height: 1.4; opacity: 0; transition: opacity .1s; }
+.bad.warn { background: var(--warn); color: #14161B; }
+.cc-tip { position: absolute; pointer-events: none; z-index: 7; max-width: 260px; padding: 9px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.4; opacity: 0; transition: opacity .1s; }
 .cc-tip strong { display: block; font-size: 13px; }
 .cc-tip.show { opacity: 1; }
-.cc-chip { height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid transparent; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--text); font-size: 13px; }
-.cc-chip:hover { background: color-mix(in srgb, var(--line) 55%, transparent); }
-.cc-chip[aria-pressed='true'] { background: var(--cyan); color: var(--bg); }
-.cc-side { transform: translateX(calc(100% + 24px)); transition: transform .18s var(--ease-out); }
+.cc-chip { height: 34px; padding: 0 12px; border-radius: 999px; border: 0; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--text-2); font-weight: 500; font-size: 13px; transition: background .15s, color .15s; }
+.cc-chip:hover { color: var(--text); background: var(--hover); }
+.cc-chip[aria-pressed='true'] { background: var(--text); color: var(--bg); }
+.cc-link { height: 38px; padding: 0 14px; border-radius: 999px; color: var(--text-2); font-weight: 500; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; transition: background .15s, color .15s; }
+.cc-link:hover { color: var(--text); background: var(--hover); }
+.cc-link[aria-current='page'] { background: var(--text); color: var(--bg); }
+.cc-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--cyan); color: var(--accent-ink); }
+.cc-count.warn { background: var(--warn); color: #14161B; }
+.cc-count.crit { background: var(--crit); color: #fff; }
+.cc-round { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); display: inline-grid; place-items: center; cursor: pointer; color: var(--text); position: relative; }
+.cc-pill { height: 38px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-2); }
+.cc-pill:hover { color: var(--text); }
+.cc-side { transform: translateX(calc(100% + 40px)); transition: transform .2s var(--ease-out); }
 .cc-side.open { transform: none; }
-@media (max-width: 760px) { .cc-side { transform: translateY(calc(100% + 80px)); } .cc-side.open { transform: none; } }
+@media (max-width: 900px) { .cc-side { transform: translateY(calc(100% + 90px)); } .cc-side.open { transform: none; } }
 
-/* fundo das telas: grade sutil com brilho, igual a maquete */
+/* fundo das telas: cinza do protótipo com grade bem sutil */
 .app-bg { background:
-  radial-gradient(ellipse 60% 40% at 50% 0%, color-mix(in srgb, var(--cyan) 7%, transparent), transparent 70%),
-  linear-gradient(color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px) 0 0 / 40px 40px,
-  linear-gradient(90deg, color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px) 0 0 / 40px 40px,
+  linear-gradient(color-mix(in srgb, var(--grid) 45%, transparent) 1px, transparent 1px) 0 0 / 48px 48px,
+  linear-gradient(90deg, color-mix(in srgb, var(--grid) 45%, transparent) 1px, transparent 1px) 0 0 / 48px 48px,
   var(--bg); }

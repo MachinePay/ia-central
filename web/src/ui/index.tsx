@@ -13,11 +13,11 @@ export function Button({ variant = 'subtle', size = 'md', icon, busy, className,
       {...rest}
       disabled={disabled || busy}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-[6px] font-semibold transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap',
-        size === 'sm' ? 'h-7 px-2.5 text-[12px]' : 'h-9 px-3.5 text-[14px]',
-        variant === 'primary' && 'bg-amber text-[var(--on-amber)] hover:brightness-110',
-        variant === 'subtle' && 'bg-line/60 text-text hover:bg-line',
-        variant === 'ghost' && 'text-text-2 hover:text-text hover:bg-line/50',
+        'inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap',
+        size === 'sm' ? 'h-8 px-3 text-[12.5px]' : 'h-[38px] px-4 text-[14px]',
+        variant === 'primary' && 'bg-[var(--text)] text-[var(--bg)] hover:opacity-90',
+        variant === 'subtle' && 'border border-line bg-surface text-text hover:bg-[var(--hover)]',
+        variant === 'ghost' && 'text-text-2 hover:text-text hover:bg-[var(--hover)]',
         variant === 'danger' && 'bg-crit/15 text-crit hover:bg-crit/25',
         className,
       )}
@@ -112,21 +112,24 @@ export function RefreshBar({ active }: { active: boolean }) {
 }
 
 // ------------------------------------------------------------------ cabecalho da pagina e painel lateral
-export function PageHeader({ title, accent, children, tabs }: { title: string; accent: string; children?: ReactNode; tabs?: ReactNode }) {
+export function PageHeader({ title, children, tabs, subtitle }: { title: string; accent?: string; children?: ReactNode; tabs?: ReactNode; subtitle?: ReactNode }) {
   return (
-    <header className="glass m-2 mb-0" style={{ boxShadow: `inset 0 2px 0 ${accent}` }}>
-      <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
-        <h1 className="text-[23px] font-semibold leading-tight">{title}</h1>
+    <header className="px-7 pt-3 pb-2">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-0">
+          <h1 className="serif text-[44px] leading-none md:text-[56px]">{title}</h1>
+          {subtitle && <p className="mt-2 text-[15px] text-text-2">{subtitle}</p>}
+        </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>
       </div>
-      {tabs && <div className="flex gap-1 overflow-x-auto px-4">{tabs}</div>}
+      {tabs && <div className="glass mt-4 inline-flex max-w-full gap-0.5 overflow-x-auto rounded-full! p-[3px] [scrollbar-width:none]">{tabs}</div>}
     </header>
   );
 }
 export function Tab({ active, onClick, children, count }: { active: boolean; onClick: () => void; children: ReactNode; count?: number }) {
   return (
-    <button onClick={onClick} className={cx('relative -mb-px cursor-pointer border-b-2 px-3 py-2 text-[13px] font-semibold whitespace-nowrap', active ? 'border-amber text-text' : 'border-transparent text-text-2 hover:text-text')}>
-      {children}{count ? <span className="ml-1.5 tabular text-amber">{count}</span> : null}
+    <button onClick={onClick} aria-pressed={active} className="cc-chip">
+      {children}{count ? <span className={cx('cc-count', 'warn')}>{count}</span> : null}
     </button>
   );
 }

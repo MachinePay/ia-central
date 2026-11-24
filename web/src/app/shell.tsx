@@ -1,122 +1,181 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, Outlet, useRouterState } from '@tanstack/react-router';
-import {
-  Bot, CheckCheck, Gauge, Home, LogOut, MessagesSquare, Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, ShieldCheck, Sun, Wallet,
-} from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { Bell, Bot, CheckCheck, Home, LogOut, MessagesSquare, Moon, Search, Settings, ShieldCheck, Sun, Wallet } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../lib/api';
+import { timeAgo } from '../lib/format';
 import { useToasts } from '../lib/toast';
 import { cx } from '../ui';
 import { CommandPalette } from './palette';
 
 export const AREAS = [
-  { to: '/', label: 'Início', icon: Home, color: 'var(--amber)', key: 'home' },
-  { to: '/conversas', label: 'Conversas', icon: MessagesSquare, color: 'var(--cyan)', key: 'conv' },
-  { to: '/aprovacoes', label: 'Aprovações', icon: CheckCheck, color: 'var(--amber)', key: 'appr' },
-  { to: '/agentes', label: 'IAs', icon: Bot, color: 'var(--lilac)', key: 'agents' },
-  { to: '/sentinela', label: 'Sentinela', icon: ShieldCheck, color: 'var(--ok)', key: 'sent' },
-  { to: '/custos', label: 'Custos', icon: Wallet, color: 'var(--lilac)', key: 'cost' },
+  { to: '/', label: 'Início', key: 'home', icon: Home },
+  { to: '/conversas', label: 'Conversas', key: 'conv', icon: MessagesSquare },
+  { to: '/aprovacoes', label: 'Aprovações', key: 'appr', icon: CheckCheck },
+  { to: '/agentes', label: 'IAs', key: 'agents', icon: Bot },
+  { to: '/sentinela', label: 'Sentinela', key: 'sent', icon: ShieldCheck },
+  { to: '/custos', label: 'Custos', key: 'cost', icon: Wallet },
 ] as const;
 
 export function useSummary() {
   return useQuery({ queryKey: ['summary'], queryFn: () => api('/api/summary'), staleTime: 30_000, refetchInterval: 60_000 });
 }
 
-function useTheme(): [string, () => void] {
-  const [theme, setTheme] = useState(() => { try { return localStorage.getItem('cc.theme') ?? 'dark'; } catch { return 'dark'; } });
+/** Tema: segue o sistema ate a pessoa escolher; a escolha fica salva neste navegador. */
+function useTheme(): ['light' | 'dark', () => void] {
+  const sys = () => (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try { const t = localStorage.getItem('cc.theme2'); if (t === 'light' || t === 'dark') return t; } catch { /* ok */ }
+    return sys();
+  });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('cc.theme', theme); } catch { /* ok */ }
+    window.dispatchEvent(new Event('cc-theme'));
   }, [theme]);
-  return [theme, () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))];
+  return [theme, () => setTheme((t) => {
+    const n = t === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('cc.theme2', n); } catch { /* ok */ }
+    return n;
+  })];
 }
 
 export function Shell() {
   const summary = useSummary();
-  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('cc.nav') === 'min'; } catch { return false; } });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [theme, toggleTheme] = useTheme();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const toasts = useToasts();
   const s = summary.data;
-  const counts: Record<string, number> = {
-    home: (s?.needsYou.approvals.length ?? 0) + (s?.needsYou.incidents.filter((i: any) => i.severity === 'CRITICAL').length ?? 0),
-    conv: (s?.needsYou.unanswered.length ?? 0) + (s?.needsYou.takeovers ?? 0),
-    appr: s?.needsYou.approvals.length ?? 0,
-    sent: s?.needsYou.incidents.length ?? 0,
+  const counts: Record<string, { n: number; tone?: 'warn' | 'crit' }> = {
+    conv: { n: (s?.needsYou.unanswered.length ?? 0) + (s?.needsYou.takeovers ?? 0) },
+    appr: { n: s?.needsYou.approvals.length ?? 0 },
+    sent: { n: s?.needsYou.incidents.length ?? 0, tone: s?.needsYou.incidents.some((i: any) => i.severity === 'CRITICAL') ? 'crit' : 'warn' },
   };
+  const alerts = (s?.needsYou.approvals.length ?? 0) + (s?.needsYou.incidents.filter((i: any) => i.status === 'OPEN').length ?? 0) + (s?.needsYou.unanswered.length ?? 0);
 
   useEffect(() => {
-    try { localStorage.setItem('cc.nav', collapsed ? 'min' : 'full'); } catch { /* ok */ }
-  }, [collapsed]);
-  useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement)?.tagName ?? '') || (e.target as HTMLElement)?.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen((o) => !o); }
+      else if (e.key === '/' && !typing && path !== '/') { e.preventDefault(); setPaletteOpen(true); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, []);
+  }, [path]);
   // contador no titulo da aba
   useEffect(() => {
-    const n = counts.home;
-    document.title = n ? `(${n}) Centro de Comando` : 'Centro de Comando';
-  }, [counts.home]);
+    document.title = alerts ? `(${alerts}) Centro de Comando` : 'Centro de Comando';
+  }, [alerts]);
 
+  const home = path === '/';
   return (
-    <div className="flex h-full">
-      <nav aria-label="Áreas" className={cx('glass relative z-10 m-2 mr-0 flex shrink-0 flex-col transition-[width] duration-200', collapsed ? 'w-16' : 'w-[232px]')}>
-        <div className="flex h-14 items-center gap-2 px-4">
-          <Gauge size={20} className="shrink-0 text-amber" />
-          {!collapsed && <span className="font-semibold">Centro de Comando</span>}
-        </div>
-        <button onClick={() => setPaletteOpen(true)} className={cx('mx-3 mb-3 flex h-8 cursor-pointer items-center gap-2 rounded-[6px] border border-line px-2 text-text-2 hover:text-text', collapsed && 'justify-center')}>
-          <Search size={14} />{!collapsed && <><span className="text-[13px]">Buscar</span><kbd className="ml-auto text-[11px]">Ctrl K</kbd></>}
-        </button>
-        <ul className="flex-1 space-y-0.5 px-2">
+    <div className="app-bg relative h-full overflow-hidden">
+      <header className="glass absolute top-3 right-3 left-3 z-20 flex h-[60px] items-center gap-3 pr-2.5 pl-4">
+        <Link to="/" className="flex items-center gap-2.5 text-[15px] font-semibold tracking-[-.01em] whitespace-nowrap" aria-label="SelfMachine, início">
+          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><rect x="1" y="1" width="24" height="24" rx="7" fill="currentColor" /><rect x="7" y="7" width="12" height="4" rx="2" fill="var(--bg)" /><rect x="7" y="15" width="7" height="4" rx="2" fill="var(--cyan)" /></svg>
+          <span className="hidden md:inline">SelfMachine</span>
+        </Link>
+        <nav className="flex flex-1 justify-start gap-0.5 overflow-x-auto [scrollbar-width:none] md:justify-center" aria-label="Principal">
           {AREAS.map((a) => {
-            const active = a.to === '/' ? path === '/' : path.startsWith(a.to);
-            const n = counts[a.key] ?? 0;
+            const active = a.to === '/' ? home : path.startsWith(a.to);
+            const c = counts[a.key];
             return (
-              <li key={a.to}>
-                <Link to={a.to} preload="intent" title={a.label}
-                  className={cx('relative flex h-9 items-center gap-3 rounded-[6px] px-2.5 text-[14px]', active ? 'bg-line text-text' : 'text-text-2 hover:bg-line/50 hover:text-text')}>
-                  <a.icon size={18} style={{ color: active ? a.color : undefined }} className="shrink-0" />
-                  {!collapsed && <span className="flex-1">{a.label}</span>}
-                  {n > 0 && <span className={cx('tabular rounded-full bg-amber px-1.5 text-[11px] font-semibold leading-[18px] text-[var(--on-amber)]', collapsed && 'absolute top-0.5 right-0.5')}>{n}</span>}
-                </Link>
-              </li>
+              <Link key={a.to} to={a.to} preload="intent" className="cc-link" aria-current={active ? 'page' : undefined}>
+                {a.label}{c && c.n > 0 && <span className={cx('cc-count', c.tone)}>{c.n}</span>}
+              </Link>
             );
           })}
-        </ul>
-        <div className="space-y-0.5 border-t border-line p-2">
-          <NavButton collapsed={collapsed} to="/configuracoes" icon={<Settings size={18} />} label="Configurações" active={path.startsWith('/configuracoes')} />
-          <NavAction collapsed={collapsed} onClick={toggleTheme} icon={theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />} label={theme === 'dark' ? 'Tema claro' : 'Tema escuro'} />
-          <NavAction collapsed={collapsed} onClick={() => { setToken(null); location.reload(); }} icon={<LogOut size={18} />} label="Sair" />
-          <NavAction collapsed={collapsed} onClick={() => setCollapsed((c) => !c)} icon={collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />} label="Recolher menu" />
+        </nav>
+        <div className="flex items-center gap-1.5">
+          <button className="cc-pill" onClick={() => setPaletteOpen(true)} aria-label="Buscar">
+            <Search size={16} /><span className="hidden lg:inline">Buscar</span><kbd className="hidden rounded-[5px] border border-line px-1.5 text-[12px] lg:inline">Ctrl K</kbd>
+          </button>
+          <AlertsBell count={alerts} needs={s?.needsYou} />
+          <button className="cc-round" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Tema claro' : 'Tema escuro'} title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}>
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <AccountMenu />
         </div>
-      </nav>
-      <main className="app-bg min-w-0 flex-1 overflow-hidden"><Outlet /></main>
+      </header>
+      <main className={cx('absolute inset-0 min-w-0 overflow-hidden', !home && 'pt-[84px]')}><Outlet /></main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} toggleTheme={toggleTheme} />
-      <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex flex-col gap-2">
+      <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
         {toasts.map((t) => (
-          <div key={t.id} role="status" className={cx('rounded-[10px] border bg-surface px-4 py-3 shadow-lg', t.tone === 'ok' ? 'border-ok/50' : 'border-crit/50')}>{t.text}</div>
+          <div key={t.id} role="status" className={cx('glass rounded-full! px-4 py-2.5', t.tone === 'crit' && 'border-crit/60! text-crit')}>{t.text}</div>
         ))}
       </div>
     </div>
   );
 }
 
-function NavButton({ collapsed, to, icon, label, active }: { collapsed: boolean; to: string; icon: ReactNode; label: string; active: boolean }) {
+/** Sininho: tudo o que precisa de voce (aprovacoes, incidentes, conversas sem resposta). */
+function AlertsBell({ count, needs }: { count: number; needs: any }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', h); document.addEventListener('keydown', k);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k); };
+  }, [open]);
+  const go = (to: string) => { setOpen(false); navigate({ to: to as any }); };
+  const approvals: any[] = needs?.approvals ?? [];
+  const incidents: any[] = (needs?.incidents ?? []).filter((i: any) => i.status === 'OPEN');
+  const unanswered: any[] = needs?.unanswered ?? [];
   return (
-    <Link to={to} title={label} className={cx('flex h-9 items-center gap-3 rounded-[6px] px-2.5', active ? 'bg-line text-text' : 'text-text-2 hover:bg-line/50 hover:text-text')}>
-      {icon}{!collapsed && label}
-    </Link>
+    <div ref={ref} className="relative">
+      <button className="cc-round" onClick={() => setOpen((o) => !o)} aria-label={`Alertas${count ? `: ${count}` : ''}`} aria-expanded={open} aria-haspopup="dialog">
+        <Bell size={18} className={count ? 'text-warn' : undefined} />
+        {count > 0 && <span className={cx('cc-count absolute -top-1 -right-1', incidents.some((i) => i.severity === 'CRITICAL') ? 'crit' : 'warn')}>{count > 99 ? '99+' : count}</span>}
+      </button>
+      {open && (
+        <div className="glass absolute top-[48px] right-0 z-30 max-h-[70vh] bg-surface! w-[min(380px,calc(100vw-24px))] overflow-y-auto p-2" role="dialog" aria-label="Alertas">
+          <p className="px-2 pt-1 pb-2 text-[13px] font-semibold">Precisa de você</p>
+          {count === 0 && <p className="px-2 pb-3 text-[13px] text-text-2">Tudo em dia. Nada esperando você.</p>}
+          {incidents.map((i) => (
+            <AlertRow key={`i${i.id}`} tone={i.severity === 'CRITICAL' ? 'crit' : 'warn'} title={i.title ?? `Incidente #${i.id}`} sub={`Sentinela · ${timeAgo(i.opened_at ?? i.created_at)}`} onClick={() => go('/sentinela')} />
+          ))}
+          {approvals.map((a) => (
+            <AlertRow key={`a${a.id}`} tone="warn" title={`Aprovação #${a.code}`} sub={`${a.contact ?? ''} · ${timeAgo(a.created_at)}`} onClick={() => go('/aprovacoes')} />
+          ))}
+          {unanswered.map((u) => (
+            <AlertRow key={`u${u.id}`} tone="ok" title={u.contact ?? 'Conversa sem resposta'} sub={`Sem resposta · ${timeAgo(u.last_inbound_at)}`} onClick={() => go(`/conversas/${u.id}`)} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
-function NavAction({ collapsed, onClick, icon, label }: { collapsed: boolean; onClick: () => void; icon: ReactNode; label: string }) {
+function AlertRow({ tone, title, sub, onClick }: { tone: 'ok' | 'warn' | 'crit'; title: string; sub: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} title={label} className="flex h-9 w-full cursor-pointer items-center gap-3 rounded-[6px] px-2.5 text-text-2 hover:bg-line/50 hover:text-text">
-      {icon}{!collapsed && label}
+    <button onClick={onClick} className="grid w-full cursor-pointer grid-cols-[10px_1fr] items-center gap-3 rounded-[10px] px-2 py-2 text-left hover:bg-[var(--hover)]">
+      <span className="h-2 w-2 rounded-full" style={{ background: `var(--${tone === 'ok' ? 'cyan' : tone})` }} />
+      <span className="min-w-0"><strong className="block truncate text-[13.5px] font-semibold">{title}</strong><small className="block truncate text-[12.5px] text-text-2">{sub}</small></span>
     </button>
+  );
+}
+
+function AccountMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button className="cc-round border-0! bg-[var(--text)]! font-semibold text-[var(--bg)]!" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label="Conta">G</button>
+      {open && (
+        <div className="glass absolute top-[48px] right-0 z-30 min-w-[190px] bg-surface! rounded-[12px]! p-1.5" role="menu">
+          <button role="menuitem" className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left hover:bg-[var(--hover)]" onClick={() => { setOpen(false); navigate({ to: '/configuracoes' }); }}><Settings size={16} />Configurações</button>
+          <button role="menuitem" className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left hover:bg-[var(--hover)]" onClick={() => { setToken(null); location.reload(); }}><LogOut size={16} />Sair</button>
+        </div>
+      )}
+    </div>
   );
 }

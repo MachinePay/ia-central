@@ -39,7 +39,7 @@ export function Home() {
   const [status, setStatus] = useState<'all' | Status>('all');
   const [q, setQ] = useState('');
   const [area, setArea] = useState<string | null>(null);
-  const [tools, setTools] = useState({ labels: true, flow: true, spin: !matchMedia('(prefers-reduced-motion: reduce)').matches });
+  const [tools, setTools] = useState({ labels: true, flow: true, spin: false });
   const [feed, setFeed] = useState<Array<{ id: string; txt: string; at: string }>>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const data = scene.data;
@@ -113,40 +113,41 @@ export function Home() {
   const areas = data?.areas ?? [];
 
   return (
-    <div className="relative h-full overflow-hidden" style={{ background: 'var(--scene-bg)' }}>
+    <div className="relative h-full overflow-hidden" style={{ background: 'var(--bg)' }}>
       <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full outline-none" aria-label="Maquete 3D da operação. Use a doca de baixo ou a busca para navegar." />
       <div ref={labelsRef} className="cc-labels" />
       <div ref={tipRef} className="cc-tip glass" role="tooltip" />
       {noGl && <Fallback areas={areas} items={data?.items ?? []} onArea={selectArea} />}
 
-      {/* barra superior */}
-      <div className="pointer-events-none absolute top-3 right-3 left-3 z-[5] flex flex-wrap items-center gap-2">
-        <div className="glass pointer-events-auto px-3 py-2">
-          <p className="text-[15px] font-semibold leading-tight">Centro de Comando</p>
-          <p className="text-[12px] text-text-2">{areas.filter((a) => a.kind === 'desks').length} IAs · dados reais, ao vivo</p>
-        </div>
-        <label className="glass pointer-events-auto flex h-10 min-w-[240px] flex-[0_1_340px] items-center gap-2 px-2.5">
+      {/* titulo da pagina */}
+      <div className="pointer-events-none absolute top-[96px] left-7 z-[4] max-w-[44vw] max-md:top-[86px] max-md:left-4 max-md:max-w-none">
+        <h1 className="serif text-[40px] leading-none md:text-[56px]">Início</h1>
+        <p className="mt-2 hidden text-[15px] text-text-2 md:block">A operação inteira, agora. {areas.filter((a) => a.kind === 'desks').length} IAs, dados reais ao vivo.</p>
+      </div>
+
+      {/* controles */}
+      <div className="absolute top-[100px] right-6 z-[5] flex max-w-[62vw] flex-wrap justify-end gap-2 max-md:top-[136px] max-md:right-3 max-md:left-3 max-md:max-w-none max-md:justify-start">
+        <label className="glass flex h-10 min-w-[260px] items-center gap-2 rounded-full! px-3.5 max-md:min-w-0 max-md:flex-[1_1_100%]">
           <Search size={16} className="text-text-2" />
-          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar pessoa, contato, serviço…" aria-label="Buscar no mapa"
+          <input ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="IA, contato, serviço ou site" aria-label="Buscar no mapa"
             onKeyDown={(e) => {
               if (e.key === 'Enter') { const f = sceneRef.current?.firstVisible(); if (f) { sceneRef.current?.focusItem(f.id); setPanel({ kind: 'item', item: f }); } }
               if (e.key === 'Escape') { setQ(''); (e.target as HTMLInputElement).blur(); }
             }}
             className="h-full w-full border-0 bg-transparent text-[14px] outline-none placeholder:text-text-2" />
           {visible !== null && <span className="text-[12px] whitespace-nowrap text-text-2">{visible} itens</span>}
-          <kbd className="rounded border border-line px-1.5 text-[11px] text-text-2">/</kbd>
         </label>
-        <div className="glass pointer-events-auto flex gap-1 p-1" role="group" aria-label="Filtrar por estado">
+        <div className="glass flex gap-0.5 rounded-full! p-[3px]" role="group" aria-label="Filtrar por estado">
           {([['all', 'Todos', null], ['ok', 'Ok', STATUS_COL.ok], ['warn', 'Atenção', STATUS_COL.warn], ['crit', 'Crítico', STATUS_COL.crit]] as const).map(([k, t, c]) => (
             <button key={k} className="cc-chip" aria-pressed={status === k} onClick={() => setStatus(k)}>
-              {c && <span className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />}{t} <span className="text-[12px] opacity-80 tabular">{counts[k]}</span>
+              {c && <span className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />}{t} <span className="text-[12px] opacity-70 tabular">{counts[k]}</span>
             </button>
           ))}
         </div>
-        <button className="glass pointer-events-auto flex h-10 cursor-pointer items-center gap-2 px-3 font-semibold" onClick={() => setPanel({ kind: 'needs' })}>
-          <Bell size={16} className={needsCount ? 'text-amber' : 'text-text-2'} />Precisa de você {needsCount > 0 && <span className="bad warn">{needsCount}</span>}
-        </button>
-        <div className="glass pointer-events-auto ml-auto flex gap-1 p-1" role="group" aria-label="Opções">
+        <div className="glass flex gap-0.5 rounded-full! p-[3px]" role="group" aria-label="Visualização">
+          <button className="cc-chip" aria-pressed={!!panel && panel.kind === 'needs'} onClick={() => setPanel({ kind: 'needs' })}>
+            <Bell size={15} className={needsCount ? 'text-warn' : undefined} />Precisa de você {needsCount > 0 && <span className="bad warn">{needsCount}</span>}
+          </button>
           <button className="cc-chip" aria-pressed={tools.labels} onClick={() => setTools((t) => ({ ...t, labels: !t.labels }))}>Rótulos</button>
           <button className="cc-chip" aria-pressed={tools.flow} onClick={() => setTools((t) => ({ ...t, flow: !t.flow }))}>Mensagens</button>
           <button className="cc-chip" aria-pressed={tools.spin} onClick={() => setTools((t) => ({ ...t, spin: !t.spin }))}>Girar</button>
@@ -154,7 +155,7 @@ export function Home() {
       </div>
 
       {/* linha do tempo */}
-      <section className="glass absolute bottom-[68px] left-3 z-[4] hidden w-[300px] px-3 py-2.5 md:block" aria-label="Últimos eventos">
+      <section className="glass absolute bottom-[80px] left-6 z-[4] hidden w-[300px] rounded-[14px]! px-4 py-3.5 md:block" aria-label="Últimos eventos">
         <h3 className="mb-1.5 text-[13px] font-semibold">Agora</h3>
         <ol aria-live="polite" className="space-y-1.5">
           {feed.length === 0 && <li className="text-[12px] text-text-2">Os eventos aparecem aqui ao vivo.</li>}
@@ -167,7 +168,7 @@ export function Home() {
       </section>
 
       {/* doca */}
-      <nav className="glass absolute bottom-3 left-1/2 z-[5] flex max-w-[calc(100%-24px)] -translate-x-1/2 gap-1 overflow-x-auto p-1" aria-label="Áreas">
+      <nav className="glass absolute bottom-4 left-1/2 z-[5] flex max-w-[calc(100%-24px)] -translate-x-1/2 gap-0.5 overflow-x-auto rounded-full! p-1 [scrollbar-width:none]" aria-label="Áreas">
         <button className="cc-chip" aria-pressed={!area} onClick={goHome}>Visão geral</button>
         {areas.map((a, i) => {
           const list = (data?.items ?? []).filter((it) => it.area === a.id);
@@ -184,7 +185,7 @@ export function Home() {
       </nav>
 
       {/* painel lateral */}
-      <aside className={cx('cc-side glass absolute top-[72px] right-3 bottom-[64px] z-[6] flex w-[min(400px,calc(100%-24px))] flex-col', panel && 'open')} aria-label="Detalhes">
+      <aside className={cx('cc-side glass absolute top-[160px] right-6 bottom-[80px] z-[6] flex w-[min(380px,calc(100%-24px))] flex-col max-md:top-auto max-md:right-3 max-md:left-3 max-md:h-[55%] max-md:w-auto', panel && 'open')} aria-label="Detalhes">
         {panel?.kind === 'area' && <AreaPanel area={areas.find((a) => a.id === panel.id)} areaIndex={areas.findIndex((a) => a.id === panel.id)} items={(data?.items ?? []).filter((i) => i.area === panel.id)} tab={panel.tab}
           setTab={(tab) => setPanel({ ...panel, tab })} onItem={(it) => setPanel({ kind: 'item', item: it })} onClose={() => setPanel(null)} />}
         {panel?.kind === 'item' && <ItemPanel item={panel.item} area={areas.find((a) => a.id === panel.item.area)} onBack={() => setPanel({ kind: 'area', id: panel.item.area, tab: 'conversas' })}
@@ -204,7 +205,7 @@ function describe(type: string, d: any): string {
 function PanelHeader({ title, sub, onClose, color }: { title: string; sub?: string; onClose: () => void; color?: string }) {
   return (
     <header className="flex items-start gap-2 border-b border-line px-4 pt-3.5 pb-2.5" style={color ? { boxShadow: `inset 3px 0 0 ${color}` } : undefined}>
-      <div className="min-w-0 flex-1"><h2 className="text-[19px] font-semibold leading-tight">{title}</h2>{sub && <p className="mt-0.5 text-[13px] text-text-2">{sub}</p>}</div>
+      <div className="min-w-0 flex-1"><h2 className="serif text-[30px] leading-[1.05]">{title}</h2>{sub && <p className="mt-0.5 text-[13px] text-text-2">{sub}</p>}</div>
       <button className="h-8 w-8 cursor-pointer rounded-[6px] border border-line" onClick={onClose} aria-label="Fechar painel"><X size={16} className="mx-auto" /></button>
     </header>
   );
@@ -426,7 +427,7 @@ function NeedsPanel({ needs, onClose }: { needs: any; onClose: () => void }) {
 /** Sem WebGL: lista plana com os mesmos dados e cliques. */
 function Fallback({ areas, items, onArea }: { areas: SceneArea[]; items: SceneItem[]; onArea: (id: string) => void }) {
   return (
-    <div className="absolute inset-0 z-[2] overflow-y-auto p-4 pt-24">
+    <div className="absolute inset-0 z-[2] overflow-y-auto p-4 pt-[200px]">
       <p className="mb-3 text-text-2">Seu navegador não suporta a visão 3D; mostrando a versão plana.</p>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {areas.map((a, i) => (
