@@ -16,6 +16,7 @@ export async function scheduleMaintenance() {
     maintenanceQueue.upsertJobScheduler(name, { pattern, tz: env.TIMEZONE }, { name });
   await every('gmail-watch', '0 6 * * *');          // o watch expira em 7 dias: renova todo dia
   await every('gmail-poll', '* * * * *');           // rede de seguranca do Pub/Sub
+  await every('mail-poll', '* * * * *');            // e-mails IMAP (Uni5, Locaweb...): checa a cada minuto
   await every('approvals', '*/15 * * * *');
   await every('idle-summaries', '*/10 * * * *');
   await every('promises', '0 8 * * 1-5');
@@ -29,6 +30,7 @@ export async function scheduleMaintenance() {
 
 export async function maintenanceWorker(job: Job) {
   switch (job.name) {
+    case 'mail-poll': await ingestQueue.add('mail-poll', {}, { deduplication: { id: 'mail-poll', ttl: 50_000 }, removeOnComplete: 100 }); return;
     case 'gmail-watch': return renewGmailWatch();
     case 'gmail-poll': if (gmailEnabled()) await ingestQueue.add('gmail-sync', {}, { deduplication: { id: 'gmail-sync', ttl: 3000 } }); return;
     case 'approvals': return sweepApprovals();

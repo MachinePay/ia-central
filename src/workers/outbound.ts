@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import { buildMime, mdToHtml, mdToText, sendOrDraft } from '../channels/gmail/gmail.js';
 import { sendPresence, sendText } from '../channels/whatsapp/evolution.js';
+import { mailAccount, sendMail } from '../channels/mail/imap.js';
 import { toBubbles, typingMs } from '../channels/whatsapp/format.js';
 import { getContact, getThread } from '../domain/repo.js';
 import type { Agent, Message } from '../domain/types.js';
@@ -56,7 +57,19 @@ export async function outboundWorker(job: Job) {
       references: [...(meta.references ?? []), meta.messageIdHeader].filter(Boolean).join(' '),
       text: mdToText(body), html: mdToHtml(body),
     });
-    const id = await sendOrDraft(thread.instance, mode, raw, thread.external_id);
+    let id: string | undefined;
+    if (await mailAccount(thread.instance)) {
+      // e-mail IMAP: rascunho fica so no painel; envio pelo SMTP da propria conta
+      if (mode === 'draft') return;
+      id = await sendMail(thread.instance, {
+        fromName: personaFor(thread.instance).name || DISPLAY[agent], to: contact.email!, agent,
+        subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`, inReplyTo: meta.messageIdHeader,
+        references: [...(meta.references ?? []), meta.messageIdHeader].filter(Boolean).join(' '),
+        text: mdToText(body), html: mdToHtml(body),
+      });
+    } else {
+      id = await sendOrDraft(thread.instance, mode, raw, thread.external_id);
+    }
     await q(`UPDATE messages SET status = $2, external_id = coalesce(external_id, $3) WHERE id = $1`,
       [messageId, mode === 'send' ? 'SENT' : 'DRAFT', id ? `gm:${id}` : null]);
   }

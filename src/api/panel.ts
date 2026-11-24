@@ -26,6 +26,7 @@ import { login, readState, requireAuth, signState } from './auth.js';
 import { google } from 'googleapis';
 import { GMAIL_SCOPES, gmailAccounts, oauthClient } from '../channels/gmail/gmail.js';
 import { renewGmailWatch } from '../workers/maintenance.js';
+import { guessServers, mailAccounts, saveAccount, testAccount } from '../channels/mail/imap.js';
 
 const gmailRedirectUri = () => `${env.PUBLIC_URL.replace(/\/$/, '')}/api/gmail/callback`;
 
@@ -729,7 +730,7 @@ export async function panelRoutes(app: FastifyInstance) {
         return { name, role, state };
       }));
       const values = Object.fromEntries(EDITABLE_SETTINGS.map((k) => [k, setting(k)]));
-      const connected = new Set((await gmailAccounts()).map((a) => a.email));
+      const connected = new Set([...(await gmailAccounts()).map((a) => a.email), ...(await mailAccounts()).map((a) => a.email)]);
       const emails = Object.fromEntries(Object.entries(emailsByNumber()).map(([inst, mail]) => [inst, { email: mail, connected: connected.has(mail.toLowerCase()) }]));
       return {
         values, instances, emails, gmailRedirectUri: gmailRedirectUri(), gmailReady: !!(env.GMAIL_CLIENT_ID && env.GMAIL_CLIENT_SECRET),
@@ -814,10 +815,35 @@ export async function panelRoutes(app: FastifyInstance) {
       });
       return { url, redirectUri: gmailRedirectUri() };
     });
+    // e-mail que nao e Google: descobre os servidores pelo dominio
+    api.get('/api/mail/guess', async (req, reply) => {
+      const email = String((req.query as any).email ?? '').trim().toLowerCase();
+      if (!/^[^@s]+@[^@s]+.[^@s]+$/.test(email)) return bad(reply, 'E-mail inválido.');
+      const g = await guessServers(email);
+      return { ...g, google: /google|gmail/i.test(g.provider) };
+    });
+    api.post<{ Params: { instance: string } }>('/api/mail/:instance', async (req, reply) => {
+      const b = z.object({
+        email: z.string().email(), password: z.string().min(1), username: z.string().optional(),
+        imap_host: z.string().min(3), imap_port: z.coerce.number().int(), smtp_host: z.string().min(3), smtp_port: z.coerce.number().int(),
+      }).safeParse(req.body);
+      if (!b.success) return bad(reply, 'Preencha e-mail, senha e servidores.');
+      if (!instanceRoles().has(req.params.instance)) return bad(reply, 'Número não encontrado.', 404);
+      const d = { ...b.data, email: b.data.email.toLowerCase(), username: b.data.username?.trim() || b.data.email.toLowerCase() };
+      try {
+        await testAccount(d, d.password);
+      } catch (e: any) {
+        return bad(reply, String(e.message).slice(0, 300));
+      }
+      await saveAccount({ ...d, instance: req.params.instance });
+      await saveSetting('EMAILS', JSON.stringify({ ...emailsByNumber(), [req.params.instance]: d.email }), user(req));
+      return { ok: true };
+    });
     api.delete<{ Params: { instance: string } }>('/api/gmail/:instance', async (req) => {
       const map = emailsByNumber();
       const email = map[req.params.instance];
       if (email) await q(`DELETE FROM app.gmail_accounts WHERE email = $1`, [email.toLowerCase()]);
+      if (email) await q(`DELETE FROM app.mail_accounts WHERE email = $1`, [email.toLowerCase()]);
       delete map[req.params.instance];
       await saveSetting('EMAILS', JSON.stringify(map), user(req));
       return { ok: true };

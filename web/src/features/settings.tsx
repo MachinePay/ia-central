@@ -152,9 +152,23 @@ function NumberLinks({ name, state, email, gmailReady }: { name: string; state: 
     onSuccess: () => { toast(`WhatsApp do número ${name} desconectado. Agora é só conectar o novo pelo QR.`); void qc.invalidateQueries({ queryKey: ['settings'] }); setQrOpen(true); },
     onError: toastError,
   });
+  const [imap, setImap] = useState<null | { password: string; username: string; imap_host: string; imap_port: number; smtp_host: string; smtp_port: number; provider: string }>(null);
   const connectMail = useMutation({
-    mutationFn: () => api<{ url: string }>(`/api/gmail/connect/${name}?${new URLSearchParams(mail.trim() ? { email: mail.trim() } : {})}`),
-    onSuccess: (r) => { window.location.href = r.url; },
+    mutationFn: async () => {
+      const g = await api<any>(`/api/mail/guess?email=${encodeURIComponent(mail.trim())}`);
+      if (g.google) {
+        if (!gmailReady) throw new Error('Este e-mail é do Google: falta configurar o login do Google no Render (GMAIL_CLIENT_ID e GMAIL_CLIENT_SECRET).');
+        const r = await api<{ url: string }>(`/api/gmail/connect/${name}?${new URLSearchParams({ email: mail.trim() })}`);
+        window.location.href = r.url;
+        return;
+      }
+      setImap({ password: '', username: mail.trim(), imap_host: g.imap_host, imap_port: g.imap_port, smtp_host: g.smtp_host, smtp_port: g.smtp_port, provider: g.provider });
+    },
+    onError: toastError,
+  });
+  const saveImap = useMutation({
+    mutationFn: () => post(`/api/mail/${name}`, { email: mail.trim(), ...imap }),
+    onSuccess: () => { toast(`E-mail ${mail.trim()} conectado ao número ${name}.`); setImap(null); void qc.invalidateQueries({ queryKey: ['settings'] }); },
     onError: toastError,
   });
   const removeMail = useMutation({
@@ -185,10 +199,31 @@ function NumberLinks({ name, state, email, gmailReady }: { name: string; state: 
         ) : (
           <div className="mt-1.5 flex gap-2">
             <input className={cx(inputCls, 'h-8!')} placeholder="email@empresa.com" value={mail} onChange={(e) => setMail(e.target.value)} aria-label={`E-mail do número ${name}`} />
-            <Button size="sm" variant="primary" disabled={!gmailReady} busy={connectMail.isPending} onClick={() => connectMail.mutate()}>Ativar</Button>
+            <Button size="sm" variant="primary" disabled={!mail.includes('@')} busy={connectMail.isPending} onClick={() => connectMail.mutate()}>Ativar</Button>
           </div>
         )}
-        <p className="mt-1 text-[11px] text-text-2">{email?.connected ? 'A IA lê e responde este e-mail como a pessoa deste número.' : 'Abre o login do Google para autorizar a conta.'}</p>
+        {imap && !email?.connected && (
+          <div className="mt-2 space-y-1.5 rounded-[6px] bg-bg/60 p-2">
+            <p className="text-[11px] text-text-2">Provedor: {imap.provider}. Digite a senha do e-mail (se o provedor pedir, use uma senha de aplicativo).</p>
+            <input type="password" autoComplete="new-password" className={cx(inputCls, 'h-8!')} placeholder="Senha do e-mail" value={imap.password} onChange={(e) => setImap({ ...imap, password: e.target.value })} aria-label="Senha do e-mail" />
+            <details className="text-[11px] text-text-2">
+              <summary className="cursor-pointer">Servidores (já preenchidos)</summary>
+              <div className="mt-1 grid grid-cols-[1fr_70px] gap-1.5">
+                <input className={cx(inputCls, 'h-7! text-[12px]')} value={imap.username} onChange={(e) => setImap({ ...imap, username: e.target.value })} aria-label="Usuário" title="Usuário" />
+                <span />
+                <input className={cx(inputCls, 'h-7! text-[12px]')} value={imap.imap_host} onChange={(e) => setImap({ ...imap, imap_host: e.target.value })} aria-label="Servidor de entrada (IMAP)" title="Servidor de entrada (IMAP)" />
+                <input className={cx(inputCls, 'h-7! text-[12px]')} value={imap.imap_port} onChange={(e) => setImap({ ...imap, imap_port: Number(e.target.value) })} aria-label="Porta IMAP" />
+                <input className={cx(inputCls, 'h-7! text-[12px]')} value={imap.smtp_host} onChange={(e) => setImap({ ...imap, smtp_host: e.target.value })} aria-label="Servidor de saída (SMTP)" title="Servidor de saída (SMTP)" />
+                <input className={cx(inputCls, 'h-7! text-[12px]')} value={imap.smtp_port} onChange={(e) => setImap({ ...imap, smtp_port: Number(e.target.value) })} aria-label="Porta SMTP" />
+              </div>
+            </details>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setImap(null)}>Cancelar</Button>
+              <Button size="sm" variant="primary" disabled={!imap.password} busy={saveImap.isPending} onClick={() => saveImap.mutate()}>Testar e conectar</Button>
+            </div>
+          </div>
+        )}
+        <p className="mt-1 text-[11px] text-text-2">{email?.connected ? 'A IA lê e responde este e-mail como a pessoa deste número.' : 'Gmail: abre o login do Google. Outro e-mail (Uni5, Locaweb, Outlook…): pede a senha e testa antes de salvar.'}</p>
       </div>
     </div>
   );

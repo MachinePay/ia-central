@@ -15,6 +15,7 @@ import { handleSentinelCommand } from '../sentinela/commands.js';
 import { answerOwner, ownerReplyTarget } from '../owner/assistant.js';
 import { applyTakeover, handleWhatsappFromMe } from '../takeover.js';
 import { rememberOwnPhone } from '../lib/owners.js';
+import { mailAccounts, pollAccount } from '../channels/mail/imap.js';
 
 const OPT_OUT = /^\s*(parar|pare|sair|stop|descadastrar|n[aã]o quero mais (receber )?mensagens?)\s*[.!]?\s*$/i;
 
@@ -24,6 +25,7 @@ export async function ingestWorker(job: Job) {
     case 'wa-connection': return connectionChanged(job.data.instance, job.data.state);
     case 'gmail-sync': return syncGmail(job.data.account);
     case 'gmail': return ingestGmail(job.data.id, job.data.account);
+    case 'mail-poll': return pollMail();
   }
 }
 
@@ -111,6 +113,21 @@ export async function mediaWorker(job: Job) {
   const content = [msg.content, ...parts].filter(Boolean).join('\n');
   await q(`UPDATE messages SET content = $2, media = $3, status = 'DONE' WHERE id = $1`, [messageId, content, JSON.stringify(media)]);
   if (!job.data.observeOnly) await enqueueRespond(threadId, channel);
+}
+
+// ------------------------------------------------------------------ E-mail IMAP (contas que nao sao Google)
+async function pollMail() {
+  for (const a of await mailAccounts()) {
+    await pollAccount(
+      a,
+      (ev) => persistAndQueue(ev),
+      async (threadKey, text, id) => {
+        // a pessoa respondeu pelo proprio e-mail: guarda no historico e a IA fica quieta naquela conversa
+        const thread = await one<Thread>(`SELECT * FROM threads WHERE channel = 'GMAIL' AND external_id = $1 AND instance = $2`, [threadKey, a.email]);
+        if (thread) await applyTakeover(thread, text || undefined, id);
+      },
+    ).catch((e) => logger.warn({ err: String(e), account: a.email }, 'leitura do e-mail falhou'));
+  }
 }
 
 // ------------------------------------------------------------------ Gmail (uma ou varias contas)
