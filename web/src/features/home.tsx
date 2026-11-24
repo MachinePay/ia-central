@@ -143,13 +143,13 @@ export function Home() {
               {c && <span className="inline-block h-2 w-2 rounded-full" style={{ background: c }} />}{t} <span className="text-[12px] opacity-70 tabular">{counts[k]}</span>
             </button>
           ))}
-        </div>
-        <div className="glass flex gap-0.5 rounded-full! p-[3px]" role="group" aria-label="Visualização">
           <button className="cc-chip" aria-pressed={!!panel && panel.kind === 'needs'} onClick={() => setPanel({ kind: 'needs' })}>
             <Bell size={15} className={needsCount ? 'text-warn' : undefined} />Precisa de você {needsCount > 0 && <span className="bad warn">{needsCount}</span>}
           </button>
+        </div>
+        <div className="glass flex gap-0.5 rounded-full! p-[3px]" role="group" aria-label="Visualização">
           <button className="cc-chip" aria-pressed={tools.labels} onClick={() => setTools((t) => ({ ...t, labels: !t.labels }))}>Rótulos</button>
-          <button className="cc-chip" aria-pressed={tools.flow} onClick={() => setTools((t) => ({ ...t, flow: !t.flow }))}>Mensagens</button>
+          <button className="cc-chip" aria-pressed={tools.flow} onClick={() => setTools((t) => ({ ...t, flow: !t.flow }))}>Fluxos</button>
           <button className="cc-chip" aria-pressed={tools.spin} onClick={() => setTools((t) => ({ ...t, spin: !t.spin }))}>Girar</button>
         </div>
       </div>

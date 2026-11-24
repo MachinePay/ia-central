@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 /**
- * Maquete 3D da operacao (portada do prototipo "Centro de Comando", versao realista).
- * Centro: IA central (orquestrador). Em volta: uma ilha por numero/pessoa e a ilha do Sentinela.
- * A cena e imperativa (Three.js); a interface em volta (busca, doca, painel) e React.
+ * Maquete 3D da operacao, visual neon/holograma.
+ * Centro: IA central (orquestrador, globo de linhas). Em volta: uma plataforma hexagonal por numero/pessoa e a do Sentinela.
+ * Tudo e desenhado com linhas brilhantes + preenchimentos translucidos; o brilho vem do bloom (tema escuro)
+ * e de sprites aditivos. A cena e imperativa (Three.js); a interface em volta (busca, doca, painel) e React.
  */
 
 export type Status = 'ok' | 'warn' | 'crit';
@@ -28,115 +32,128 @@ const esc = (s: string) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', 
 
 type Item = SceneItem & { group?: THREE.Group; mats: THREE.Material[]; dim?: boolean; anim?: any };
 type Area = SceneArea & {
-  x: number; z: number; color: string; g: THREE.Group; baseMat: THREE.MeshStandardMaterial; carpetMat: THREE.MeshStandardMaterial;
-  w: number; d: number; top: number; items: Item[]; label?: HTMLButtonElement; faded?: boolean;
+  x: number; z: number; color: string; g: THREE.Group; mats: THREE.Material[];
+  w: number; d: number; hx: number; hz: number; top: number; items: Item[]; label?: HTMLButtonElement; faded?: boolean;
 };
-type Portal = { id: string; name: string; color: string; x: number; z: number; g?: THREE.Group; inner?: THREE.Mesh; labelPos?: THREE.Vector3 };
+type Portal = { id: string; name: string; color: string; x: number; z: number; g?: THREE.Group; inner?: THREE.Object3D; labelPos?: THREE.Vector3 };
+/** line: traco neon (cor solida); fill: preenchimento translucido; glow: brilho aditivo (vira normal e mais fraco no tema claro) */
+type Kind = 'line' | 'fill' | 'glow';
 
 // ------------------------------------------------------------------ texturas desenhadas
 function radialTex() {
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d')!; const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
 }
-function rrect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
-}
-function tex(c: HTMLCanvasElement) { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
-function screenTex(accent: string) {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 160; const g = c.getContext('2d')!;
-  g.fillStyle = '#0F1218'; g.fillRect(0, 0, 256, 160);
-  g.fillStyle = '#1B2029'; g.fillRect(0, 0, 72, 160);
-  for (let i = 0; i < 6; i++) { g.fillStyle = i === 1 ? accent : '#2A303B'; g.globalAlpha = i === 1 ? 0.6 : 1; rrect(g, 8, 12 + i * 22, 56, 14, 4); g.fill(); }
-  g.globalAlpha = 1;
-  ([[84, 14, 104, 0], [126, 40, 118, 1], [84, 66, 86, 0], [150, 92, 94, 1], [84, 118, 126, 0]] as const).forEach(([x, y, w, me]) => {
-    g.fillStyle = me ? accent : '#2A303B'; g.globalAlpha = me ? 0.8 : 1; rrect(g, x, y, w, 18, 7); g.fill();
-  });
-  g.globalAlpha = 1; return tex(c);
-}
-function kioskTex(accent: string) {
-  const c = document.createElement('canvas'); c.width = 128; c.height = 240; const g = c.getContext('2d')!;
-  g.fillStyle = '#F7F7F8'; g.fillRect(0, 0, 128, 240);
-  g.fillStyle = accent; g.fillRect(0, 0, 128, 26);
-  for (let r = 0; r < 3; r++) for (let k = 0; k < 2; k++) {
-    g.fillStyle = '#E4E6EA'; rrect(g, 8 + k * 60, 36 + r * 58, 52, 50, 6); g.fill();
-    g.fillStyle = r === 0 && k === 0 ? accent : '#C9CDD4'; g.globalAlpha = 0.55; rrect(g, 16 + k * 60, 42 + r * 58, 36, 24, 5); g.fill(); g.globalAlpha = 1;
-  }
-  g.fillStyle = accent; rrect(g, 10, 212, 108, 20, 8); g.fill(); return tex(c);
-}
-function rackTex() {
-  const c = document.createElement('canvas'); c.width = 64; c.height = 160; const g = c.getContext('2d')!;
-  g.fillStyle = '#2A2E35'; g.fillRect(0, 0, 64, 160); g.fillStyle = '#16181D';
-  for (let y = 6; y < 156; y += 6) for (let x = 6; x < 60; x += 6) { g.beginPath(); g.arc(x, y, 1.4, 0, 6.3); g.fill(); }
-  return tex(c);
+function beamTex() {
+  const c = document.createElement('canvas'); c.width = 8; c.height = 128;
+  const g = c.getContext('2d')!; const gr = g.createLinearGradient(0, 0, 0, 128);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.7, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,1)');
+  g.fillStyle = gr; g.fillRect(0, 0, 8, 128); return new THREE.CanvasTexture(c);
 }
 
-// ------------------------------------------------------------------ geometria e materiais
-function rr(w: number, d: number, r: number) {
-  const s = new THREE.Shape(), x = -w / 2, y = -d / 2;
-  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
-  s.lineTo(x + w, y + d - r); s.quadraticCurveTo(x + w, y + d, x + w - r, y + d);
-  s.lineTo(x + r, y + d); s.quadraticCurveTo(x, y + d, x, y + d - r);
-  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s;
+// ------------------------------------------------------------------ construtor de linhas (LineSegments)
+class LB {
+  s: number[] = [];
+  seg(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) { this.s.push(x1, y1, z1, x2, y2, z2); return this; }
+  poly(p: number[][], closed = true) {
+    for (let i = 0; i < p.length - (closed ? 0 : 1); i++) { const a = p[i], b = p[(i + 1) % p.length]; this.seg(a[0], a[1], a[2], b[0], b[1], b[2]); }
+    return this;
+  }
+  rectY(cx: number, y: number, cz: number, w: number, d: number) {
+    return this.poly([[cx - w / 2, y, cz - d / 2], [cx + w / 2, y, cz - d / 2], [cx + w / 2, y, cz + d / 2], [cx - w / 2, y, cz + d / 2]]);
+  }
+  rectZ(cx: number, cy: number, z: number, w: number, h: number) {
+    return this.poly([[cx - w / 2, cy - h / 2, z], [cx + w / 2, cy - h / 2, z], [cx + w / 2, cy + h / 2, z], [cx - w / 2, cy + h / 2, z]]);
+  }
+  box(cx: number, cy: number, cz: number, w: number, h: number, d: number) {
+    this.rectY(cx, cy - h / 2, cz, w, d); this.rectY(cx, cy + h / 2, cz, w, d);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) this.seg(cx + sx * w / 2, cy - h / 2, cz + sz * d / 2, cx + sx * w / 2, cy + h / 2, cz + sz * d / 2);
+    return this;
+  }
+  /** circulo/poligono regular no plano dado */
+  ring(cx: number, cy: number, cz: number, r: number, n: number, plane: 'xz' | 'xy' | 'yz' = 'xz', a0 = 0) {
+    const p: number[][] = [];
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * Math.PI * 2, u = Math.cos(a) * r, v = Math.sin(a) * r;
+      p.push(plane === 'xz' ? [cx + u, cy, cz + v] : plane === 'xy' ? [cx + u, cy + v, cz] : [cx, cy + v, cz + u]);
+    }
+    return this.poly(p);
+  }
+  /** prisma/tronco de n lados entre y1 e y2 */
+  prism(cx: number, cz: number, r1: number, r2: number, y1: number, y2: number, n: number) {
+    this.ring(cx, y1, cz, r1, n); this.ring(cx, y2, cz, r2, n);
+    for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; this.seg(cx + Math.cos(a) * r1, y1, cz + Math.sin(a) * r1, cx + Math.cos(a) * r2, y2, cz + Math.sin(a) * r2); }
+    return this;
+  }
+  geo() { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(this.s, 3)); return g; }
 }
-function slabGeo(w: number, d: number, r: number, depth: number, bevel: number) {
-  const g = new THREE.ExtrudeGeometry(rr(w, d, r), { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 3, curveSegments: 10 });
-  g.rotateX(-Math.PI / 2); g.translate(0, bevel, 0); return g;
+
+const hexPts = (sx: number, sz: number): Array<[number, number]> => [[sx, 0], [sx / 2, sz], [-sx / 2, sz], [-sx, 0], [-sx / 2, -sz], [sx / 2, -sz]];
+/** hexagono (achatado em x) que cobre um retangulo w x d de itens (cantos com folga) */
+function hexDims(kind: SceneArea['kind'], w: number, d: number) {
+  if (kind === 'hub') return { hx: 4.9, hz: 4.9 * 0.866 };
+  const wi = w - 1.2, di = d - 1.0, hz = di / 2 + 0.55;
+  return { hx: Math.max((wi / 2) / (1 - 0.5 * (di / 2) / hz), hz * 1.1547), hz };
 }
-const M = (o: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0, ...o });
-const MAT = {
-  wood: () => M({ color: '#CDB08A', roughness: 0.55 }),
-  metal: () => M({ color: '#B9BEC6', metalness: 1, roughness: 0.32 }),
-  dark: () => M({ color: '#22252B', roughness: 0.5 }),
-  fabric: () => M({ color: '#3A3F48', roughness: 0.95 }),
-  skin: () => M({ color: '#ECE7E1', roughness: 0.6 }),
-  white: () => M({ color: '#F1F2F4', roughness: 0.35 }),
-};
-function shadows(group: THREE.Object3D) {
-  group.traverse((o) => { if ((o as THREE.Mesh).isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; } });
-}
+
 function disposeTree(root: THREE.Object3D) {
   root.traverse((o: any) => {
-    o.geometry?.dispose?.();
-    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m: any) => m?.dispose?.());
+    if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m: any) => { if (m && !m.userData.shared) m.dispose(); });
   });
 }
-
-// three >= r155 usa luzes fisicamente corretas: o prototipo (r147, modo legado) precisa de x PI para o mesmo brilho
-const LEGACY = Math.PI;
+const shared = <T extends { userData: Record<string, any> }>(o: T) => { o.userData.shared = true; return o; };
 
 export class OperationScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(30, 1, 0.1, 400);
   private controls: OrbitControls;
-  private sun = new THREE.DirectionalLight(0xffffff, 1.6 * LEGACY);
-  private fill = new THREE.AmbientLight(0xffffff, 0.15 * LEGACY);
-  private envTex: THREE.Texture | null = null;
+  private composer: EffectComposer;
+  private renderPass: RenderPass;
+  private bloom: UnrealBloomPass;
+  private outPass: OutputPass;
+  private bloomOn = true; private bloomOff = false;
   private RT = radialTex();
-  private RACK_TEX = rackTex();
-  private areaTex: THREE.Texture[] = [];
-  private floorMat = new THREE.MeshStandardMaterial({ color: '#E3E6EA', roughness: 1 });
+  private BEAM = beamTex();
+  // geometrias compartilhadas (nao sao liberadas ao refazer a cena, so no dispose)
+  private G = {
+    ring: shared(new THREE.RingGeometry(0.5, 0.58, 40).rotateX(-Math.PI / 2)),
+    glow: shared(new THREE.PlaneGeometry(1.9, 1.9).rotateX(-Math.PI / 2)),
+    marker: shared(new THREE.EdgesGeometry(new THREE.OctahedronGeometry(0.16))),
+    beam: shared(new THREE.PlaneGeometry(0.08, 1).translate(0, 0.5, 0)),
+    pDesk: shared(new THREE.BoxGeometry(1.8, 1.6, 2.0).translate(0, 0.8, 0.3)),
+    pRack: shared(new THREE.BoxGeometry(0.84, 2.2, 0.76).translate(0, 1.1, 0)),
+    pTotem: shared(new THREE.BoxGeometry(0.8, 2.0, 0.6).translate(0, 1.0, 0)),
+    pHub: shared(new THREE.SphereGeometry(1.5, 16, 12).translate(0, 2.15, 0)),
+  };
+  private proxyMat = shared(new THREE.MeshBasicMaterial({ visible: false }));
+  private floorMat = new THREE.MeshBasicMaterial({ color: '#070A12' });
   private grid?: THREE.GridHelper;
+  private mats = new Set<THREE.Material>();
+  private TK: Record<Kind, number> = { line: 1, fill: 1, glow: 1 };
+  private dark = true;
   private areas: Area[] = [];
   private items: Item[] = [];
   private pickables: THREE.Object3D[] = [];
-  private pulses: Array<{ kind: 'ring' | 'halo'; m: THREE.Mesh; mat: THREE.MeshBasicMaterial; it: Item }> = [];
-  private heads: Array<{ m: THREE.Mesh; base: number; ph: number }> = [];
+  private pulses: Array<{ kind: 'ring' | 'halo'; m: THREE.Object3D; mat: THREE.Material; it: Item }> = [];
+  private heads: Array<{ m: THREE.Object3D; base: number; ph: number }> = [];
   private spinners: THREE.Object3D[] = [];
   private portals: Portal[] = [
     { id: 'wa', name: 'WhatsApp', color: '#3FAE7C', x: -22, z: -2 },
-    { id: 'gm', name: 'Gmail', color: '#E5484D', x: 22, z: -2 },
+    { id: 'gm', name: 'E-mail', color: '#E5484D', x: 22, z: -2 },
   ];
+  private links?: THREE.Group;
+  private linkPaths: Array<{ path: THREE.Vector3[]; col: THREE.Color }> = [];
   private paths = new Map<string, THREE.Vector3[]>();
   private pGeo = new THREE.BufferGeometry();
   private pPos: Float32Array; private pCol: Float32Array;
   private pMat: THREE.PointsMaterial;
   private parts: Array<{ path: THREE.Vector3[]; t: number; speed: number; col: THREE.Color }> = [];
   private flowOn = true; private labelsOn = true;
-  private ambientEvery = 0.9; private ambientAcc = 0;
+  private ambientEvery = 0.6; private ambientAcc = 0;
   private hub?: Item;
   private labels: Array<{ el: HTMLElement; pos: THREE.Vector3 }> = [];
   private ray = new THREE.Raycaster(); private mouse = new THREE.Vector2();
@@ -154,19 +171,18 @@ export class OperationScene {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     if (!this.renderer.getContext()) throw new Error('sem WebGL');
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.pr = Math.min(window.devicePixelRatio || 1, 1.75);
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    this.pr = Math.min(window.devicePixelRatio || 1, 1.5);
     this.renderer.setPixelRatio(this.pr);
 
-    // reflexos suaves de estudio
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const room = new RoomEnvironment();
-    this.envTex = pmrem.fromScene(room, 0.04).texture;
-    room.dispose(); pmrem.dispose();
-    this.scene.environment = this.envTex;
-    this.scene.environmentIntensity = 1;
+    // bloom: o brilho neon de verdade (so no tema escuro; desliga sozinho se o FPS cair)
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(this.renderer, rt);
+    this.renderPass = new RenderPass(this.scene, this.camera);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.35, 0.45);
+    this.outPass = new OutputPass();
+    this.composer.addPass(this.renderPass); this.composer.addPass(this.bloom); this.composer.addPass(this.outPass);
+    this.composer.setPixelRatio(this.pr);
 
     this.camera.position.copy(this.HOME.cam);
     this.controls = new OrbitControls(this.camera, canvas);
@@ -176,16 +192,10 @@ export class OperationScene {
     this.controls.autoRotateSpeed = 0.3; this.controls.autoRotate = false;
     this.controls.addEventListener('start', () => { this.tween = null; });
 
-    this.sun.position.set(14, 30, 18); this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.02;
-    this.fitShadow(30);
-    this.scene.add(this.sun, this.fill);
-
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), this.floorMat);
-    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; this.scene.add(floor);
+    floor.rotation.x = -Math.PI / 2; floor.position.y = -0.01; this.scene.add(floor);
 
-    const MAXP = 320;
+    const MAXP = 360;
     this.pPos = new Float32Array(MAXP * 3); this.pCol = new Float32Array(MAXP * 3);
     this.pGeo.setAttribute('position', new THREE.BufferAttribute(this.pPos, 3));
     this.pGeo.setAttribute('color', new THREE.BufferAttribute(this.pCol, 3));
@@ -213,17 +223,38 @@ export class OperationScene {
     this.raf = requestAnimationFrame(this.loop);
   }
 
-  private fitShadow(ext: number) {
-    const c = this.sun.shadow.camera;
-    Object.assign(c, { left: -ext, right: ext, top: ext, bottom: -ext, near: 1, far: 90 * this.K });
-    c.updateProjectionMatrix();
+  // ------------------------------------------------------------------ materiais neon
+  private val(m: THREE.Material) { const u = m.userData; return (u.base0 ?? 1) * this.TK[(u.kind ?? 'line') as Kind] * (u.dimF ?? 1); }
+  private refresh(m: THREE.Material) { m.opacity = Math.min(1, this.val(m)); }
+  private track<T extends THREE.Material>(m: T, kind: Kind, base: number): T {
+    m.transparent = true; m.depthWrite = false;
+    Object.assign(m.userData, { kind, base0: base, dimF: 1 });
+    if (kind === 'glow') m.blending = this.dark ? THREE.AdditiveBlending : THREE.NormalBlending;
+    this.mats.add(m); this.refresh(m); return m;
+  }
+  private line(color: THREE.ColorRepresentation, base = 0.95) { return this.track(new THREE.LineBasicMaterial({ color }), 'line', base); }
+  private solid(color: THREE.ColorRepresentation, base = 0.95) { return this.track(new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }), 'line', base); }
+  private fill(color: THREE.ColorRepresentation, base = 0.1) { return this.track(new THREE.MeshBasicMaterial({ color }), 'fill', base); }
+  private glow(color: THREE.ColorRepresentation, base = 0.4, map: THREE.Texture | null = this.RT) {
+    return this.track(new THREE.MeshBasicMaterial({ color, map, side: THREE.DoubleSide }), 'glow', base);
+  }
+  private sprite(color: THREE.ColorRepresentation, base = 0.5) { return this.track(new THREE.SpriteMaterial({ color, map: this.RT }), 'glow', base); }
+  private untrack(root: THREE.Object3D) {
+    root.traverse((o: any) => (Array.isArray(o.material) ? o.material : [o.material]).forEach((m: any) => m && this.mats.delete(m)));
+  }
+  /** feixe de luz vertical (dois planos cruzados com gradiente) */
+  private beam(parent: THREE.Object3D, x: number, y: number, z: number, h: number, color: THREE.ColorRepresentation, base = 0.55) {
+    const m = this.glow(color, base, this.BEAM);
+    for (const r of [0, Math.PI / 2]) { const b = new THREE.Mesh(this.G.beam, m); b.position.set(x, y, z); b.scale.y = h; b.rotation.y = r + Math.PI / 4; parent.add(b); }
+    const dot = new THREE.Sprite(this.sprite(color, base)); dot.position.set(x, y + 0.05, z); dot.scale.setScalar(0.9); parent.add(dot);
+    return [m, dot.material];
   }
 
   // ------------------------------------------------------------------ dados
   setData(areasIn: SceneArea[], itemsIn: SceneItem[]) {
     // remove o que existia (ilhas e itens), libera a memoria da GPU e monta de novo
-    for (const a of this.areas) { this.scene.remove(a.g); disposeTree(a.g); a.label?.remove(); }
-    this.areaTex.forEach((t) => t.dispose()); this.areaTex = [];
+    for (const a of this.areas) { this.scene.remove(a.g); this.untrack(a.g); disposeTree(a.g); a.label?.remove(); }
+    if (this.links) { this.scene.remove(this.links); this.untrack(this.links); disposeTree(this.links); this.links = undefined; }
     this.labels = this.labels.filter((l) => !l.el.classList.contains('area'));
     this.areas = []; this.items = []; this.pickables = []; this.pulses = []; this.heads = []; this.spinners = [];
     this.hub = undefined; this.hoverIt = null;
@@ -231,11 +262,11 @@ export class OperationScene {
     // tamanho de cada ilha a partir da quantidade de itens
     const byArea = new Map<string, SceneItem[]>();
     for (const it of itemsIn) { const l = byArea.get(it.area) ?? []; l.push(it); byArea.set(it.area, l); }
-    const sizeOf = (a: SceneArea) => this.areaSize(a.kind, byArea.get(a.id)?.length ?? 0);
+    const sizeOf = (a: SceneArea) => { const s = this.areaSize(a.kind, byArea.get(a.id)?.length ?? 0); return { ...s, ...hexDims(a.kind, s.w, s.d) }; };
     const ring = areasIn.filter((a) => a.kind !== 'hub');
     const sizes = ring.map(sizeOf);
-    const maxW = Math.max(8.6, ...sizes.map((s) => s.w)), maxD = Math.max(6.6, ...sizes.map((s) => s.d));
-    const R = Math.max(13, 3.3 * ring.length, (ring.length * (maxW + 1.2)) / (Math.PI * 2), (6.1 + maxD / 2 + 2) / 0.78);
+    const maxHX = Math.max(5, ...sizes.map((s) => s.hx)), maxHZ = Math.max(3.8, ...sizes.map((s) => s.hz));
+    const R = Math.max(13, 3.3 * ring.length, (ring.length * (maxHX * 1.6 + 1.2)) / (Math.PI * 2), (5.2 + maxHZ + 1.8) / 0.78);
     ring.forEach((a, i) => { (a as any)._i = i; });
     areasIn.forEach((a, idx) => {
       let x = 0, z = 0;
@@ -253,19 +284,18 @@ export class OperationScene {
     for (const A of this.areas) this.layoutItems(A);
     this.items = this.areas.flatMap((a) => a.items);
 
-    // camera, sombra, neblina e portais acompanham o tamanho do anel
+    // camera, neblina e portais acompanham o tamanho do anel
     this.K = Math.max(1, (R + 5) / 17);
     this.HOME.cam.set(32, 33, 40).multiplyScalar(this.K);
     this.controls.maxDistance = Math.max(95, this.HOME.cam.length() * 1.6);
     this.camera.far = 400 * this.K; this.camera.updateProjectionMatrix();
-    this.sun.position.set(14, 30, 18).multiplyScalar(this.K);
-    this.fitShadow(R + 10);
-    const px = R + 9;
+    const px = R + maxHX * 0.5 + 6;
     this.portals.forEach((p, pi) => {
       p.x = pi === 0 ? -px : px;
-      p.g?.position.set(p.x, 0, p.z); p.labelPos?.set(p.x, 4.6, p.z);
+      p.g?.position.set(p.x, 0, p.z); p.labelPos?.set(p.x, 3.4, p.z);
     });
 
+    this.buildLinks();
     this.buildPaths();
     this.applyTheme();
     this.applyFilter();
@@ -287,23 +317,39 @@ export class OperationScene {
 
   private buildArea(a: Area) {
     const g = new THREE.Group(); g.position.set(a.x, 0, a.z); this.scene.add(g);
-    let base: THREE.BufferGeometry, carpet: THREE.BufferGeometry;
-    if (a.kind === 'hub') {
-      base = new THREE.CylinderGeometry(4.5, 4.6, 0.45, 6); base.translate(0, 0.225, 0);
-      carpet = new THREE.CylinderGeometry(3.9, 3.9, 0.04, 6); carpet.translate(0, 0.47, 0);
-    } else {
-      base = slabGeo(a.w, a.d, 0.6, 0.35, 0.05);
-      carpet = slabGeo(a.w - 0.8, a.d - 0.8, 0.4, 0.02, 0.01); carpet.translate(0, 0.44, 0);
+    const H = a.kind === 'hub' ? 0.4 : 0.32;
+    const { hx, hz } = a, col = new THREE.Color(a.color);
+    const pts = hexPts(hx, hz);
+    // corpo translucido (tambem e o alvo do clique na area)
+    const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+    const body = new THREE.ExtrudeGeometry(shape, { depth: H, bevelEnabled: false }); body.rotateX(-Math.PI / 2);
+    const fillM = this.fill(a.color, 0.12);
+    const slab = new THREE.Mesh(body, fillM); slab.userData.area = a.id; slab.renderOrder = -1;
+    // contornos neon: borda de cima/baixo e arestas verticais; anel interno e anel no chao mais fracos
+    const L = new LB();
+    L.poly(pts.map(([x, z]) => [x, H, z])); L.poly(pts.map(([x, z]) => [x, 0.01, z]));
+    for (const [x, z] of pts) L.seg(x, 0.01, z, x, H, z);
+    const edges = new THREE.LineSegments(L.geo(), this.line(a.color, 1));
+    const L2 = new LB(); L2.poly(pts.map(([x, z]) => [x * 0.88, H + 0.005, z * 0.88]));
+    const inner = new THREE.LineSegments(L2.geo(), this.line(a.color, 0.4));
+    const L3 = new LB(); L3.poly(pts.map(([x, z]) => [x * 1.1, 0.012, z * 1.1]));
+    const outer = new THREE.LineSegments(L3.geo(), this.line(a.color, 0.2));
+    // brilho interno no tampo e halo no chao
+    const topGlowM = this.glow(a.color, 0.28);
+    const topGlow = new THREE.Mesh(new THREE.PlaneGeometry(hx * 2, hz * 2).rotateX(-Math.PI / 2), topGlowM); topGlow.position.y = H + 0.01;
+    const haloM = this.glow(a.color, 0.22);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(hx * 2.8, hz * 2.8).rotateX(-Math.PI / 2), haloM); halo.position.y = 0.005;
+    g.add(slab, edges, inner, outer, topGlow, halo); this.pickables.push(slab);
+    const mats: THREE.Material[] = [fillM, edges.material as THREE.Material, inner.material as THREE.Material, outer.material as THREE.Material, topGlowM, haloM];
+    // feixes de luz verticais nos cantos de tras
+    const beamCol = col.clone().lerp(new THREE.Color('#ffffff'), 0.25);
+    if (a.kind === 'hub') mats.push(...this.beam(g, 0, H, 0, 14, beamCol, 0.35));
+    else {
+      const [bx, bz] = pts[(a as any)._i % 2 ? 4 : 5];
+      mats.push(...this.beam(g, bx, 0.01, bz, 7 + ((a as any)._i % 3) * 1.5, beamCol, 0.6));
     }
-    const baseMat = M({ color: '#F3F4F6', roughness: 0.45 });
-    const carpetMat = M({ color: a.color, roughness: 0.98 });
-    const bm = new THREE.Mesh(base, baseMat), cm = new THREE.Mesh(carpet, carpetMat);
-    bm.castShadow = bm.receiveShadow = true; cm.receiveShadow = true;
-    bm.userData.area = cm.userData.area = a.id;
-    g.add(bm, cm); this.pickables.push(bm, cm);
-    Object.assign(a, { g, baseMat, carpetMat, top: 0.47, items: [] });
+    Object.assign(a, { g, mats, top: H, items: [] });
     this.areas.push(a);
-    if (a.kind === 'desks') { this.plant(a, a.w / 2 - 0.55, a.d / 2 - 0.55); this.plant(a, -a.w / 2 + 0.55, -a.d / 2 + 0.55); }
     // rotulo
     const el = document.createElement('button');
     el.className = 'lbl area'; el.style.setProperty('--c', a.color);
@@ -323,151 +369,205 @@ export class OperationScene {
     A.label.setAttribute('aria-label', `${A.name}: ${c.total} itens`);
   }
 
-  private finish(it: Item, group: THREE.Group) {
-    it.group = group; shadows(group);
-    group.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.userData.item = it; this.pickables.push(o); } });
-    it.mats.forEach((m) => { m.userData.base = m.opacity; m.userData.baseT = m.transparent; m.userData.baseDW = m.depthWrite; });
+  /** guarda o grupo no item, cria o alvo invisivel de clique/hover */
+  private finish(it: Item, group: THREE.Group, proxyGeo: THREE.BufferGeometry) {
+    it.group = group;
+    const proxy = new THREE.Mesh(proxyGeo, this.proxyMat); proxy.userData.item = it;
+    group.add(proxy); this.pickables.push(proxy);
   }
-  private marker(g: THREE.Group, it: Item, y: number, z = 0) {
-    const m = new THREE.MeshStandardMaterial({ color: STATUS_COL[it.status], emissive: STATUS_COL[it.status], emissiveIntensity: 0.6, roughness: 0.3 });
-    const o = new THREE.Mesh(new THREE.OctahedronGeometry(0.15), m); o.position.set(0, y, z);
-    g.add(o); it.mats.push(m); this.spinners.push(o);
-    if (it.status === 'crit') {
-      const rm = new THREE.MeshBasicMaterial({ color: STATUS_COL.crit, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.72, 48), rm);
-      ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.03, z); ring.userData.noShadow = true;
-      g.add(ring); it.mats.push(rm); this.pulses.push({ kind: 'ring', m: ring, mat: rm, it });
+  /** status de cada figura: anel + brilho no chao na cor do status; atencao/critico ganham um losango girando em cima */
+  private status(g: THREE.Group, it: Item, markerY: number, z = 0) {
+    const c = STATUS_COL[it.status], ok = it.status === 'ok';
+    const rm = this.glow(c, ok ? 0.45 : 0.9, null);
+    const ring = new THREE.Mesh(this.G.ring, rm); ring.position.set(0, 0.02, z);
+    const gm = this.glow(c, ok ? 0.2 : 0.5);
+    const gl = new THREE.Mesh(this.G.glow, gm); gl.position.set(0, 0.015, z);
+    g.add(ring, gl); it.mats.push(rm, gm);
+    if (!ok) {
+      const mm = this.line(c, 1);
+      const o = new THREE.LineSegments(this.G.marker, mm); o.position.set(0, markerY, z);
+      const sm = this.sprite(c, 0.55); const s = new THREE.Sprite(sm); s.scale.setScalar(0.8); s.position.set(0, markerY, z);
+      g.add(o, s); it.mats.push(mm, sm); this.spinners.push(o);
     }
+    if (it.status === 'crit') this.pulses.push({ kind: 'ring', m: ring, mat: rm, it });
   }
-  private desk(A: Area, it: Item, px: number, pz: number, screen: THREE.Texture) {
+
+  // geometrias holograficas por ilha (uma de cada por ilha, compartilhada entre os itens)
+  private deskGeos() {
+    const L = new LB();
+    L.box(0, 0.72, 0, 1.6, 0.04, 0.72);
+    for (const x of [-0.76, 0.76]) { L.seg(x, 0, -0.32, x, 0.7, -0.32); L.seg(x, 0, 0.32, x, 0.7, 0.32); L.seg(x, 0.04, -0.32, x, 0.04, 0.32); }
+    L.rectZ(0, 1.12, -0.22, 0.82, 0.48); L.seg(0, 0.74, -0.24, 0, 0.88, -0.24); L.rectY(0, 0.745, -0.24, 0.26, 0.14);
+    L.rectY(0, 0.745, 0.08, 0.5, 0.15);
+    // cadeira
+    L.rectY(0, 0.48, 0.74, 0.5, 0.46); L.rectZ(0, 0.8, 0.98, 0.46, 0.5); L.seg(0, 0.48, 0.74, 0, 0.05, 0.74); L.ring(0, 0.04, 0.74, 0.26, 5);
+    // pessoa: tronco em prisma, bracos em linhas
+    L.prism(0, 0.7, 0.2, 0.15, 0.6, 1.12, 6);
+    for (const s of [-1, 1]) { L.seg(s * 0.19, 1.08, 0.7, s * 0.26, 0.86, 0.46); L.seg(s * 0.26, 0.86, 0.46, s * 0.14, 0.8, 0.16); }
+    const H = new LB(); H.ring(0, 0, 0, 0.15, 16, 'xz'); H.ring(0, 0, 0, 0.15, 16, 'xy'); H.ring(0, 0, 0, 0.15, 16, 'yz');
+    const scr = new THREE.PlaneGeometry(0.78, 0.44); scr.translate(0, 1.12, -0.215);
+    return { body: L.geo(), head: H.geo(), screen: scr };
+  }
+  private desk(A: Area, it: Item, px: number, pz: number, G: ReturnType<OperationScene['deskGeos']>) {
     const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
-    const wood = MAT.wood(), metal = MAT.metal(), dark = MAT.dark(), fabric = MAT.fabric(), skin = MAT.skin();
-    const shirt = M({ color: A.color, roughness: 0.85 });
-    const scr = M({ map: screen, emissive: '#ffffff', emissiveMap: screen, emissiveIntensity: it.status === 'ok' ? 0.55 : 0.25, roughness: 0.25 });
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.06, 0.8), wood); top.position.y = 0.74;
-    const legGeo = new THREE.BoxGeometry(0.05, 0.72, 0.05);
-    ([[-0.78, -0.33], [0.78, -0.33], [-0.78, 0.33], [0.78, 0.33]] as const).forEach(([x, z]) => { const l = new THREE.Mesh(legGeo, metal); l.position.set(x, 0.36, z); g.add(l); });
-    const standB = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.02, 0.16), metal); standB.position.set(0, 0.78, -0.22);
-    const standN = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.04), metal); standN.position.set(0, 0.9, -0.25);
-    const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.52, 0.035), dark); bezel.position.set(0, 1.12, -0.22);
-    const mon = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.46), scr); mon.position.set(0, 1.12, -0.2); mon.userData.noShadow = true;
-    const kb = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.16), dark); kb.position.set(0, 0.78, 0.08);
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.48), fabric); seat.position.set(0, 0.48, 0.72);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.55, 0.06), fabric); back.position.set(0, 0.82, 0.97);
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8), metal); stem.position.set(0, 0.24, 0.72);
-    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.03, 5), metal); foot.position.set(0, 0.03, 0.72);
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.32, 6, 14), shirt); body.position.set(0, 0.85, 0.7);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 24, 16), skin); head.position.set(0, 1.33, 0.68);
-    const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.3, 4, 8), shirt); armL.position.set(-0.22, 0.86, 0.5); armL.rotation.x = 1.2;
-    const armR = armL.clone(); armR.position.x = 0.22;
+    const lm = this.line(A.color, 0.95);
+    const body = new THREE.LineSegments(G.body, lm);
+    const head = new THREE.LineSegments(G.head, lm); head.position.set(0, 1.33, 0.7);
+    const sm = this.glow(A.color, it.status === 'ok' ? 0.5 : 0.22, null);
+    const scr = new THREE.Mesh(G.screen, sm);
     this.heads.push({ m: head, base: 1.33, ph: Math.random() * 6.28 });
-    g.add(top, standB, standN, bezel, mon, kb, seat, back, stem, foot, body, head, armL, armR);
-    it.mats = [wood, metal, dark, fabric, skin, shirt, scr];
-    if (it.status !== 'ok') this.marker(g, it, 1.8, 0.68);
-    this.finish(it, g);
+    g.add(body, head, scr);
+    it.mats = [lm, sm];
+    this.status(g, it, 1.8, 0.7);
+    this.finish(it, g, this.G.pDesk);
   }
-  private rack(A: Area, it: Item, px: number, pz: number) {
-    const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
-    const body = M({ color: '#2B2F36', metalness: 0.6, roughness: 0.42 });
-    const door = M({ map: this.RACK_TEX, metalness: 0.5, roughness: 0.5 });
-    const led = new THREE.MeshStandardMaterial({ color: STATUS_COL[it.status], emissive: STATUS_COL[it.status], emissiveIntensity: 1.4 });
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.74, 2.0, 0.66), body); box.position.y = 1.0;
-    const front = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 1.75), door); front.position.set(0, 1.0, 0.331);
-    g.add(box, front);
-    const ledGeo = new THREE.BoxGeometry(0.06, 0.025, 0.01);
-    for (let i = 0; i < 5; i++) { const l = new THREE.Mesh(ledGeo, led); l.position.set(-0.24, 0.3 + i * 0.34, 0.34); l.userData.noShadow = true; g.add(l); }
-    it.mats = [body, door, led];
-    if (it.status !== 'ok') this.marker(g, it, 2.35);
-    this.finish(it, g);
+  private rackGeos() {
+    const L = new LB(); L.box(0, 1, 0, 0.74, 2, 0.66);
+    for (let i = 1; i < 8; i++) L.seg(-0.3, i * 0.25, 0.331, 0.3, i * 0.25, 0.331);
+    L.seg(-0.37, 2, -0.33, 0.37, 2, 0.33); L.seg(0.37, 2, -0.33, -0.37, 2, 0.33);
+    const fill = new THREE.BoxGeometry(0.74, 2, 0.66); fill.translate(0, 1, 0);
+    const led = new THREE.PlaneGeometry(0.1, 0.035);
+    return { lines: L.geo(), fill, led };
   }
-  private totem(A: Area, it: Item, px: number, pz: number, kiosk: THREE.Texture) {
+  private rack(A: Area, it: Item, px: number, pz: number, G: ReturnType<OperationScene['rackGeos']>) {
     const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
-    const shell = M({ color: '#DADDE2', roughness: 0.3, metalness: 0.05 });
-    const metal = MAT.metal();
-    const off = it.status === 'crit';
-    const scr = off ? M({ color: '#14161B', roughness: 0.15, metalness: 0.2 }) : M({ map: kiosk, emissive: '#ffffff', emissiveMap: kiosk, emissiveIntensity: 0.45, roughness: 0.2 });
-    const led = new THREE.MeshStandardMaterial({ color: STATUS_COL[it.status], emissive: STATUS_COL[it.status], emissiveIntensity: 1.3 });
-    const bodyGeo = new THREE.ExtrudeGeometry(rr(0.56, 1.8, 0.12), { depth: 0.22, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 3, curveSegments: 8 });
-    bodyGeo.translate(0, 1.0, -0.11);
-    const body = new THREE.Mesh(bodyGeo, shell);
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.06, 32), metal); base.position.y = 0.03;
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.8), scr); screen.position.set(0, 1.18, 0.135); screen.userData.noShadow = true;
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.02), led); strip.position.set(0, 1.78, 0.135); strip.userData.noShadow = true;
-    g.add(body, base, screen, strip);
-    it.mats = [shell, metal, scr, led];
-    if (off) {
-      const bm = new THREE.MeshBasicMaterial({ map: this.RT, color: STATUS_COL.crit, transparent: true, opacity: 0.5, depthWrite: false });
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), bm); halo.rotation.x = -Math.PI / 2; halo.position.y = 0.02; halo.userData.noShadow = true;
-      g.add(halo); it.mats.push(bm); this.pulses.push({ kind: 'halo', m: halo, mat: bm, it });
+    const lm = this.line(A.color, 0.9), fm = this.fill(A.color, 0.08);
+    const ledM = this.solid(STATUS_COL[it.status], 1), led2 = this.solid(A.color, 0.9);
+    g.add(new THREE.LineSegments(G.lines, lm), new THREE.Mesh(G.fill, fm));
+    for (let i = 0; i < 5; i++) {
+      const l = new THREE.Mesh(G.led, i % 2 ? led2 : ledM); l.position.set(-0.22 + (i % 2) * 0.16, 0.38 + i * 0.34, 0.34); g.add(l);
     }
-    if (it.status !== 'ok') this.marker(g, it, 2.25);
-    this.finish(it, g);
+    it.mats = [lm, fm, ledM, led2];
+    this.status(g, it, 2.4);
+    this.finish(it, g, this.G.pRack);
+  }
+  private totemGeos() {
+    const L = new LB(); L.box(0, 1.0, 0, 0.56, 1.8, 0.22);
+    L.ring(0, 0.02, 0, 0.38, 6); L.ring(0, 0.1, 0, 0.3, 6); L.seg(0, 0.1, 0, 0, 0.1, 0);
+    L.rectZ(0, 1.2, 0.115, 0.42, 0.8);
+    const scr = new THREE.PlaneGeometry(0.42, 0.8); scr.translate(0, 1.2, 0.12);
+    const strip = new THREE.PlaneGeometry(0.3, 0.04); strip.translate(0, 1.78, 0.12);
+    return { lines: L.geo(), screen: scr, strip };
+  }
+  private totem(A: Area, it: Item, px: number, pz: number, G: ReturnType<OperationScene['totemGeos']>) {
+    const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
+    const off = it.status === 'crit';
+    const lm = this.line(off ? STATUS_COL.crit : A.color, 0.9);
+    const sm = this.glow(A.color, off ? 0.05 : 0.4, null);
+    const st = this.solid(STATUS_COL[it.status], 1);
+    g.add(new THREE.LineSegments(G.lines, lm), new THREE.Mesh(G.screen, sm), new THREE.Mesh(G.strip, st));
+    it.mats = [lm, sm, st];
+    this.status(g, it, 2.3);
+    this.finish(it, g, this.G.pTotem);
   }
   private buildHub(A: Area, it: Item) {
     const g = new THREE.Group(); g.position.y = A.top; A.g.add(g);
-    const metal = MAT.metal(), white = MAT.white();
-    const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.9, 1.2, 48), white); ped.position.y = 0.6;
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.06, 48), metal); cap.position.y = 1.23;
-    const glass = new THREE.MeshPhysicalMaterial({ color: '#DCE3FF', roughness: 0.05, metalness: 0, transmission: 0.92, thickness: 0.8, ior: 1.4, clearcoat: 1, clearcoatRoughness: 0.05 });
-    const sphere = new THREE.Mesh(new THREE.SphereGeometry(1.25, 64, 48), glass); sphere.position.y = 2.55; sphere.userData.noShadow = true;
-    const coreMat = new THREE.MeshStandardMaterial({ color: A.color, emissive: A.color, emissiveIntensity: 1.6 });
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45, 2), coreMat); core.position.y = 2.55;
-    const r1 = new THREE.Mesh(new THREE.TorusGeometry(1.85, 0.035, 16, 160), metal); r1.position.y = 2.55; r1.rotation.x = Math.PI / 2 - 0.25;
-    const r2 = new THREE.Mesh(new THREE.TorusGeometry(2.15, 0.025, 16, 160), metal); r2.position.y = 2.55; r2.rotation.set(Math.PI / 2 + 0.5, 0.5, 0);
-    g.add(ped, cap, sphere, core, r1, r2);
-    it.mats = [metal, white, glass, coreMat]; it.anim = { core, r1, r2 };
+    const col = new THREE.Color(A.color), light = col.clone().lerp(new THREE.Color('#ffffff'), 0.45);
+    // pedestal
+    const P = new LB(); P.prism(0, 0, 0.85, 0.55, 0, 0.75, 6); P.ring(0, 0.02, 0, 1.3, 6); P.ring(0, 0.02, 0, 1.6, 48);
+    const pm = this.line(A.color, 0.9);
+    const ped = new THREE.LineSegments(P.geo(), pm);
+    // globo de latitude/longitude
+    const R = 1.35, S = new LB();
+    for (const lat of [-60, -30, 0, 30, 60]) { const a = (lat * Math.PI) / 180; S.ring(0, Math.sin(a) * R, 0, Math.cos(a) * R, 48); }
+    for (let m = 0; m < 12; m++) {
+      const lon = (m / 12) * Math.PI * 2, p: number[][] = [];
+      for (let k = 0; k <= 24; k++) { const a = -Math.PI / 2 + (k / 24) * Math.PI; p.push([Math.cos(a) * R * Math.cos(lon), Math.sin(a) * R, Math.cos(a) * R * Math.sin(lon)]); }
+      S.poly(p, false);
+    }
+    const gm = this.line(A.color, 0.9);
+    const globe = new THREE.LineSegments(S.geo(), gm); globe.position.y = 2.15;
+    const cm = this.line(light, 1);
+    const core = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(0.45, 1)), cm); core.position.y = 2.15;
+    const glowM = this.sprite(A.color, 0.55), coreGM = this.sprite(light, 0.8);
+    const glowS = new THREE.Sprite(glowM); glowS.scale.setScalar(6); glowS.position.y = 2.15;
+    const coreS = new THREE.Sprite(coreGM); coreS.scale.setScalar(1.8); coreS.position.y = 2.15;
+    const rm = this.line(light, 0.7);
+    const r1 = new THREE.LineSegments(new LB().ring(0, 0, 0, 1.85, 96, 'xy').geo(), rm); r1.position.y = 2.15; r1.rotation.x = Math.PI / 2 - 0.25;
+    const r2 = new THREE.LineSegments(new LB().ring(0, 0, 0, 2.15, 96, 'xy').geo(), rm); r2.position.y = 2.15; r2.rotation.set(Math.PI / 2 + 0.5, 0.5, 0);
+    g.add(ped, globe, core, glowS, coreS, r1, r2);
+    it.mats = [pm, gm, cm, glowM, coreGM, rm]; it.anim = { core, r1, r2, globe };
     this.hub = it;
-    this.finish(it, g);
-  }
-  private plant(A: Area, x: number, z: number) {
-    const g = new THREE.Group(); g.position.set(x, 0.47, z); A.g.add(g);
-    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.17, 0.38, 24), MAT.white()); pot.position.y = 0.19;
-    const leafMat = M({ color: '#4E7A58', roughness: 0.9 });
-    ([[0, 0.62, 0, 0.3], [0.13, 0.82, 0.06, 0.22], [-0.12, 0.78, -0.05, 0.2], [0.02, 1.0, -0.02, 0.16]] as const).forEach(([px, py, pz, r]) => {
-      const l = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), leafMat); l.position.set(px, py, pz); g.add(l);
-    });
-    g.add(pot); shadows(g);
+    this.finish(it, g, this.G.pHub);
   }
   private layoutItems(A: Area) {
     const list = A.items;
     if (A.kind === 'hub') { const h = list[0]; if (h) this.buildHub(A, h); }
     else if (A.kind === 'desks') {
-      const screen = screenTex(A.color); this.areaTex.push(screen);
+      const G = this.deskGeos();
       const cols = list.length > 6 ? 4 : 3, rows = Math.max(1, Math.ceil(list.length / cols));
       const sx = cols === 4 ? 1.95 : 2.5, sz = 2.6;
-      list.forEach((it, i) => { const c = i % cols, r = Math.floor(i / cols); this.desk(A, it, (c - (cols - 1) / 2) * sx, (r - (rows - 1) / 2) * sz - 0.45, screen); });
+      list.forEach((it, i) => { const c = i % cols, r = Math.floor(i / cols); this.desk(A, it, (c - (cols - 1) / 2) * sx, (r - (rows - 1) / 2) * sz - 0.45, G); });
     } else if (A.kind === 'totems') {
-      const kiosk = kioskTex(A.color); this.areaTex.push(kiosk);
+      const G = this.totemGeos();
       const rows = Math.max(1, Math.ceil(list.length / 5));
-      list.forEach((it, i) => { const c = i % 5, r = Math.floor(i / 5); this.totem(A, it, (c - 2) * 2.2, (r - (rows - 1) / 2) * 2.0, kiosk); });
+      list.forEach((it, i) => { const c = i % 5, r = Math.floor(i / 5); this.totem(A, it, (c - 2) * 2.2, (r - (rows - 1) / 2) * 2.0, G); });
     } else {
+      const G = this.rackGeos();
       const cols = Math.max(5, Math.ceil(Math.sqrt(list.length * 1.3))), rows = Math.max(1, Math.ceil(list.length / cols));
-      list.forEach((it, i) => { const c = i % cols, r = Math.floor(i / cols); this.rack(A, it, (c - (cols - 1) / 2) * 1.5, (r - (rows - 1) / 2) * 1.95); });
+      list.forEach((it, i) => { const c = i % cols, r = Math.floor(i / cols); this.rack(A, it, (c - (cols - 1) / 2) * 1.5, (r - (rows - 1) / 2) * 1.95, G); });
     }
     this.refreshLabel(A);
   }
 
-  // ------------------------------------------------------------------ portais e particulas
+  // ------------------------------------------------------------------ portais, ligacoes e particulas
   private buildPortals() {
     for (const p of this.portals) {
       const g = new THREE.Group(); g.position.set(p.x, 0, p.z); this.scene.add(g);
-      const metal = MAT.metal();
-      const frame = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.09, 20, 96), metal); frame.position.y = 2.35; frame.rotation.y = Math.PI / 2;
-      const lightMat = new THREE.MeshStandardMaterial({ color: p.color, emissive: p.color, emissiveIntensity: 1.5 });
-      const inner = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.025, 12, 96), lightMat); inner.position.y = 2.35; inner.rotation.y = Math.PI / 2;
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.85, 0.5, 48), MAT.white()); base.position.y = 0.25;
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.7, 16), metal); post.position.y = 0.7;
-      g.add(frame, inner, base, post); shadows(g); p.g = g; p.inner = inner;
+      const light = new THREE.Color(p.color).lerp(new THREE.Color('#ffffff'), 0.35);
+      const tm = this.solid(p.color, 1);
+      const torus = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.06, 10, 96), tm); torus.rotation.x = Math.PI / 2; torus.position.y = 0.35;
+      const t2 = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.025, 8, 96), tm); t2.rotation.x = Math.PI / 2; t2.position.y = 0.55;
+      const im = this.line(light, 0.85);
+      const inner = new THREE.LineSegments(new LB().ring(0, 0, 0, 0.95, 64, 'xy').geo(), im); inner.position.y = 1.25;
+      const hm = this.line(p.color, 0.4);
+      const hex = new THREE.LineSegments(new LB().poly(hexPts(2.2, 2.2 * 0.866).map(([x, z]) => [x, 0.012, z])).geo(), hm);
+      const gm = this.glow(p.color, 0.7);
+      const gl = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 5.5).rotateX(-Math.PI / 2), gm); gl.position.y = 0.01;
+      const sm = this.sprite(p.color, 0.45);
+      const s = new THREE.Sprite(sm); s.scale.setScalar(3.6); s.position.y = 0.6;
+      g.add(torus, t2, inner, hex, gl, s);
+      this.beam(g, 0, 0.01, 0, 6, light, 0.45);
+      p.g = g; p.inner = inner;
       const el = document.createElement('span'); el.className = 'lbl portal'; el.style.setProperty('--c', p.color); el.textContent = p.name;
-      p.labelPos = new THREE.Vector3(p.x, 4.6, p.z);
+      p.labelPos = new THREE.Vector3(p.x, 3.4, p.z);
       this.labelsEl.appendChild(el); this.labels.push({ el, pos: p.labelPos });
+    }
+  }
+  /** linhas neon no chao: hub -> cada ilha e portais -> hub */
+  private buildLinks() {
+    const g = new THREE.Group(); this.scene.add(g); this.links = g; this.linkPaths = [];
+    const hubA = this.areas.find((a) => a.kind === 'hub');
+    const hx = hubA?.x ?? 0, hz = hubA?.z ?? 0, hr = hubA ? hubA.hz + 0.3 : 0.5;
+    const edge = (A: { hx: number; hz: number }, dx: number, dz: number) => 1 / Math.hypot(dx / (A.hx * 1.02), dz / (A.hz * 1.02));
+    const seg = (x1: number, z1: number, x2: number, z2: number, color: string, base: number) => {
+      const L = new LB(); L.seg(x1, 0.03, z1, x2, 0.03, z2);
+      // tracinhos paralelos dao corpo a linha
+      const nx = -(z2 - z1), nz = x2 - x1, nl = Math.hypot(nx, nz) || 1, o = 0.09;
+      L.seg(x1 + (nx / nl) * o, 0.025, z1 + (nz / nl) * o, x2 + (nx / nl) * o, 0.025, z2 + (nz / nl) * o);
+      L.seg(x1 - (nx / nl) * o, 0.025, z1 - (nz / nl) * o, x2 - (nx / nl) * o, 0.025, z2 - (nz / nl) * o);
+      const m = this.line(color, base); g.add(new THREE.LineSegments(L.geo(), m));
+      const path = new THREE.LineCurve3(new THREE.Vector3(x1, 0.12, z1), new THREE.Vector3(x2, 0.12, z2)).getSpacedPoints(40);
+      this.linkPaths.push({ path, col: new THREE.Color(color) });
+      return m;
+    };
+    for (const A of this.areas) {
+      if (A.kind === 'hub') continue;
+      const dx = A.x - hx, dz = A.z - hz, l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l;
+      const e = edge(A, ux, uz);
+      if (l - e - hr < 0.5) continue;
+      A.mats.push(seg(hx + ux * hr, hz + uz * hr, A.x - ux * e, A.z - uz * e, A.color, 0.55));
+    }
+    for (const p of this.portals) {
+      const dx = hx - p.x, dz = hz - p.z, l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l;
+      seg(p.x + ux * 2.2, p.z + uz * 2.2, hx - ux * hr, hz - uz * hr, p.color, 0.3);
     }
   }
   private buildPaths() {
     this.paths.clear(); this.parts = [];
     this.portals.forEach((p, pi) => this.areas.filter((a) => a.kind === 'desks').forEach((a) => {
       const curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(p.x, 2.35, p.z), new THREE.Vector3(p.x * 0.55, 4.8, p.z * 0.5),
+        new THREE.Vector3(p.x, 1.25, p.z), new THREE.Vector3(p.x * 0.55, 4.8, p.z * 0.5),
         new THREE.Vector3(0, 2.55, 0), new THREE.Vector3(a.x * 0.5, 4.6, a.z * 0.5), new THREE.Vector3(a.x, 1.9, a.z),
       ]);
       this.paths.set(`${pi}:${a.id}`, curve.getSpacedPoints(160));
@@ -481,19 +581,24 @@ export class OperationScene {
     for (let i = 0; i < n; i++) this.parts.push({ path, t: -i * 0.025, speed: 0.2 + Math.random() * 0.06, col: new THREE.Color(this.portals[pi].color) });
   }
   private updateParticles(dt: number) {
-    if (this.flowOn && this.paths.size) {
+    if (this.flowOn && (this.paths.size || this.linkPaths.length)) {
       this.ambientAcc += dt;
       if (this.ambientAcc > this.ambientEvery) {
         this.ambientAcc = 0;
-        const keys = [...this.paths.keys()];
-        const k = keys[Math.floor(Math.random() * keys.length)];
-        this.parts.push({ path: this.paths.get(k)!, t: 0, speed: 0.16 + Math.random() * 0.05, col: new THREE.Color(this.portals[+k[0]].color).multiplyScalar(0.7) });
+        if (this.linkPaths.length && (!this.paths.size || Math.random() < 0.55)) {
+          const l = this.linkPaths[Math.floor(Math.random() * this.linkPaths.length)];
+          this.parts.push({ path: l.path, t: 0, speed: 0.35 + Math.random() * 0.15, col: l.col.clone().multiplyScalar(0.9) });
+        } else {
+          const keys = [...this.paths.keys()];
+          const k = keys[Math.floor(Math.random() * keys.length)];
+          this.parts.push({ path: this.paths.get(k)!, t: 0, speed: 0.16 + Math.random() * 0.05, col: new THREE.Color(this.portals[+k[0]].color).multiplyScalar(0.7) });
+        }
       }
     }
     let n = 0;
     for (let i = this.parts.length - 1; i >= 0; i--) { this.parts[i].t += this.parts[i].speed * dt; if (this.parts[i].t >= 1) this.parts.splice(i, 1); }
     for (const p of this.parts) {
-      if (p.t < 0 || n >= 320) continue;
+      if (p.t < 0 || n >= 360) continue;
       const L = p.path.length - 1, f = p.t * L, i0 = Math.floor(f), k = f - i0;
       const a = p.path[i0], b = p.path[Math.min(L, i0 + 1)];
       this.pPos[n * 3] = a.x + (b.x - a.x) * k; this.pPos[n * 3 + 1] = a.y + (b.y - a.y) * k; this.pPos[n * 3 + 2] = a.z + (b.z - a.z) * k;
@@ -506,24 +611,22 @@ export class OperationScene {
 
   // ------------------------------------------------------------------ tema, filtros, camera
   applyTheme() {
-    const dark = isDark();
-    const bg = new THREE.Color(css('--scene-bg') || css('--bg') || (dark ? '#101217' : '#E6E8EC'));
-    this.scene.background = bg; this.scene.fog = new THREE.Fog(bg, 60 * this.K, 150 * this.K);
-    this.floorMat.color.set(css('--floor') || (dark ? '#0D0F13' : '#DCE0E5'));
+    const dark = isDark(); this.dark = dark;
+    const bg = new THREE.Color(css('--scene-bg') || css('--bg') || (dark ? '#05070D' : '#E6E8EC'));
+    this.scene.background = bg; this.scene.fog = new THREE.Fog(bg, 70 * this.K, 170 * this.K);
+    this.floorMat.color.set(css('--floor') || (dark ? '#070A12' : '#DCE0E5'));
     if (this.grid) { this.scene.remove(this.grid); this.grid.geometry.dispose(); (this.grid.material as THREE.Material).dispose(); }
-    const gc = css('--grid') || (dark ? '#1F232A' : '#C6CCD4');
+    const gc = css('--grid') || (dark ? '#141A2A' : '#C6CCD4');
     this.grid = new THREE.GridHelper(200, 100, gc, gc);
-    const gm = this.grid.material as THREE.Material; gm.transparent = true; gm.opacity = 0.55;
-    this.grid.position.y = 0.003; this.scene.add(this.grid);
-    this.renderer.toneMappingExposure = dark ? 0.8 : 0.78;
-    this.sun.intensity = (dark ? 1.1 : 1.6) * LEGACY; this.fill.intensity = (dark ? 0.08 : 0.15) * LEGACY;
-    const isl = new THREE.Color(css('--island') || css('--slab-base') || (dark ? '#2A2E36' : '#EEF0F3'));
-    const mix = dark ? new THREE.Color('#1A1D23') : new THREE.Color('#FFFFFF');
-    for (const A of this.areas) {
-      A.baseMat.color.copy(isl);
-      const off = A.state && A.state !== 'open';
-      A.carpetMat.color.set(off ? STATUS_COL.crit : A.color).lerp(mix, dark ? 0.62 : 0.22);
+    const gm = this.grid.material as THREE.Material; gm.transparent = true; gm.opacity = dark ? 0.4 : 0.55; gm.depthWrite = false;
+    this.grid.position.y = 0.002; this.scene.add(this.grid);
+    // tema claro: mesmas linhas neon, preenchimento um pouco mais forte e brilho bem mais fraco (sem bloom)
+    this.TK = dark ? { line: 1, fill: 0.75, glow: 0.45 } : { line: 1, fill: 1.6, glow: 0.4 };
+    for (const m of this.mats) {
+      if (m.userData.kind === 'glow') { const b = dark ? THREE.AdditiveBlending : THREE.NormalBlending; if (m.blending !== b) { m.blending = b; m.needsUpdate = true; } }
+      this.refresh(m);
     }
+    this.bloomOn = dark && !this.bloomOff;
     this.pMat.blending = dark ? THREE.AdditiveBlending : THREE.NormalBlending; this.pMat.needsUpdate = true;
     this.pMat.size = dark ? 0.42 : 0.5;
   }
@@ -531,13 +634,7 @@ export class OperationScene {
   private norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   private setDim(it: Item, dim: boolean) {
     if (it.dim === dim) return; it.dim = dim;
-    for (const m of it.mats) {
-      const t = dim || m.userData.baseT === true;
-      if (m.transparent !== t) { m.transparent = t; m.needsUpdate = true; }
-      m.opacity = (m.userData.base ?? 1) * (dim ? 0.12 : 1);
-      m.depthWrite = dim ? false : m.userData.baseDW !== false;
-    }
-    it.group?.traverse((o) => { if ((o as THREE.Mesh).isMesh && !o.userData.noShadow) o.castShadow = !dim; });
+    for (const m of it.mats) { m.userData.dimF = dim ? 0.12 : 1; this.refresh(m); }
   }
   private applyFilter(): number {
     const q = this.norm(this.filter.q.trim());
@@ -553,7 +650,7 @@ export class OperationScene {
       const faded = !!((this.filter.area && this.filter.area !== A.id) || (A.items.length > 0 && !A.items.some((i) => !i.dim)));
       if (A.faded !== faded) {
         A.faded = faded;
-        for (const m of [A.baseMat, A.carpetMat]) { m.transparent = faded; m.opacity = faded ? 0.45 : 1; m.depthWrite = !faded; m.needsUpdate = true; }
+        for (const m of A.mats) { m.userData.dimF = faded ? 0.3 : 1; this.refresh(m); }
       }
       A.label?.classList.toggle('dim', faded);
     }
@@ -598,8 +695,9 @@ export class OperationScene {
   }
   private setHover(it: Item | null) {
     if (this.hoverIt === it) return;
-    if (this.hoverIt?.group) this.hoverIt.group.scale.setScalar(1);
-    this.hoverIt = it; if (it?.group && it !== this.hub) it.group.scale.setScalar(1.06);
+    if (this.hoverIt?.group) { this.hoverIt.group.scale.setScalar(1); for (const m of this.hoverIt.mats) this.refresh(m); }
+    this.hoverIt = it;
+    if (it?.group && it !== this.hub) { it.group.scale.setScalar(1.08); for (const m of it.mats) m.opacity = Math.min(1, this.val(m) * 1.5); }
   }
   private handleMove() {
     const ev = this.pendingMove; this.pendingMove = null; if (!ev) return;
@@ -617,7 +715,9 @@ export class OperationScene {
   }
   private resize() {
     const p = this.canvas.parentElement!; this.W = p.clientWidth; this.H = p.clientHeight;
-    this.renderer.setSize(this.W, this.H, false); this.camera.aspect = this.W / Math.max(1, this.H); this.camera.updateProjectionMatrix();
+    this.renderer.setSize(this.W, this.H, false);
+    this.composer.setPixelRatio(this.pr); this.composer.setSize(Math.max(1, this.W), Math.max(1, this.H));
+    this.camera.aspect = this.W / Math.max(1, this.H); this.camera.updateProjectionMatrix();
   }
   private vtmp = new THREE.Vector3();
   private updateLabels() {
@@ -640,28 +740,31 @@ export class OperationScene {
     this.controls.update();
     if (!reduce()) {
       const h = this.hub?.anim;
-      if (h) { h.r1.rotation.z += dt * 0.45; h.r2.rotation.z -= dt * 0.3; h.core.rotation.y += dt * 0.6; h.core.scale.setScalar(1 + Math.sin(this.time * 1.6) * 0.05); }
-      for (const s of this.spinners) s.rotation.y += dt * 1.4;
-      for (const hd of this.heads) hd.m.position.y = hd.base + Math.sin(this.time * 2 + hd.ph) * 0.018;
-      for (const p of this.pulses) {
-        const k = (Math.sin(this.time * Math.PI) + 1) / 2, dimF = p.it.dim ? 0.12 : 1, base = p.mat.userData.base ?? 0.55;
-        if (p.kind === 'ring') { p.m.scale.setScalar(1 + k * 0.5); p.mat.opacity = base * dimF * (1 - k * 0.6); }
-        else { p.m.scale.setScalar(0.9 + k * 0.25); p.mat.opacity = base * dimF * (0.5 + k * 0.5); }
+      if (h) {
+        h.r1.rotation.z += dt * 0.45; h.r2.rotation.z -= dt * 0.3; h.globe.rotation.y += dt * 0.25;
+        h.core.rotation.y += dt * 0.6; h.core.scale.setScalar(1 + Math.sin(this.time * 1.6) * 0.06);
       }
-      for (const p of this.portals) if (p.inner) p.inner.rotation.x += dt * 0.8;
+      for (const s of this.spinners) s.rotation.y += dt * 1.4;
+      for (const hd of this.heads) hd.m.position.y = hd.base + Math.sin(this.time * 2 + hd.ph) * 0.02;
+      for (const p of this.pulses) {
+        const k = (Math.sin(this.time * Math.PI) + 1) / 2, v = this.val(p.mat);
+        if (p.kind === 'ring') { p.m.scale.setScalar(1 + k * 0.6); p.mat.opacity = v * (1 - k * 0.6); }
+        else { p.m.scale.setScalar(0.9 + k * 0.25); p.mat.opacity = v * (0.5 + k * 0.5); }
+      }
+      for (const p of this.portals) if (p.inner) p.inner.rotation.y += dt * 0.8;
       this.updateParticles(dt);
     } else if (this.flowOn) this.updateParticles(dt * 0.4);
-    this.renderer.render(this.scene, this.camera);
+    if (this.bloomOn) this.composer.render(dt); else this.renderer.render(this.scene, this.camera);
     this.updateLabels();
     this.frames++; this.acc += dt;
     if (this.acc > 2) {
       const fps = this.frames / this.acc;
       if (fps < 40) {
-        // degrada aos poucos: resolucao, depois sombra menor, depois sem sombra
+        // degrada aos poucos: resolucao, depois sem bloom (fica so o brilho dos sprites), depois menos particulas
         this.lowSteps++;
         if (this.lowSteps === 1 && this.pr > 1) { this.pr = 1; this.renderer.setPixelRatio(1); this.resize(); }
-        else if (this.lowSteps === 2) { this.sun.shadow.mapSize.set(1024, 1024); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
-        else if (this.lowSteps === 3) { this.sun.castShadow = false; this.ambientEvery = 2; }
+        else if (this.lowSteps === 2) { this.bloomOff = true; this.bloomOn = false; }
+        else if (this.lowSteps === 3) { this.ambientEvery = 2; }
       }
       this.frames = 0; this.acc = 0;
     }
@@ -674,9 +777,10 @@ export class OperationScene {
     this.controls.dispose();
     this.labelsEl.innerHTML = '';
     disposeTree(this.scene);
-    this.areaTex.forEach((t) => t.dispose()); this.areaTex = [];
-    this.RT.dispose(); this.RACK_TEX.dispose(); this.envTex?.dispose(); this.envTex = null;
-    this.sun.shadow.map?.dispose();
+    Object.values(this.G).forEach((g) => g.dispose()); this.proxyMat.dispose();
+    this.mats.clear();
+    this.RT.dispose(); this.BEAM.dispose();
+    this.renderPass.dispose(); this.bloom.dispose(); this.outPass.dispose(); this.composer.dispose();
     this.renderer.dispose();
   }
 }

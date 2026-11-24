@@ -26,7 +26,7 @@ function useTheme(): ['light' | 'dark', () => void] {
   const sys = () => (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try { const t = localStorage.getItem('cc.theme2'); if (t === 'light' || t === 'dark') return t; } catch { /* ok */ }
-    return sys();
+    return 'dark'; // padrao: escuro neon (o claro continua no botao)
   });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

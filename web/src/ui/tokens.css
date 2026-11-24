@@ -7,13 +7,13 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-  --bg: #101217; --surface: #1A1D23; --line: #2A2E36; --text: #EEF0F3; --text-2: #9AA1AD; --amber: #F0B45A; --cyan: #8EA2FF; --ok: #4CC38A; --warn: #F0B45A; --crit: #FF6B6B; --idle: #6B7280; --lilac: #B39DFF; --coral: #FF9470; --on-amber: #14161B;
-  --glass: rgba(24,27,33,.72); --hover: rgba(238,240,243,.07); --shadow: 0 10px 30px rgba(0,0,0,.35); --floor: #0D0F13; --grid: #1F232A; --grid-strong: #2A2F38; --island: #2A2E36; --scene-bg: #101217; --accent-ink: #0E1014; color-scheme: dark;
+  --bg: #05070D; --surface: #0C1120; --line: #1B2438; --text: #EEF2FA; --text-2: #8C96AD; --amber: #F5B84A; --cyan: #6E8BFF; --ok: #3DDC97; --warn: #F5B84A; --crit: #FF5C7A; --idle: #5B657A; --lilac: #B48CFF; --coral: #FF8A5C; --on-amber: #0A0D16;
+  --glass: rgba(10,14,26,.78); --hover: rgba(238,242,250,.07); --shadow: 0 10px 34px rgba(0,0,0,.55), 0 0 0 1px rgba(110,139,255,.04); --floor: #070A12; --grid: #111A2C; --grid-strong: #1B2640; --island: #141C30; --scene-bg: #05070D; --accent-ink: #05070D; color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --bg: #101217; --surface: #1A1D23; --line: #2A2E36; --text: #EEF0F3; --text-2: #9AA1AD; --amber: #F0B45A; --cyan: #8EA2FF; --ok: #4CC38A; --warn: #F0B45A; --crit: #FF6B6B; --idle: #6B7280; --lilac: #B39DFF; --coral: #FF9470; --on-amber: #14161B;
-  --glass: rgba(24,27,33,.72); --hover: rgba(238,240,243,.07); --shadow: 0 10px 30px rgba(0,0,0,.35); --floor: #0D0F13; --grid: #1F232A; --grid-strong: #2A2F38; --island: #2A2E36; --scene-bg: #101217; --accent-ink: #0E1014; color-scheme: dark;
+  --bg: #05070D; --surface: #0C1120; --line: #1B2438; --text: #EEF2FA; --text-2: #8C96AD; --amber: #F5B84A; --cyan: #6E8BFF; --ok: #3DDC97; --warn: #F5B84A; --crit: #FF5C7A; --idle: #5B657A; --lilac: #B48CFF; --coral: #FF8A5C; --on-amber: #0A0D16;
+  --glass: rgba(10,14,26,.78); --hover: rgba(238,242,250,.07); --shadow: 0 10px 34px rgba(0,0,0,.55), 0 0 0 1px rgba(110,139,255,.04); --floor: #070A12; --grid: #111A2C; --grid-strong: #1B2640; --island: #141C30; --scene-bg: #05070D; --accent-ink: #05070D; color-scheme: dark;
 }
 :root[data-theme='light'] {
   --bg: #E6E8EC; --surface: #FFFFFF; --line: #D9DDE3; --text: #14161B; --text-2: #5C6370; --amber: #B7791F; --cyan: #3253FF; --ok: #1F8A5B; --warn: #B7791F; --crit: #D2353F; --idle: #8A909B; --lilac: #7A5AF8; --coral: #D9643F; --on-amber: #FFFFFF;
