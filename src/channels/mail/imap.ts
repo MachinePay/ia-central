@@ -26,6 +26,7 @@ export function encrypt(text: string): string {
   const data = Buffer.concat([c.update(text, 'utf8'), c.final()]);
   return [iv, c.getAuthTag(), data].map((b) => b.toString('base64')).join('.');
 }
+export function decryptForDiag(enc: string): string { return decrypt(enc); }
 function decrypt(enc: string): string {
   const [iv, tag, data] = enc.split('.').map((s) => Buffer.from(s, 'base64'));
   const d = createDecipheriv('aes-256-gcm', key(), iv);
