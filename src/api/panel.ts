@@ -305,7 +305,7 @@ export async function panelRoutes(app: FastifyInstance) {
       return { ok: true };
     });
     api.patch<{ Params: { id: string } }>('/api/threads/:id/facts', async (req, reply) => {
-      const b = z.object({ facts: z.record(z.string(), z.unknown()).optional(), summary: z.string().max(3000).optional() }).safeParse(req.body);
+      const b = z.object({ facts: z.record(z.string(), z.unknown()).optional(), summary: z.string().optional() }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
       await setThread(req.params.id, { ...(b.data.facts ? { facts: b.data.facts } : {}), ...(b.data.summary !== undefined ? { summary: b.data.summary || null, summary_at: new Date() } : {}) });
       return { ok: true };
@@ -330,9 +330,9 @@ export async function panelRoutes(app: FastifyInstance) {
       const b = z.object({
         name: z.string().max(200).nullable().optional(), company: z.string().max(200).nullable().optional(),
         role: z.enum(['CLIENTE', 'LEAD', 'FORNECEDOR', 'PARCEIRO', 'PESSOAL']).optional(), tags: z.array(z.string().max(40)).max(20).optional(),
-        notes: z.string().max(2000).nullable().optional(), crm_stage: z.enum(['NEW', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CUSTOMER', 'LOST']).optional(),
+        notes: z.string().nullable().optional(), crm_stage: z.enum(['NEW', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CUSTOMER', 'LOST']).optional(),
         opted_out: z.boolean().optional(),
-        treatment: z.string().max(2000).nullable().optional(),
+        treatment: z.string().nullable().optional(),
       }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
       const cols = Object.entries(b.data).filter(([, v]) => v !== undefined);
@@ -409,7 +409,7 @@ export async function panelRoutes(app: FastifyInstance) {
       );
     });
     const KnowledgeBody = z.object({
-      title: z.string().min(2).max(200), content: z.string().min(2).max(4000),
+      title: z.string().min(2).max(200), content: z.string().min(2),
       kind: z.enum(['produto', 'politica', 'faq', 'procedimento', 'contato', 'estilo', 'manual']).default('faq'),
       company_slug: z.string().nullable().optional(),
       instance: z.string().nullable().optional(),   // null = todos os numeros
@@ -440,11 +440,13 @@ export async function panelRoutes(app: FastifyInstance) {
       q(`SELECT g.*, (SELECT coalesce(c.name, c.phone) FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id WHERE t.id = g.thread_id) AS contact
            FROM app.knowledge_gaps g WHERE resolved_at IS NULL ORDER BY created_at DESC LIMIT 100`));
     api.post<{ Params: { id: string } }>('/api/knowledge/gaps/:id/answer', async (req, reply) => {
-      const b = z.object({ answer: z.string().min(2).max(4000) }).safeParse(req.body);
+      const b = z.object({ answer: z.string().min(2), instances: z.array(z.string().min(1)).optional() }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Escreva a resposta.');
       const g = await one<{ question: string; company_slug: string | null; instance: string | null }>(`SELECT * FROM app.knowledge_gaps WHERE id = $1`, [req.params.id]);
       if (!g) return bad(reply, 'Pergunta não encontrada.', 404);
-      await addKnowledge({ title: g.question.slice(0, 200), content: b.data.answer, kind: 'faq', company: g.company_slug, instance: g.instance, source: `painel:${user(req)}` });
+      // cada IA marcada aprende a resposta (so ela usa); sem escolha, vale para quem perguntou
+      const targets = b.data.instances?.length ? [...new Set(b.data.instances)] : [g.instance];
+      for (const inst of targets) await addKnowledge({ title: g.question.slice(0, 200), content: b.data.answer, kind: 'faq', company: g.company_slug, instance: inst, source: `painel:${user(req)}` });
       await q(`UPDATE app.knowledge_gaps SET resolved_at = now() WHERE id = $1`, [req.params.id]);
       return { ok: true };
     });
@@ -456,8 +458,8 @@ export async function panelRoutes(app: FastifyInstance) {
     api.get('/api/companies', async () => q(`SELECT * FROM app.companies ORDER BY id`));
     api.patch<{ Params: { slug: string } }>('/api/companies/:slug', async (req, reply) => {
       const b = z.object({
-        name: z.string().max(100).optional(), description: z.string().max(2000).optional(), topics: z.string().max(1000).optional(),
-        site: z.string().max(300).nullable().optional(), catalog_url: z.string().max(500).nullable().optional(), active: z.boolean().optional(),
+        name: z.string().max(200).optional(), description: z.string().optional(), topics: z.string().optional(),
+        site: z.string().nullable().optional(), catalog_url: z.string().nullable().optional(), active: z.boolean().optional(),
       }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
       const cols = Object.entries(b.data).filter(([, v]) => v !== undefined);
@@ -632,7 +634,7 @@ export async function panelRoutes(app: FastifyInstance) {
       }
     });
     api.put<{ Params: { instance: string } }>('/api/personas/:instance', async (req, reply) => {
-      const b = z.object({ profile: z.string().min(10).max(4000) }).safeParse(req.body);
+      const b = z.object({ profile: z.string().min(10) }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Escreva o jeito de escrever (mínimo 10 caracteres).');
       await savePersonaProfile(req.params.instance, b.data.profile, `painel:${user(req)}`);
       return { ok: true };
@@ -741,7 +743,7 @@ export async function panelRoutes(app: FastifyInstance) {
       };
     });
     api.put('/api/settings', async (req, reply) => {
-      const b = z.record(z.string(), z.string().max(3000)).safeParse(req.body);
+      const b = z.record(z.string(), z.string()).safeParse(req.body);
       if (!b.success) return bad(reply, 'Dados inválidos.');
       for (const [k, v] of Object.entries(b.data)) {
         if (!(EDITABLE_SETTINGS as readonly string[]).includes(k)) return bad(reply, `Ajuste desconhecido: ${k}`);
@@ -763,7 +765,7 @@ export async function panelRoutes(app: FastifyInstance) {
         name: z.string().regex(/^[a-z0-9-]{3,30}$/, 'Use só letras minúsculas, números e hífen (3 a 30).'),
         role: z.enum(['CENTRAL', 'ATENDIMENTO', 'GABRIEL', 'OBSERVAR']),
         persona: z.string().max(60).optional(),
-        about: z.string().max(200).optional(),
+        about: z.string().optional(),
       }).safeParse(req.body);
       if (!b.success) return bad(reply, b.error.issues[0]?.message ?? 'Dados inválidos.');
       const { name, role, persona, about } = b.data;

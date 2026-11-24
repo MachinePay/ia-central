@@ -157,7 +157,12 @@ function useNumbers(): string[] {
 function Gaps({ q }: { q: any }) {
   const qc = useQueryClient();
   const [answers, setAnswers] = useState<Record<number, string>>({});
-  const answer = useMutation({ mutationFn: (id: number) => post(`/api/knowledge/gaps/${id}/answer`, { answer: answers[id] }), onSuccess: () => { toast('Respondido: virou conhecimento da base.'); void qc.invalidateQueries({ queryKey: ['gaps'] }); }, onError: toastError });
+  const [who, setWho] = useState<Record<number, string[]>>({});
+  const nums = useQuery<any[]>({ queryKey: ['numbers'], queryFn: () => api('/api/numbers') });
+  const ias = (nums.data ?? []).filter((n) => n.role !== 'CENTRAL');
+  const chosen = (g: any): string[] => who[g.id] ?? (g.instance ? [String(g.instance).includes('@') ? g.instance : g.instance] : ias.map((n) => n.instance));
+  const toggle = (g: any, inst: string) => { const cur = chosen(g); setWho({ ...who, [g.id]: cur.includes(inst) ? cur.filter((x) => x !== inst) : [...cur, inst] }); };
+  const answer = useMutation({ mutationFn: (g: any) => post(`/api/knowledge/gaps/${g.id}/answer`, { answer: answers[g.id], instances: chosen(g) }), onSuccess: (_r, g) => { toast(`Respondido: ${chosen(g).length} IA(s) aprenderam.`); void qc.invalidateQueries({ queryKey: ['gaps'] }); }, onError: toastError });
   const dismiss = useMutation({ mutationFn: (id: number) => post(`/api/knowledge/gaps/${id}/dismiss`), onSuccess: () => void qc.invalidateQueries({ queryKey: ['gaps'] }) });
   if (q.isLoading) return <Skeleton />;
   if (q.error) return <ErrorState error={q.error} />;
@@ -167,11 +172,21 @@ function Gaps({ q }: { q: any }) {
       {q.data.map((g: any) => (
         <Card key={g.id} className="p-4">
           <p className="font-semibold">{g.question}</p>
-          <p className="text-[12px] text-text-2">{g.company_slug ?? 'empresa não identificada'} · {g.contact ?? ''} · {timeAgo(g.created_at)}</p>
+          <p className="text-[12px] text-text-2">{g.company_slug ?? 'empresa não identificada'} · {g.contact ?? ''} · {g.instance ? `perguntaram para ${ias.find((n) => n.instance === g.instance)?.persona?.name ?? g.instance}` : ''} · {timeAgo(g.created_at)}</p>
           <textarea className={cx(inputCls, 'mt-2 h-20! py-2!')} placeholder="Resposta que a IA deve usar daqui para frente…" value={answers[g.id] ?? ''} onChange={(e) => setAnswers({ ...answers, [g.id]: e.target.value })} />
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className="text-[12px] font-semibold text-text-2">Quem aprende:</span>
+            {ias.map((n) => (
+              <label key={n.instance} className="flex cursor-pointer items-center gap-1.5 text-[13px]">
+                <input type="checkbox" className="size-4 accent-cyan" checked={chosen(g).includes(n.instance)} onChange={() => toggle(g, n.instance)} />
+                {n.persona?.name ?? n.instance} <span className="text-[11px] text-text-2">({n.instance})</span>
+              </label>
+            ))}
+            <button className="cursor-pointer text-[12px] text-cyan hover:underline" onClick={() => setWho({ ...who, [g.id]: ias.map((n) => n.instance) })}>todas</button>
+          </div>
           <div className="mt-2 flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => dismiss.mutate(g.id)}>Ignorar</Button>
-            <Button variant="primary" size="sm" disabled={!answers[g.id]?.trim()} onClick={() => answer.mutate(g.id)}>Responder e ensinar</Button>
+            <Button variant="primary" size="sm" disabled={!answers[g.id]?.trim() || !chosen(g).length} busy={answer.isPending} onClick={() => answer.mutate(g)}>Responder e ensinar</Button>
           </div>
         </Card>
       ))}
