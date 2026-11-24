@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { sweepApprovals } from '../approvals/approvals.js';
-import { gmailAccounts, gmailEnabled, startWatch } from '../channels/gmail/gmail.js';
+import { gmailAccounts, gmailEnabled, gmailFor, startWatch } from '../channels/gmail/gmail.js';
 import { notifyGabriel } from '../delivery.js';
 import { q } from '../lib/db.js';
 import { env } from '../lib/env.js';
@@ -56,6 +56,15 @@ export async function renewGmailWatch(account?: string) {
   for (const acc of await gmailAccounts()) {
     if (account && acc.email !== account.toLowerCase()) continue;
     try {
+      if (!env.GMAIL_PUBSUB_TOPIC) {
+        // sem Pub/Sub: so marca o ponto de partida; a checagem de cada minuto (gmail-poll) le o que chegar depois
+        const profile = await (await gmailFor(acc.email)).users.getProfile({ userId: 'me' });
+        await q(
+          `INSERT INTO gmail_sync_state (account, history_id) VALUES ($1, $2) ON CONFLICT (account) DO NOTHING`,
+          [acc.email, String(profile.data.historyId)],
+        );
+        continue;
+      }
       const w = await startWatch(acc.email);
       await q(
         `INSERT INTO gmail_sync_state (account, history_id, watch_expires_at) VALUES ($1, $2, $3)
