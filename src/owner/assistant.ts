@@ -7,7 +7,7 @@ import { stripEmojis } from '../channels/whatsapp/format.js';
 import { deliver } from '../delivery.js';
 import { getThread } from '../domain/repo.js';
 import { one, q } from '../lib/db.js';
-import { centralInstance, env, instanceRoles, personaFor } from '../lib/env.js';
+import { centralInstance, env, instanceRole, instanceRoles, personaFor } from '../lib/env.js';
 import { addCost, costToday, costUsd, withFallback } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { normalizePhone } from '../lib/phone.js';
@@ -20,6 +20,8 @@ import { ack } from '../sentinela/incidents.js';
 import { brl, clienteLinha, dia, gkBuscar, gkClientes, gkCobrancasMes, gkHistorico, type GkProduto } from '../integrations/gk.js';
 import { catalogo, COMO_PEDIR, girakids, produtoLinha } from '../integrations/girakids.js';
 import { fecharPedido, mandarOrcamentoAoCliente, montarOrcamento, numeroVendedor } from '../integrations/vendas.js';
+import { acharMaquinas, enviarCredito, listarMaquinas, PLATAFORMAS, plataformasLigadas, statusMaquina, type Plataforma } from '../integrations/maquinas.js';
+import { acharLoja, agarramais, lojas } from '../integrations/agarramais.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
 /**
@@ -264,6 +266,86 @@ mandar_para_cliente: true manda o resumo ao cliente pelo WhatsApp do João (o ve
       },
     }),
 
+    // ------------------------------------------------------------ maquinas: MachinePay, Machine Coin e CompactPay
+    maquinas_listar: tool({
+      description: 'Lista as máquinas da MachinePay, Machine Coin e/ou CompactPay com online/offline, cliente, vendas de hoje e última venda. Use para "quais máquinas estão offline?", "máquinas do cliente X", "quanto vendeu hoje na CompactPay".',
+      inputSchema: z.object({ plataforma: z.enum(['machinepay', 'machinecoin', 'compactpay', 'todas']).default('todas'), filtro: z.enum(['offline', 'online', 'todas']).default('todas'), busca: z.string().optional() }),
+      execute: async ({ plataforma, filtro, busca }) => {
+        const ps = plataforma === 'todas' ? plataformasLigadas() : [plataforma as Plataforma];
+        if (!ps.length) return { erro: 'Nenhuma plataforma configurada no Render ainda.' };
+        const out: Record<string, unknown> = {};
+        for (const p of ps) {
+          try {
+            let list = busca ? await acharMaquinas(busca, p) : await listarMaquinas(p);
+            const total = list.length, off = list.filter((m) => !m.online).length;
+            if (filtro !== 'todas') list = list.filter((m) => (filtro === 'online' ? m.online : !m.online));
+            out[PLATAFORMAS[p]] = {
+              total, offline: off, vendas_hoje: brl(list.reduce((s, m) => s + (m.vendasHoje ?? 0), 0)),
+              maquinas: list.slice(0, 30).map((m) => `${m.nome} [${m.id}]${m.cliente ? ` · ${m.cliente}` : ''} · ${m.online ? 'online' : 'OFFLINE'}${m.vendasHoje != null ? ` · hoje ${brl(m.vendasHoje)}` : ''}${m.ultimaVenda ? ` · última venda ${m.ultimaVenda}` : ''}${m.extra ? ` · ${m.extra}` : ''}`),
+            };
+          } catch (e: any) { out[PLATAFORMAS[p]] = { erro: String(e.message).slice(0, 200) }; }
+        }
+        return out;
+      },
+    }),
+    maquina_status: tool({
+      description: 'Status ao vivo de uma máquina (online/offline, último sinal, última venda, faturamento de hoje). busca = nome, número do caixa/hardware ou cliente.',
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin', 'compactpay']).optional() }),
+      execute: async ({ busca, plataforma }) => {
+        const found = await acharMaquinas(busca, plataforma as Plataforma | undefined);
+        if (!found.length) return { erro: 'Não achei essa máquina.' };
+        if (found.length > 1) return { varias: found.slice(0, 10).map((m) => `${PLATAFORMAS[m.plataforma]} · ${m.nome} [${m.id}]${m.cliente ? ` · ${m.cliente}` : ''}`) };
+        const m = found[0];
+        const st = await statusMaquina(m);
+        return { maquina: `${PLATAFORMAS[m.plataforma]} · ${m.nome} [${m.id}]${m.cliente ? ` · ${m.cliente}` : ''}`, ...st, faturamentoHoje: st.faturamentoHoje != null ? brl(st.faturamentoHoje) : undefined };
+      },
+    }),
+    maquina_credito: tool({
+      description: `Manda CRÉDITO REMOTO (valor em R$, vira jogadas/pulsos) para uma máquina da MachinePay, Machine Coin ou CompactPay.
+Antes de mandar, confirme com o dono em uma linha: máquina (nome, número, plataforma) e valor. Só chame com confirmado=true depois que ele disser sim.
+Ele pode pedir direto e já confirmado ("manda 5 reais na máquina 123, pode mandar"): aí confirmado=true.`,
+      inputSchema: z.object({ busca: z.string().min(1), valor: z.number().positive(), plataforma: z.enum(['machinepay', 'machinecoin', 'compactpay']).optional(), confirmado: z.boolean().default(false) }),
+      execute: async ({ busca, valor, plataforma, confirmado }) => {
+        const found = await acharMaquinas(busca, plataforma as Plataforma | undefined);
+        if (!found.length) return { erro: 'Não achei essa máquina.' };
+        if (found.length > 1) return { varias: found.slice(0, 10).map((m) => `${PLATAFORMAS[m.plataforma]} · ${m.nome} [${m.id}]${m.cliente ? ` · ${m.cliente}` : ''}`), pedir: 'Pergunte qual delas.' };
+        const m = found[0];
+        const alvo = `${brl(valor)} na ${m.nome} [${m.id}] (${PLATAFORMAS[m.plataforma]}${m.cliente ? `, ${m.cliente}` : ''})${m.online ? '' : ' — ATENÇÃO: está offline'}`;
+        if (!confirmado) return { confirmar: `Confirma mandar ${alvo}?` };
+        const r = await enviarCredito(m, valor);
+        return r.ok ? { ok: done(`crédito enviado: ${alvo} · ${r.detalhe}`) } : { erro: `não confirmou o envio: ${r.detalhe}` };
+      },
+    }),
+
+    // ------------------------------------------------------------ AgarraMais: faturamento e lojas
+    agarramais_faturamento: tool({
+      description: 'Faturamento, lucro, custos, fichas, dinheiro e PIX da AgarraMais num período (todas as lojas ou uma). Datas AAAA-MM-DD; padrão: mês atual até hoje. Traz também ranking das lojas.',
+      inputSchema: z.object({ inicio: z.string().optional(), fim: z.string().optional(), loja: z.string().optional() }),
+      execute: async ({ inicio, fim, loja }) => {
+        const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.TIMEZONE }).format(new Date());
+        const di = inicio ?? `${hoje.slice(0, 8)}01`, df = fim ?? hoje;
+        if (loja) {
+          const ls = await acharLoja(loja);
+          if (!ls.length) return { erro: 'Não achei essa loja.' };
+          if (ls.length > 1) return { varias: ls.map((l) => l.nome) };
+          const r: any = await agarramais(`/relatorios/dashboard?lojaId=${ls[0].id}&dataInicio=${di}&dataFim=${df}`);
+          const t = r.totais ?? {};
+          return { loja: ls[0].nome, periodo: `${di} a ${df}`, faturamento: brl(t.faturamento), lucro: brl(t.lucro), custo_total: brl(t.custoTotal), dinheiro: brl(t.dinheiro), pix: brl(t.pix), fichas: t.fichas, saidas: t.saidas,
+            maquinas: (r.performanceMaquinas ?? []).slice(0, 10).map((m: any) => `${m.nome ?? m.maquina}: ${brl(m.faturamento ?? m.receita)}`) };
+        }
+        const r: any = await agarramais(`/relatorios/todas-lojas?dataInicio=${di}&dataFim=${df}`);
+        const t = r.totais ?? {};
+        const rank = r.graficos?.rankingLucroLojas ?? [];
+        return { periodo: `${di} a ${df}`, faturamento: brl(t.faturamento), lucro: brl(t.lucro), custo_total: brl(t.custoTotal), dinheiro: brl(t.dinheiro), pix: brl(t.pix), fichas: t.fichas,
+          destaques: r.destaques, lojas: rank.slice(0, 15).map((l: any) => `${l.nome ?? l.loja}: lucro ${brl(l.lucro ?? l.valor)}${l.faturamento != null ? `, faturamento ${brl(l.faturamento)}` : ''}`) };
+      },
+    }),
+    agarramais_lojas: tool({
+      description: 'Lista as lojas da AgarraMais.',
+      inputSchema: z.object({}),
+      execute: async () => ({ lojas: (await lojas()).map((l) => `${l.nome}${l.cidade ? ` (${l.cidade})` : ''}${l.ativo === false ? ' · inativa' : ''}`) }),
+    }),
+
     // ------------------------------------------------------------ agenda, tarefas e anotacoes
     agenda_criar: tool({
       description: `Marca um compromisso, cria uma tarefa ou guarda uma anotação na agenda de uma IA.
@@ -320,6 +402,12 @@ ia: de quem é a agenda (nome da pessoa ou do número). Sem dizer, é a agenda d
 }
 
 /** Responde o dono. Retorna o texto enviado. */
+/** Gabriel, Leo (numeros de pessoa) e a IA central: tudo. Outros numeros (Joao, Suporte): so a agenda deles. */
+function allowedTools<T extends Record<string, unknown>>(all: T, full: boolean): T {
+  if (full) return all;
+  return Object.fromEntries(Object.entries(all).filter(([k]) => k.startsWith('agenda_'))) as T;
+}
+
 export async function answerOwner(text: string, where: Where): Promise<string | undefined> {
   const isCentral = where.instance === centralInstance();
   const here = isCentral ? ([...instanceRoles()].find(([n, r]) => r === 'GABRIEL' && n === 'gabriel')?.[0] ?? [...instanceRoles()].find(([, r]) => r === 'GABRIEL')?.[0] ?? where.instance) : where.instance;
@@ -333,7 +421,7 @@ export async function answerOwner(text: string, where: Where): Promise<string | 
         model,
         system: fill(loadPrompt('central'), { OWNER: owner, TODAY: nowLabel(env.TIMEZONE) }),
         messages: [...history, { role: 'user', content: fence('mensagem_do_dono', text) }],
-        tools: tools(log, here),
+        tools: allowedTools(tools(log, here), isCentral || instanceRole(here) === 'GABRIEL'),
         stopWhen: stepCountIs(6),
         abortSignal: AbortSignal.timeout(60_000),
         maxRetries: 1,
