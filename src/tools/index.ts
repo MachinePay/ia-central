@@ -10,7 +10,7 @@ import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
-import { buscarContaCliente, catalogo, COMO_PEDIR, contaLinha, cotarFrete, LOJA_URL, produtoLinha, type ContaGirakids } from '../integrations/girakids.js';
+import { buscarContaCliente, catalogo, COMO_PEDIR, contaLinha, cotarFrete, LOJA_URL, loginDe, produtoLinha, type ContaGirakids } from '../integrations/girakids.js';
 import { fecharPedido, fecharPedidoPrimeplush, montarOrcamento } from '../integrations/vendas.js';
 import { catalogoPrimeplush, orcarPrimeplush, produtoLinhaPp, type OrcamentoPp } from '../integrations/primeplush.js';
 import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
@@ -196,12 +196,15 @@ function joaoTools(ctx: ToolCtx): ToolSet {
           await setFact('login_confirmado_girakids', c.id);
           return { ok: true, salvo: contaLinha(c as ContaGirakids), proximo: 'Login confirmado. Pode montar o orçamento ou fechar o pedido.' };
         }
-        if (acao === 'ver' && salvo) return { salvo: contaLinha(salvo), pergunte: `Antes de tirar o pedido, pergunte: "seu login é ${salvo.email ?? salvo.documento ?? salvo.nome}?" Quando ele confirmar, chame acao=confirmar.` };
+        if (acao === 'ver' && salvo) return { salvo: contaLinha(salvo), pergunte: `Antes de tirar o pedido, pergunte: "seu login é ${loginDe(salvo)}?" Quando ele confirmar, chame acao=confirmar.` };
         const termo = acao === 'buscar' ? (busca ?? '') : (ctx.contact.phone ?? '').replace(/\D/g, '').slice(-9);
         const contas = termo ? await buscarContaCliente(termo) : [];
         await setFact('contas_girakids', contas.slice(0, 8));
-        if (!contas.length) return { contas: [], pergunte: 'Não achei conta. Peça o e-mail de login (ou CPF/CNPJ) do cliente no site e busque com acao=buscar. Se ele não tiver cadastro, oriente a criar no site.' };
-        return { contas: contas.slice(0, 8).map(contaLinha), pergunte: contas.length === 1 ? `Pergunte: "seu login é ${contas[0].email ?? contas[0].nome}?"` : 'Pergunte qual é o login dele, mostrando só o e-mail de cada uma.' };
+        if (!contas.length) return acao === 'buscar'
+          ? { contas: [], resultado: `NÃO EXISTE conta com "${busca}" no site. Não peça esse dado de novo: diga isso ao cliente e peça o outro (e-mail se ele passou CPF, CPF/CNPJ se passou e-mail). Se não tiver cadastro, oriente a criar no site.` }
+          : { contas: [], pergunte: 'Não achei conta pelo telefone. Peça o e-mail de login ou o CPF/CNPJ do cadastro no site (uma vez só) e busque com acao=buscar.' };
+        if (contas.length === 1 && acao === 'buscar') return { contas: contas.map(contaLinha), cliente_id: contas[0].id, pergunte: `Achei. Pergunte: "seu cadastro é ${contas[0].nome} (${loginDe(contas[0])})?" Com o sim, chame acao=confirmar com este cliente_id.` };
+        return { contas: contas.slice(0, 8).map(contaLinha), pergunte: contas.length === 1 ? `Pergunte: "seu cadastro é ${contas[0].nome} (${loginDe(contas[0])})?"` : 'Pergunte qual é o cadastro dele, mostrando o nome e o login de cada um.' };
       }),
     }),
     girakids_frete: tool({
@@ -225,12 +228,15 @@ Depois mande ao cliente o resumo (itens, total) e pergunte se aprova. Só gere o
       execute: wrap(ctx, 'girakids_orcamento', async ({ itens, cliente, entrega, pagamento, observacoes }) => {
         const conta = (ctx.contact.logins as any)?.girakids;
         if (!conta) return { erro: 'Antes do orçamento identifique o login do cliente: use login_cliente (sistema girakids, acao ver).' };
+        if (!facts().login_confirmado_girakids) return { erro: `Antes do orçamento confirme o cadastro: pergunte "seu login é ${loginDe(conta)}?" e chame login_cliente acao confirmar.` };
+        // nome, documento e e-mail vem da conta confirmada (nunca de outra pessoa citada na conversa); endereco pode ser o novo que o cliente passou
         const r = await montarOrcamento({
           itens, entrega, pagamento, observacoes, via: `WhatsApp ${ctx.thread.instance}`, clienteId: conta.id,
-          cliente: { ...cliente, telefone: cliente.telefone ?? ctx.contact.phone ?? undefined, email: cliente.email ?? ctx.contact.email ?? undefined },
+          cliente: { ...cliente, nome: conta.nome, documento: conta.documento ?? undefined, email: conta.email && !/sememail/i.test(conta.email) ? conta.email : undefined, telefone: cliente.telefone ?? ctx.contact.phone ?? undefined },
         });
         if ('erro' in r) return r;
-        await q(`UPDATE threads SET facts = jsonb_set(coalesce(facts, '{}'), '{orcamento_girakids}', to_jsonb($2::text)) WHERE id = $1`, [ctx.thread.id, r.orcamento.id]);
+        await setFact('orcamento_girakids', r.orcamento.id);
+        await setFact('orcamento_girakids_conta', conta.id);
         return { ok: true, orcamento_id: r.orcamento.id, resumo: r.resumo, proximo_passo: 'Mande o resumo ao cliente e pergunte se aprova. Se aprovar, use girakids_aprovar_orcamento.' };
       }),
     }),
@@ -240,8 +246,10 @@ Depois mande ao cliente o resumo (itens, total) e pergunte se aprova. Só gere o
       execute: wrap(ctx, 'girakids_aprovar_orcamento', async ({ orcamento_id }) => {
         const id = orcamento_id ?? (ctx.thread.facts as any)?.orcamento_girakids;
         if (!id) return { erro: 'Não há orçamento nesta conversa. Monte um com girakids_orcamento.' };
-        if (!facts().login_confirmado_girakids) { const c = (ctx.contact.logins as any)?.girakids; return { erro: `Antes de tirar o pedido pergunte "seu login é ${c?.email ?? c?.nome ?? '(peça o login)'}?" e confirme com login_cliente (acao confirmar).` }; }
-        const r = await fecharPedido(id, { cliente: ctx.contact.name ?? ctx.contact.phone ?? undefined, instance: ctx.thread.instance, telefone: ctx.thread.channel === 'WHATSAPP' ? ctx.contact.phone ?? undefined : undefined });
+        if (!facts().login_confirmado_girakids) { const c = (ctx.contact.logins as any)?.girakids; return { erro: `Antes de tirar o pedido pergunte "seu login é ${c ? loginDe(c) : '(peça o login)'}?" e confirme com login_cliente (acao confirmar).` }; }
+        if (!orcamento_id && facts().orcamento_girakids_conta && facts().orcamento_girakids_conta !== facts().login_confirmado_girakids) return { erro: 'Esse orçamento foi feito em outro cadastro. Monte o orçamento de novo (girakids_orcamento) com o login confirmado.' };
+        const r = await fecharPedido(id, { cliente: (ctx.contact.logins as any)?.girakids?.nome ?? ctx.contact.name ?? ctx.contact.phone ?? undefined, instance: ctx.thread.instance, telefone: ctx.thread.channel === 'WHATSAPP' ? ctx.contact.phone ?? undefined : undefined });
+        await setFact('login_confirmado_girakids', null); // proximo pedido: pergunta o login de novo
         return { ok: true, pedido: r.resumo, pdf: r.pdf, orientacao: `Confirme ao cliente o número do pedido${r.pdf?.startsWith('PDF do pedido enviado') ? ' e diga que mandou o PDF' : ''} e que o comercial segue com pagamento e entrega.` };
       }),
     }),
@@ -272,7 +280,7 @@ Mande ao cliente o resumo com o total e pergunte uma vez "posso fechar o pedido?
         if (!orc?.itens?.length) return { erro: 'Não há orçamento da PrimePlush nesta conversa. Monte com primeplush_orcamento.' };
         if (!facts().login_confirmado_primeplush) { const c = (ctx.contact.logins as any)?.primeplush; return { erro: c ? `Antes de fechar pergunte "seu login é o CPF/CNPJ ${c.documento}?" e confirme com login_cliente.` : 'Peça CPF ou CNPJ e nome e confirme com login_cliente (sistema primeplush, acao confirmar).' }; }
         const r = await fecharPedidoPrimeplush(orc, { nome, documento, pagamento, observacao }, { instance: ctx.thread.instance, telefone: ctx.thread.channel === 'WHATSAPP' ? ctx.contact.phone ?? undefined : undefined });
-        await q(`UPDATE threads SET facts = facts - 'orcamento_primeplush' WHERE id = $1`, [ctx.thread.id]);
+        await q(`UPDATE threads SET facts = facts - 'orcamento_primeplush' - 'login_confirmado_primeplush' WHERE id = $1`, [ctx.thread.id]);
         return { ok: true, pedido: r.resumo, pdf: r.pdf, orientacao: `Confirme o pedido ao cliente${r.pdf?.startsWith('PDF do pedido enviado') ? ' e diga que mandou o PDF' : ''}; pagamento e entrega a loja combina.` };
       }),
     }),

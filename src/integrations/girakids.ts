@@ -156,10 +156,21 @@ export async function buscarContaCliente(busca: string): Promise<ContaGirakids[]
   const b = busca.trim();
   if (b.length < 2) return [];
   const r = await girakids<any[]>(`/usuarios/clientes?busca=${encodeURIComponent(b)}`);
-  return (r ?? []).filter((u) => !u.role || u.role === 'CLIENTE').map((u) => ({
+  const digitos = b.replace(/\D/g, '');
+  const ehDoc = /^[\d.\-\/\s]+$/.test(b) && (digitos.length === 11 || digitos.length === 14);
+  const ehEmail = /@/.test(b);
+  return (r ?? []).filter((u) => !u.role || u.role === 'CLIENTE')
+    // CPF/CNPJ e e-mail: so a conta exata (a busca do site acha parecidos)
+    .filter((u) => !ehDoc || String(u.documento ?? '').replace(/\D/g, '') === digitos)
+    .filter((u) => !ehEmail || String(u.email ?? '').toLowerCase() === b.toLowerCase())
+    .map((u) => ({
     id: String(u.id), nome: u.nome, email: u.email ?? null, documento: u.documento ?? null, telefone: u.telefone ?? null, totalPedidos: u.totalPedidos,
   }));
 }
 
+/** O que o cliente reconhece como login: o e-mail de verdade; conta criada sem e-mail ("...@sememail...") vira CPF/CNPJ ou nome. */
+export const loginDe = (c: Pick<ContaGirakids, 'email' | 'documento' | 'nome'>) =>
+  c.email && !/sememail/i.test(c.email) ? c.email : c.documento ? `${c.documento.length === 14 ? 'CNPJ' : 'CPF'} ${c.documento}` : `cadastro no nome ${c.nome}`;
+
 export const contaLinha = (c: ContaGirakids) =>
-  `${c.nome}${c.email ? ` · login ${c.email}` : ''}${c.documento ? ` · doc ${c.documento}` : ''}${c.totalPedidos ? ` · ${c.totalPedidos} pedidos` : ''} [id ${c.id}]`;
+  `${c.nome} · login ${loginDe(c)}${c.documento ? ` · doc ${c.documento}` : ''}${c.totalPedidos ? ` · ${c.totalPedidos} pedidos` : ''} [id ${c.id}]`;
