@@ -42,6 +42,31 @@ function parsearClientes(html: string): Array<{ usrId: string; nome: string }> {
   return [...out.values()];
 }
 
+/**
+ * Layout novo do painel (Machine Coin): a coluna de vendas traz "Vendeu Hoje: R$ 5,00 (15:01)" e "Venda Antiga: R$ 5,00 (19/11 13:28)".
+ * O leitor da MachinePay nao pega esse bloco: completa a ultima venda por maquina a partir do HTML de cada linha.
+ */
+function comVendaDeHoje(html: string, rows: any[]): any[] {
+  const porCaixa = new Map<string, { hoje?: { valor: number; hora: string }; antiga?: string }>();
+  for (const linha of html.split(/<tr[\s>]/i).slice(1)) {
+    const pos = linha.match(/Caixa:\s*(\d+)/)?.[1] ?? linha.match(/stats\((\d+)\)/)?.[1];
+    if (!pos) continue;
+    const h = linha.match(/Vendeu Hoje:\s*R\$\s*([\d.,]+)\s*\((\d{1,2}:\d{2})\)/);
+    const a = linha.match(/Venda Antiga:\s*R\$\s*[\d.,]+\s*\(([^)]+)\)/);
+    porCaixa.set(pos, { hoje: h ? { valor: Number(h[1].replace(/\./g, '').replace(',', '.')), hora: h[2] } : undefined, antiga: a?.[1] });
+  }
+  return rows.map((r) => {
+    const v = porCaixa.get(String(r.posId));
+    if (!v) return r;
+    return {
+      ...r,
+      ultimaVendaHoje: r.ultimaVendaHoje ?? (v.hoje ? { valor: v.hoje.valor, hora: v.hoje.hora } : null),
+      ultimaVendaAntiga: v.antiga,
+      vendasHojeValor: r.vendasHojeValor || null, // o painel novo nao mostra o total do dia, so a ultima venda
+    };
+  });
+}
+
 /** Entra uma vez e le as maquinas de todos os clientes (5 por vez). Sem clientes, le as maquinas da propria conta. */
 async function lerPainelCompleto(p: Plataforma): Promise<any[]> {
   const svc: any = p === 'machinepay' ? mp : mc;
@@ -57,7 +82,7 @@ async function lerPainelCompleto(p: Plataforma): Promise<any[]> {
   const all: any[] = [];
   for (let i = 0; i < clientes.length; i += 5) {
     const lote = clientes.slice(i, i + 5);
-    const res = await Promise.all(lote.map((c) => get(`maquinas.php?acao=maquinas&usr=${encodeURIComponent(c.usrId)}`).then((h) => (parsearPainelMaquinas(h) ?? []) as any[]).catch(() => [] as any[])));
+    const res = await Promise.all(lote.map((c) => get(`maquinas.php?acao=maquinas&usr=${encodeURIComponent(c.usrId)}`).then((h) => comVendaDeHoje(h, (parsearPainelMaquinas(h) ?? []) as any[])).catch(() => [] as any[])));
     res.forEach((rows, k) => rows.forEach((m) => all.push({ ...m, clienteNome: lote[k].nome, usrId: m.usrId ?? lote[k].usrId })));
   }
   return all;
@@ -80,7 +105,8 @@ export async function listarMaquinas(p: Plataforma, fresh = false): Promise<Maqu
     list = rows.map((m) => ({
       plataforma: p, id: String(m.posId ?? m.idPainel ?? ''), nome: m.nomePonto || `Caixa ${m.posId}`, cliente: m.clienteNome ?? m.cliente ?? null,
       online: !!m.online, vendasHoje: m.vendasHojeValor != null ? Number(m.vendasHojeValor) : null,
-      ultimaVenda: m.ultimaVendaHoje?.hora ? `hoje ${m.ultimaVendaHoje.hora}` : m.ultimaVendaOntem?.hora ? `ontem ${m.ultimaVendaOntem.hora}` : null,
+      ultimaVenda: m.ultimaVendaHoje?.hora ? `hoje ${m.ultimaVendaHoje.hora}${m.ultimaVendaHoje.valor ? ` (R$ ${Number(m.ultimaVendaHoje.valor).toFixed(2).replace('.', ',')})` : ''}`
+        : m.ultimaVendaOntem?.hora ? `ontem ${m.ultimaVendaOntem.hora}` : m.ultimaVendaAntiga ? `${m.ultimaVendaAntiga}` : null,
       extra: m.quedasHoje ? `${m.quedasHoje} quedas hoje` : undefined,
     }));
   }
