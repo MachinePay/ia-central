@@ -1,4 +1,8 @@
+import { setDefaultResultOrder } from 'node:dns';
 import { z } from 'zod';
+
+// o Render nao sai por IPv6: servidores com os dois (ex.: e-mail da Uni5) precisam ir por IPv4
+setDefaultResultOrder('ipv4first');
 
 const bool = z.string().optional().transform((v) => v === 'true' || v === '1');
 const list = z.string().optional().transform((v) => (v ?? '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean));
