@@ -16,7 +16,7 @@ import { acharProduto, criarOrcamento, gerarPedido, resumoPedido, type ClientePe
 export type Entrega = 'RETIRAR_LOCAL' | 'TRANSPORTADORA' | 'PAC' | 'SEDEX';
 export type Pagamento = 'PIX_ONLINE' | 'CREDITO_LINK' | 'BOLETO' | 'TRANSFERENCIA' | 'A_DEFINIR';
 
-export async function montarOrcamento(o: { itens: ItemPedido[]; cliente: ClientePedido; entrega?: Entrega; pagamento?: Pagamento; observacoes?: string; via: string }):
+export async function montarOrcamento(o: { itens: ItemPedido[]; cliente: ClientePedido; clienteId?: string; entrega?: Entrega; pagamento?: Pagamento; observacoes?: string; via: string }):
   Promise<{ erro: string; opcoes?: string[] } | { orcamento: PedidoResumo; resumo: string }> {
   const itens: Array<{ produtoId: string; quantidade: number }> = [];
   for (const it of o.itens) {
@@ -27,7 +27,7 @@ export async function montarOrcamento(o: { itens: ItemPedido[]; cliente: Cliente
     itens.push({ produtoId: p.id, quantidade: it.pacotes });
   }
   const orcamento = await criarOrcamento({
-    itens, cliente: o.cliente, metodoEnvio: o.entrega, formaPagamento: o.pagamento,
+    itens, cliente: o.cliente, clienteId: o.clienteId, metodoEnvio: o.entrega, formaPagamento: o.pagamento,
     observacoes: `${o.observacoes ? `${o.observacoes} · ` : ''}feito pela IA (${o.via})`,
   });
   return { orcamento, resumo: resumoPedido(orcamento) };

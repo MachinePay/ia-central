@@ -111,9 +111,9 @@ export async function acharProduto(ref: string): Promise<GkProduto | { varios: s
 
 export type PedidoResumo = { id: string; numero: number; tipo: string; total: number; subtotal?: number; frete?: number; itens: Array<{ nome: string; quantidade: number; unidadesPacote: number; precoUnitario: number; total: number }> };
 
-export async function criarOrcamento(o: { itens: Array<{ produtoId: string; quantidade: number }>; cliente: ClientePedido; metodoEnvio?: string; formaPagamento?: string; observacoes?: string }): Promise<PedidoResumo> {
+export async function criarOrcamento(o: { itens: Array<{ produtoId: string; quantidade: number }>; cliente: ClientePedido; clienteId?: string; metodoEnvio?: string; formaPagamento?: string; observacoes?: string }): Promise<PedidoResumo> {
   return girakids<PedidoResumo>('/orcamentos', { method: 'POST', body: {
-    itens: o.itens, cliente: o.cliente, ...o.cliente,
+    itens: o.itens, cliente: o.cliente, ...o.cliente, clienteId: o.clienteId || undefined, // conta do cliente no site: o pedido aparece na conta dele
     metodoEnvio: o.metodoEnvio || undefined, formaPagamento: o.formaPagamento || 'A_DEFINIR',
     observacoes: o.observacoes ?? 'Orçamento feito pela IA (WhatsApp).',
   } });
@@ -147,3 +147,19 @@ export async function cotarFrete(cep: string, itens: ItemPedido[]) {
       : `${o.nome}: indisponível (${o.motivo ?? 'sem cotação'})`),
   };
 }
+
+// ------------------------------------------------------------------ conta (login) do cliente no site
+export type ContaGirakids = { id: string; nome: string; email: string | null; documento: string | null; telefone: string | null; totalPedidos?: number };
+
+/** Procura a conta do cliente no site (por e-mail, CPF/CNPJ, nome ou telefone). */
+export async function buscarContaCliente(busca: string): Promise<ContaGirakids[]> {
+  const b = busca.trim();
+  if (b.length < 2) return [];
+  const r = await girakids<any[]>(`/usuarios/clientes?busca=${encodeURIComponent(b)}`);
+  return (r ?? []).filter((u) => !u.role || u.role === 'CLIENTE').map((u) => ({
+    id: String(u.id), nome: u.nome, email: u.email ?? null, documento: u.documento ?? null, telefone: u.telefone ?? null, totalPedidos: u.totalPedidos,
+  }));
+}
+
+export const contaLinha = (c: ContaGirakids) =>
+  `${c.nome}${c.email ? ` · login ${c.email}` : ''}${c.documento ? ` · doc ${c.documento}` : ''}${c.totalPedidos ? ` · ${c.totalPedidos} pedidos` : ''} [id ${c.id}]`;

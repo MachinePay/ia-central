@@ -45,6 +45,7 @@ export type Contact = {
   notes: string | null;
   treatment?: string | null; // como o dono do numero trata este contato (aprendido das mensagens)
   treatment_manual?: boolean;
+  logins?: { girakids?: { id: string; email: string | null; nome: string; documento?: string | null }; primeplush?: { documento: string; nome: string } };
   opted_out: boolean;
   consent_at: Date | null;
 };

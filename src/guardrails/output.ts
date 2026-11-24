@@ -27,16 +27,36 @@ export const ASKS_BOT = /\b(rob[oô]|bot|\bia\b|intelig[eê]ncia artificial|chat
 export const isSmallTalk = (t: string) =>
   t.trim().length <= 40 && /^(oi+|ol[aá]|opa|e a[ií]|iai|eai|fala|bom dia|boa tarde|boa noite|tudo (bem|certo|bom)|blz|beleza|dboa|de boa|tranquilo|salve|ok|obrigad|valeu|vlw|tmj|👍|🙏)/i.test(t.trim());
 
-const norm = (s: string) => s.replace(/\s/g, '').replace(',', '.').toLowerCase();
+const norm = (s: string) => s.replace(/\s/g, '').replace(/,/g, '.').toLowerCase();
+
+/** "1.299,00", "1299,00", "1299.00", "0,79" viram o mesmo numero (antes so a primeira virgula do texto era trocada e todo preco parecia inventado). */
+function toNumber(raw: string): number | undefined {
+  const s = raw.replace(/[^\d.,]/g, '').replace(/[.,]$/, '');
+  if (!s) return undefined;
+  const lastSep = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
+  let n: number;
+  if (lastSep === -1) n = Number(s);
+  else {
+    const dec = s.slice(lastSep + 1);
+    const int = s.slice(0, lastSep).replace(/[.,]/g, '');
+    n = dec.length === 3 && !/[.,]/.test(s.slice(0, lastSep)) && s[lastSep] === '.' ? Number(int + dec) : Number(`${int}.${dec}`);
+  }
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : undefined;
+}
 
 /** Valores/prazos que nao aparecem em nenhuma saida de tool nem nos fatos registrados. */
 function unsupportedFigures(text: string, evidence: string): string[] {
   const ev = norm(evidence);
-  const found = [...(text.match(MONEY) ?? []), ...(text.match(DEADLINE) ?? []), ...(text.match(SPECS) ?? [])];
-  return found.filter((f) => {
+  const evNums = new Set((evidence.match(/\d[\d.,]*/g) ?? []).map(toNumber).filter((n): n is number => n !== undefined));
+  const money = (text.match(MONEY) ?? []).filter((f) => {
+    const n = toNumber(f);
+    return n !== undefined && !evNums.has(n);
+  });
+  const outros = [...(text.match(DEADLINE) ?? []), ...(text.match(SPECS) ?? [])].filter((f) => {
     const digits = f.replace(/[^\d,.]/g, '').replace(/[.,]$/, '');
     return digits && !ev.includes(norm(digits));
   });
+  return [...money, ...outros];
 }
 
 /**
@@ -69,7 +89,7 @@ export async function checkOutput(o: {
     if (strange.length) issues.push(`usa palavras que você nunca usa (${strange.slice(0, 8).join(', ')}): troque por palavras simples do seu dia a dia ou tire a frase`);
   }
   const figs = unsupportedFigures(o.text, evidence);
-  if (figs.length) issues.push(`cita valores, prazos ou especificações que não vieram de ferramenta nem de aprovação (${figs.join(', ')}): remova e diga que vai confirmar`);
+  if (figs.length) issues.push(`cita valores, prazos ou especificações que não vieram de ferramenta nem de aprovação (${figs.join(', ')}): remova esses valores e diga uma vez só, no fim, que vai confirmar (nunca repita "vou confirmar" item por item)`);
   if (o.agent === 'CLARA' && !o.kbConsulted && /(\n\s*\d+[.)]\s|clique em|acesse o menu|v[aá] em configura)/i.test(o.text)) {
     issues.push('passa procedimento sem ter consultado a base: troque por perguntas de diagnóstico ou diga que vai verificar com a engenharia');
   }
