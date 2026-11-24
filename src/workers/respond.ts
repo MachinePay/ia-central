@@ -7,7 +7,7 @@ import { getThread, lastInboundId, setThread } from '../domain/repo.js';
 import type { Agent, Specialist, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { emojisAllowed, env, setting } from '../lib/env.js';
-import { stripEmojis } from '../channels/whatsapp/format.js';
+import { cleanHumanText, stripEmojis } from '../channels/whatsapp/format.js';
 import { addCost, costToday, costUsd } from '../lib/llm.js';
 import { logger } from '../lib/logger.js';
 import { enqueueRespond, summarizeQueue } from '../lib/queues.js';
@@ -15,6 +15,7 @@ import { acquireLock, keys, redis, releaseLock } from '../lib/redis.js';
 import { ASKS_BOT, checkOutput, isSmallTalk } from '../guardrails/output.js';
 import { INTIMATE_RE } from '../memory/persona.js';
 import { buildContext } from '../memory/context.js';
+import { ownerVocabulary } from '../memory/style.js';
 import { summarizeThread } from '../memory/summarize.js';
 import { route, switchLimitReached, type RouteDecision } from '../routing/route.js';
 
@@ -137,6 +138,8 @@ async function respond(threadId: string, started: number) {
     facts: thread.facts, kbConsulted: result?.ctx.kbConsulted ?? false,
     intimateAllowed: INTIMATE_RE.test(pack.contact.treatment ?? '') || pack.recent.some((m) => m.sender === 'HUMAN' && INTIMATE_RE.test(m.content)),
     clientAskedBot: ASKS_BOT.test(pack.blockText), shortClient: pack.block.every((m) => isSmallTalk(m.content)),
+    personal: pack.contact.role === 'PESSOAL',
+    vocab: pack.contact.role === 'PESSOAL' ? await ownerVocabulary(thread.instance).catch(() => undefined) : undefined,
   });
   if (check.blocked) {
     await notifyGabriel(`🛑 Resposta bloqueada pelo verificador (${agent}) para ${pack.contact.name ?? pack.contact.phone ?? pack.contact.email}: ${check.issues.join('; ')}\n\nRascunho: ${reply}`).catch(() => undefined);
@@ -153,6 +156,7 @@ async function respond(threadId: string, started: number) {
 
   // sem emoji (padrao): tirado no codigo, nao depende do modelo obedecer
   if (!emojisAllowed()) check.text = stripEmojis(check.text) || check.text;
+  check.text = cleanHumanText(check.text) || check.text;
   const lastMsg = pack.block[pack.block.length - 1];
   const status = await deliver({
     thread, agent, text: check.text, lastInboundId: lastSeen,

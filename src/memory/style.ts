@@ -39,11 +39,39 @@ export async function styleFor(instance: string, company: string | null): Promis
   );
   const text = [
     profile ? `Seu jeito geral de escrever (siga à risca):\n${profile.content}` : '',
-    examples.length ? `Mensagens reais que você mandou para pessoas diferentes (copie o jeito, não o conteúdo):\n${examples.reverse().map((e) => `- ${e.content.replace(/⁣/g, '').replace(/\n/g, ' / ').slice(0, 220)}`).join('\n')}` : '',
+    examples.length ? `Mensagens reais que você mandou para pessoas diferentes (copie o jeito, não o conteúdo):\n${examples.reverse().flatMap((e) => e.content.replace(/⁣/g, '').split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => `- ${l.slice(0, 220)}`)).join('\n')}` : '',
     notes.length ? `Anotações sobre o jeito de atender neste número:\n${notes.map((n) => `- ${n.content.slice(0, 300)}`).join('\n')}` : '',
   ].filter(Boolean).join('\n\n');
   cache.set(key, { at: Date.now(), text });
   return text;
+}
+
+/** Ultimas mensagens que o dono do numero escreveu para este contato (o jeito real de falar com ele). */
+export async function ownMessagesTo(threadId: string, limit = 30): Promise<string[]> {
+  const rows = await q<{ content: string }>(
+    `SELECT m.content FROM messages m WHERE m.thread_id = $1 AND m.sender = 'HUMAN' AND m.status <> 'DRAFT' AND ${HUMAN_TEXT_FILTER}
+      ORDER BY m.created_at DESC LIMIT $2`,
+    [threadId, limit],
+  );
+  return rows.reverse().flatMap((r) => r.content.replace(/⁣/g, '').split(/\n+/).map((l) => l.trim()).filter(Boolean));
+}
+
+const norm = (w: string) => w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+export const wordsOf = (t: string) => (t.match(/[\p{L}]+/gu) ?? []).map(norm);
+
+/** Palavras que o dono do numero ja usou (cache de 30 min). Serve para a IA nao usar palavra que ele nao usa. */
+const vocabCache = new Map<string, { at: number; words: Set<string> }>();
+export async function ownerVocabulary(instance: string): Promise<Set<string>> {
+  const hit = vocabCache.get(instance);
+  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.words;
+  const rows = await q<{ content: string }>(
+    `SELECT m.content FROM messages m JOIN threads t ON t.id = m.thread_id
+      WHERE m.sender = 'HUMAN' AND t.instance = $1 AND m.status <> 'DRAFT' ORDER BY m.created_at DESC LIMIT 8000`,
+    [instance],
+  );
+  const words = new Set(rows.flatMap((r) => wordsOf(r.content)));
+  vocabCache.set(instance, { at: Date.now(), words });
+  return words;
 }
 
 /** O que voce sabe sobre o assunto da mensagem: procedimentos, regras e respostas aprendidas neste numero. */

@@ -45,6 +45,19 @@ export function toBubbles(text: string): string[] {
 /** "digitando" proporcional ao tamanho (como alguem digitando no celular), com variacao para nao parecer robo. */
 export const typingMs = (text: string) => Math.round(Math.min(7000, Math.max(1200, text.length * 45)) * (0.85 + Math.random() * 0.3));
 
+/** Sem reticencias e sem barra separando frases: ninguem escreve assim no WhatsApp. */
+export function cleanHumanText(t: string): string {
+  return t
+    .replace(/[ \t]+\/[ \t]+/g, '\n') // "a / b" vira duas mensagens
+    .replace(/(\.{2,}|…)(?!\.)[ \t]*(?=\S)/g, ', ') // reticencias no meio viram virgula
+    .replace(/(\.{2,}|…)/g, '') // no fim, somem
+    .replace(/,\s*([,.!?])/g, '$1')
+    .replace(/^[ \t]*,[ \t]*/gm, '')
+    .replace(/[ \t]*,[ \t]*$/gm, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 /** Remove emojis (e os modificadores que sobram), mantendo o texto. */
 export function stripEmojis(t: string): string {
   return t

@@ -4,6 +4,7 @@ import { addCost, costUsd, withFallback } from '../lib/llm.js';
 import { fence } from '../lib/util.js';
 import { SENSITIVE_RE } from './mask.js';
 import { INTIMATE_RE } from '../memory/persona.js';
+import { wordsOf } from '../memory/style.js';
 
 export type OutputCheck = { text: string; issues: string[]; blocked: boolean };
 
@@ -46,6 +47,8 @@ export async function checkOutput(o: {
   clientAskedBot?: boolean; shortClient?: boolean;
   /** o jeito com este contato (ou o historico) ja tem esse tipo de carinho/apelido */
   intimateAllowed?: boolean;
+  /** conversa pessoal: curto e so com palavras que o dono do numero ja usou */
+  personal?: boolean; vocab?: Set<string>;
 }): Promise<OutputCheck> {
   const issues: string[] = [];
   const evidence = o.evidence.join('\n') + JSON.stringify(o.facts ?? {});
@@ -58,6 +61,11 @@ export async function checkOutput(o: {
   if (!o.intimateAllowed && INTIMATE_RE.test(o.text)) issues.push('usa apelido ou carinho (amor, bb...) com quem você não trata assim: fale do seu jeito geral, sem apelidos');
   if (o.channel === 'WHATSAPP' && /^\s*[•\-*]\s/m.test(o.text)) issues.push('tem lista com marcadores: escreva em frases normais, como no WhatsApp');
   if (o.shortClient && o.text.length > 280) issues.push('o cliente só cumprimentou ou mandou algo curto: responda curto (1 bolha) e não puxe assuntos antigos');
+  if (o.personal) {
+    if (o.text.length > 220) issues.push('conversa pessoal: está longo demais. Deixe em 1 ou 2 mensagens curtas, como você escreve para essa pessoa, sem conselho nem instrução');
+    const strange = o.vocab?.size ? [...new Set(wordsOf(o.text))].filter((w) => w.length >= 5 && !o.vocab!.has(w)) : [];
+    if (strange.length) issues.push(`usa palavras que você nunca usa (${strange.slice(0, 8).join(', ')}): troque por palavras simples do seu dia a dia ou tire a frase`);
+  }
   const figs = unsupportedFigures(o.text, evidence);
   if (figs.length) issues.push(`cita valores, prazos ou especificações que não vieram de ferramenta nem de aprovação (${figs.join(', ')}): remova e diga que vai confirmar`);
   if (o.agent === 'CLARA' && !o.kbConsulted && /(\n\s*\d+[.)]\s|clique em|acesse o menu|v[aá] em configura)/i.test(o.text)) {
@@ -70,7 +78,7 @@ export async function checkOutput(o: {
     const r = await withFallback('small', ({ model }) =>
       generateText({
         model,
-        system: 'Você revisa uma resposta de atendimento antes do envio. Reescreva corrigindo APENAS os problemas listados, mantendo tom, idioma (pt-BR) e o restante do conteúdo. Devolva só o texto final, sem comentários.',
+        system: 'Você revisa uma mensagem de WhatsApp antes do envio. Reescreva corrigindo APENAS os problemas listados, mantendo tom, idioma (pt-BR), abreviações e o jeito simples de quem escreveu. Use palavras simples do dia a dia, sem reticências nem barra. Mensagens separadas por linha em branco. Devolva só o texto final, sem comentários.',
         prompt: `${fence('problemas', issues.map((i) => `- ${i}`).join('\n'))}\n${fence('resposta', o.text)}\n${fence('dados_confirmados', evidence.slice(0, 6000))}`,
         maxRetries: 1,
       }),

@@ -4,7 +4,7 @@ import { env, personaFor, setting } from '../lib/env.js';
 import { withFallback } from '../lib/llm.js';
 import { isBusinessHours, nowLabel } from '../lib/util.js';
 import { companiesText, contactProfile, toModelMessages, type ContextPack } from '../memory/context.js';
-import { knowledgeFor, styleFor } from '../memory/style.js';
+import { knowledgeFor, ownMessagesTo, styleFor } from '../memory/style.js';
 import { toolsFor, type ToolCtx } from '../tools/index.js';
 import { fill, loadPrompt } from './prompts.js';
 
@@ -62,6 +62,14 @@ ${pack.thread.summary}` : '(conversa nova)',
     OTHER_CHANNEL: pack.otherChannel ?? '(nenhum)',
     INTERNAL_NOTE: internalNote || '(nenhuma)',
   });
+  // contato pessoal (amigo, familia, namorada): conversa, nao atendimento; ancora nas mensagens reais para essa pessoa
+  if (pack.contact.role === 'PESSOAL') {
+    const own = await ownMessagesTo(pack.thread.id).catch(() => [] as string[]);
+    const personal = fill(loadPrompt('pessoal'), {
+      OWN_MESSAGES: own.length ? own.map((l) => `- ${l.slice(0, 200)}`).join('\n') : '(ainda nenhuma: escreva curto e simples)',
+    });
+    return { text: `${common}\n${personal}`, evidence: knowledge.evidence };
+  }
   return { text: `${common}\n${loadPrompt(PROMPT_FILE[agent])}`, evidence: knowledge.evidence };
 }
 
