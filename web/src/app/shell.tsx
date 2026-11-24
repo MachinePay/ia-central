@@ -157,25 +157,14 @@ function AlertRow({ tone, title, sub, onClick }: { tone: 'ok' | 'warn' | 'crit';
   );
 }
 
+/** Um acesso so a plataforma: engrenagem (configuracoes) e sair, sem "conta de alguem". */
 function AccountMenu() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open]);
+  const path = useRouterState({ select: (s) => s.location.pathname });
   return (
-    <div ref={ref} className="relative">
-      <button className="cc-round border-0! bg-[var(--text)]! font-semibold text-[var(--bg)]!" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label="Conta">G</button>
-      {open && (
-        <div className="glass absolute top-[48px] right-0 z-30 min-w-[190px] bg-surface! rounded-[12px]! p-1.5" role="menu">
-          <button role="menuitem" className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left hover:bg-[var(--hover)]" onClick={() => { setOpen(false); navigate({ to: '/configuracoes' }); }}><Settings size={16} />Configurações</button>
-          <button role="menuitem" className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left hover:bg-[var(--hover)]" onClick={() => { setToken(null); location.reload(); }}><LogOut size={16} />Sair</button>
-        </div>
-      )}
-    </div>
+    <>
+      <button className={cx('cc-round', path.startsWith('/configuracoes') && 'border-0! bg-[var(--text)]! text-[var(--bg)]!')} onClick={() => navigate({ to: '/configuracoes' })} aria-label="Configurações" title="Configurações"><Settings size={18} /></button>
+      <button className="cc-round" onClick={() => { if (confirm('Sair do painel?')) { setToken(null); location.reload(); } }} aria-label="Sair" title="Sair"><LogOut size={18} /></button>
+    </>
   );
 }

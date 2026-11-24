@@ -9,6 +9,7 @@ const ROLES = [
   { v: 'ATENDIMENTO', l: 'Atendimento', d: 'João (comercial) e Clara (suporte) atendem como a pessoa deste número' },
   { v: 'OBSERVAR', l: 'Só aprendendo', d: 'Guarda as conversas e aprende com a equipe; nunca responde' },
   { v: 'GABRIEL', l: 'Pessoa', d: 'Fala como a pessoa deste número; responde quem você marcar em IAs → Cada IA' },
+  { v: 'CENTRAL', l: 'IA central (orquestrador)', d: 'Fala só com você: manda alertas, rascunhos e aprovações e responde o que você perguntar' },
   { v: 'OFF', l: 'Desligado', d: 'Ignorado pelo sistema' },
 ];
 
@@ -49,11 +50,12 @@ export function Settings() {
         <div className="mx-auto max-w-[880px] space-y-4">
           <Card className="p-4">
             <h2 className="font-semibold">Números de WhatsApp</h2>
+            {!q.data.instances.some((i: any) => i.role === 'CENTRAL') && <CentralRow />}
             <p className="mb-3 text-[13px] text-text-2">O que o sistema faz com as mensagens de cada número.</p>
             <ul className="divide-y divide-line">
               {q.data.instances.map((i: any) => (
                 <li key={i.name} className="flex flex-wrap items-center gap-3 py-2.5">
-                  <div className="w-32"><p className="font-semibold">{i.name}</p><StatusBadge status={i.state === 'open' ? 'OK' : 'FAIL'} label={i.state === 'open' ? 'conectado' : i.state} /></div>
+                  <div className="w-32"><p className="serif text-[24px] leading-none">{personas[i.name]?.name || i.name}</p><p className="mt-1 text-[11px] text-text-2">{i.phone ? phone(i.phone) : 'número ainda não lido'}</p><StatusBadge status={i.state === 'open' ? 'OK' : 'FAIL'} label={i.state === 'open' ? 'conectado' : i.state} /></div>
                   <select className={cx(inputCls, 'w-56!')} value={roles[i.name] ?? i.role} onChange={(e) => setRoles({ ...roles, [i.name]: e.target.value })} aria-label={`Papel do número ${i.name}`}>
                     {ROLES.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
                   </select>
@@ -138,6 +140,26 @@ export function Settings() {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Orquestrador (IA central) ainda sem numero proprio: fala com voce pelo "Voce"; aqui conecta o chip dela. */
+function CentralRow() {
+  const [qr, setQr] = useState(false);
+  const create = useMutation({
+    mutationFn: () => post('/api/whatsapp/instances', { name: 'central', role: 'CENTRAL', persona: 'IA central', about: 'orquestrador' }),
+    onSuccess: () => setQr(true),
+    onError: (e: any) => { if (/existe/i.test(String(e?.message))) setQr(true); else toastError(e); },
+  });
+  return (
+    <div className="my-3 rounded-[12px] border border-line p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-32"><p className="serif text-[24px] leading-none">IA central</p><p className="mt-1 text-[11px] text-text-2">orquestrador</p><Pill tone="amber">sem número próprio</Pill></div>
+        <p className="flex-1 text-[12px] text-text-2">Comanda todas as IAs e fala só com você: alertas, rascunhos e aprovações, e responde o que você perguntar. Enquanto não tiver número próprio, tudo chega no "Você" de cada número.</p>
+        {!qr && <Button size="sm" variant="primary" busy={create.isPending} onClick={() => create.mutate()}>Conectar número da IA</Button>}
+      </div>
+      {qr && <QrBox name="central" onDone={() => setQr(false)} />}
     </div>
   );
 }

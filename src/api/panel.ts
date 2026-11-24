@@ -16,7 +16,7 @@ import { cancelPendingRespond, enqueueRespond } from '../lib/queues.js';
 import { TAKEOVER_SECONDS } from '../takeover.js';
 import { keys, redis, redisOptions } from '../lib/redis.js';
 import { saveSetting } from '../lib/settings.js';
-import { ownPhones } from '../lib/owners.js';
+import { ownPhone, ownPhones } from '../lib/owners.js';
 import { addKnowledge } from '../memory/kb.js';
 import { checkUrl } from '../sentinela/collectors/urls.js';
 import { costSummary } from '../sentinela/costs.js';
@@ -727,7 +727,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const instances = await Promise.all([...instanceRoles()].map(async ([name, role]) => {
         let state = 'desconhecido';
         try { state = await connectionState(name); } catch { /* Evolution fora */ }
-        return { name, role, state };
+        return { name, role, state, phone: await ownPhone(name).catch(() => undefined) };
       }));
       const values = Object.fromEntries(EDITABLE_SETTINGS.map((k) => [k, setting(k)]));
       const connected = new Set([...(await gmailAccounts()).map((a) => a.email), ...(await mailAccounts()).map((a) => a.email)]);
