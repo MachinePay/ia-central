@@ -92,16 +92,16 @@ export async function panelRoutes(app: FastifyInstance) {
     // ---------------------------------------------------------------- inicio
     api.get('/api/summary', async () => {
       const [approvals, incidents, unanswered, promises, today, events, takeovers] = await Promise.all([
-        q(`SELECT a.id, a.code, a.action, a.requested_by, a.created_at, coalesce(c.name, c.phone, c.email) AS contact, a.thread_id
+        q(`SELECT a.id, a.code, a.action, a.requested_by, a.created_at, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, a.thread_id
              FROM app.pending_approvals a JOIN app.threads t ON t.id = a.thread_id JOIN app.contacts c ON c.id = t.contact_id
             WHERE a.status = 'PENDING' ORDER BY a.created_at`),
         q(`SELECT id, severity, title, status, opened_at FROM sentinela.incidents WHERE status <> 'RESOLVED' ORDER BY severity DESC, opened_at`),
-        q(`SELECT t.id, t.instance, coalesce(c.name, c.phone, c.email) AS contact, t.last_inbound_at
+        q(`SELECT t.id, t.instance, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, t.last_inbound_at
              FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
             WHERE t.last_inbound_at > now() - interval '3 days' AND t.last_inbound_at < now() - interval '1 hour'
               AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)
             ORDER BY t.last_inbound_at LIMIT 20`),
-        q(`SELECT t.id AS thread_id, coalesce(c.name, c.phone, c.email) AS contact, p->>'o_que' AS what, p->>'prazo' AS due
+        q(`SELECT t.id AS thread_id, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, p->>'o_que' AS what, p->>'prazo' AS due
              FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id, jsonb_array_elements(coalesce(t.facts->'promessas', '[]')) p
             WHERE (p->>'prazo') ~ '^\\d{4}-\\d{2}-\\d{2}$' AND (p->>'prazo')::date <= current_date LIMIT 20`),
         one(`SELECT
@@ -125,7 +125,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const central = centralInstance();
       const [threads, resources, monitors, approvals, incidents, numbers, runs] = await Promise.all([
         q(`SELECT * FROM (
-             SELECT t.id, t.instance, t.channel, t.active_agent, coalesce(c.name, c.phone, c.email) AS contact, c.tags, c.role, t.ai_enabled, t.ai_auto,
+             SELECT t.id, t.instance, t.channel, t.active_agent, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.tags, c.role, t.ai_enabled, t.ai_auto,
                     t.last_inbound_at, t.last_outbound_at, left(lm.content, 120) AS last, lm.status AS last_status,
                     row_number() OVER (PARTITION BY t.instance ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC) AS rn
                FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
@@ -228,7 +228,7 @@ export async function panelRoutes(app: FastifyInstance) {
       if (f.cursor) add(`coalesce(lm.created_at, t.updated_at) < $?::timestamptz`, f.cursor);
       const rows = await q(
         `SELECT t.id, t.channel, t.instance, t.active_agent, t.status, t.company_slug, t.subject,
-                c.id AS contact_id, coalesce(c.name, c.phone, c.email) AS contact, c.phone, c.email, c.tags, c.crm_stage, c.role, t.ai_enabled, t.ai_auto,
+                c.id AS contact_id, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.phone, c.email, c.tags, c.crm_stage, c.role, t.ai_enabled, t.ai_auto,
                 lm.content AS last_content, lm.direction AS last_direction, lm.sender AS last_sender, lm.status AS last_status,
                 coalesce(lm.created_at, t.updated_at) AS last_at,
                 (SELECT count(*)::int FROM app.pending_approvals a WHERE a.thread_id = t.id AND a.status = 'PENDING') AS pending,
@@ -262,7 +262,10 @@ export async function panelRoutes(app: FastifyInstance) {
         redis.ttl(keys.takeover(thread.id)),
       ]);
       const nameOf = await nameResolver();
-      if (contact && thread.channel === 'WHATSAPP') (contact as any).name = nameOf(thread.instance, (contact as any).phone, (contact as any).name);
+      if (contact && thread.channel === 'WHATSAPP') {
+        const agenda = await one<{ name: string }>(`SELECT name FROM app.contact_names WHERE instance = $1 AND phone = $2`, [thread.instance, (contact as any).phone]);
+        (contact as any).name = nameOf(thread.instance, (contact as any).phone, agenda?.name ?? (contact as any).name);
+      }
       return {
         thread, contact, approvals, tickets, runs, otherThreads: other,
         takeover: takeover === -1 ? { on: true, until: null } : takeover > 0 ? { on: true, until: new Date(Date.now() + takeover * 1000) } : { on: false },
@@ -361,7 +364,7 @@ export async function panelRoutes(app: FastifyInstance) {
     api.get('/api/approvals', async (req) => {
       const status = (req.query as any).status ?? 'PENDING';
       return q(
-        `SELECT a.*, coalesce(c.name, c.phone, c.email) AS contact, c.company, c.crm_stage, t.channel, t.instance, t.summary
+        `SELECT a.*, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.company, c.crm_stage, t.channel, t.instance, t.summary
            FROM app.pending_approvals a JOIN app.threads t ON t.id = a.thread_id JOIN app.contacts c ON c.id = t.contact_id
           WHERE ($1 = 'ALL' OR a.status = $1) ORDER BY a.created_at DESC LIMIT 100`,
         [status],
@@ -682,7 +685,7 @@ export async function panelRoutes(app: FastifyInstance) {
       if (f.show === 'unmarked') where.push('NOT t.ai_enabled');
       if (f.show === 'personal') where.push(`c.role = 'PESSOAL'`);
       const rows = await q(
-        `SELECT t.id, t.ai_enabled, t.ai_auto, c.id AS contact_id, coalesce(c.name, c.phone, c.email) AS contact, c.phone, c.role,
+        `SELECT t.id, t.ai_enabled, t.ai_auto, c.id AS contact_id, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.phone, c.role,
                 c.treatment IS NOT NULL AS has_treatment,
                 coalesce(t.last_inbound_at, t.updated_at) AS last_at,
                 (SELECT count(*)::int FROM app.messages m WHERE m.thread_id = t.id) AS messages

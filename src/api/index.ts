@@ -4,10 +4,11 @@ import { FastifyAdapter } from '@bull-board/fastify';
 import Fastify from 'fastify';
 import { OAuth2Client } from 'google-auth-library';
 import { timingSafeEqual } from 'node:crypto';
-import { connectionState } from '../channels/whatsapp/evolution.js';
+import { connectionState, setWebhook } from '../channels/whatsapp/evolution.js';
 import { pool } from '../lib/db.js';
 import { env, instanceRoles } from '../lib/env.js';
 import { logger } from '../lib/logger.js';
+import { saveAgendaNames } from './agenda.js';
 import { allQueues, ingestQueue } from '../lib/queues.js';
 import { redis } from '../lib/redis.js';
 import { startSettingsRefresh } from '../lib/settings.js';
@@ -44,6 +45,12 @@ app.post<{ Params: { instance: string }; Querystring: { token?: string } }>('/we
     const state = body?.data?.state;
     if (state && state !== 'open') logger.warn({ instance, state }, 'sessao do WhatsApp mudou de estado');
     await ingestQueue.add('wa-connection', { instance, state }, { removeOnComplete: 100 });
+    return reply.send({ ok: true });
+  }
+  if (event === 'contacts.upsert' || event === 'contacts.set') {
+    // nome salvo na agenda do celular deste numero
+    const list = (Array.isArray(body.data) ? body.data : [body.data]).filter(Boolean);
+    await saveAgendaNames(instance, list.map((c: any) => ({ jid: String(c.remoteJid ?? c.id ?? ''), name: String(c.pushName ?? c.name ?? '') }))).catch((e) => logger.warn({ err: String(e) }, 'nomes da agenda nao salvos'));
     return reply.send({ ok: true });
   }
   if (event !== 'messages.upsert') return reply.send({ ok: true });
@@ -107,7 +114,10 @@ app.register(async (scope) => {
   await scope.register(board.registerPlugin(), { prefix: '/admin/queues' });
 });
 
-app.listen({ port: env.PORT, host: '0.0.0.0' }).catch((e) => {
+app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
+  // garante que cada numero manda tambem os contatos (nome salvo na agenda) para este sistema
+  for (const [name, role] of instanceRoles()) if (role !== 'OFF') void setWebhook(name).catch((e) => logger.warn({ err: String(e), name }, 'webhook nao atualizado'));
+}).catch((e) => {
   logger.fatal(e);
   process.exit(1);
 });

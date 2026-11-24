@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
  * Maquete 3D da operacao, visual neon/holograma.
@@ -36,8 +37,8 @@ type Area = SceneArea & {
   w: number; d: number; hx: number; hz: number; top: number; items: Item[]; label?: HTMLButtonElement; faded?: boolean;
 };
 type Portal = { id: string; name: string; color: string; x: number; z: number; g?: THREE.Group; inner?: THREE.Object3D; labelPos?: THREE.Vector3 };
-/** line: traco neon (cor solida); fill: preenchimento translucido; glow: brilho aditivo (vira normal e mais fraco no tema claro) */
-type Kind = 'line' | 'fill' | 'glow';
+/** line: traco neon (cor solida); fill: preenchimento translucido; body: corpo meio solido das figuras; glow: brilho aditivo (vira normal e mais fraco no tema claro) */
+type Kind = 'line' | 'fill' | 'glow' | 'body';
 
 // ------------------------------------------------------------------ texturas desenhadas
 function radialTex() {
@@ -133,7 +134,7 @@ export class OperationScene {
   private floorMat = new THREE.MeshBasicMaterial({ color: '#070A12' });
   private grid?: THREE.GridHelper;
   private mats = new Set<THREE.Material>();
-  private TK: Record<Kind, number> = { line: 1, fill: 1, glow: 1 };
+  private TK: Record<Kind, number> = { line: 1, fill: 1, glow: 1, body: 1 };
   private dark = true;
   private areas: Area[] = [];
   private items: Item[] = [];
@@ -225,7 +226,11 @@ export class OperationScene {
 
   // ------------------------------------------------------------------ materiais neon
   private val(m: THREE.Material) { const u = m.userData; return (u.base0 ?? 1) * this.TK[(u.kind ?? 'line') as Kind] * (u.dimF ?? 1); }
-  private refresh(m: THREE.Material) { m.opacity = Math.min(1, this.val(m)); }
+  private refresh(m: THREE.Material) {
+    m.opacity = Math.min(1, this.val(m));
+    // corpos das figuras escrevem profundidade (parecem solidos); apagados pelo filtro, nao
+    if (m.userData.kind === 'body') m.depthWrite = (m.userData.dimF ?? 1) >= 1;
+  }
   private track<T extends THREE.Material>(m: T, kind: Kind, base: number): T {
     m.transparent = true; m.depthWrite = false;
     Object.assign(m.userData, { kind, base0: base, dimF: 1 });
@@ -235,6 +240,10 @@ export class OperationScene {
   private line(color: THREE.ColorRepresentation, base = 0.95) { return this.track(new THREE.LineBasicMaterial({ color }), 'line', base); }
   private solid(color: THREE.ColorRepresentation, base = 0.95) { return this.track(new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }), 'line', base); }
   private fill(color: THREE.ColorRepresentation, base = 0.1) { return this.track(new THREE.MeshBasicMaterial({ color }), 'fill', base); }
+  /** corpo translucido das figuras: cor da area um pouco escurecida para as arestas neon aparecerem por cima */
+  private body(color: THREE.ColorRepresentation, base = 0.55) {
+    return this.track(new THREE.MeshBasicMaterial({ color: new THREE.Color(color).lerp(new THREE.Color('#000000'), 0.22) }), 'body', base);
+  }
   private glow(color: THREE.ColorRepresentation, base = 0.4, map: THREE.Texture | null = this.RT) {
     return this.track(new THREE.MeshBasicMaterial({ color, map, side: THREE.DoubleSide }), 'glow', base);
   }
@@ -397,47 +406,80 @@ export class OperationScene {
     const L = new LB();
     L.box(0, 0.72, 0, 1.6, 0.04, 0.72);
     for (const x of [-0.76, 0.76]) { L.seg(x, 0, -0.32, x, 0.7, -0.32); L.seg(x, 0, 0.32, x, 0.7, 0.32); L.seg(x, 0.04, -0.32, x, 0.04, 0.32); }
-    L.rectZ(0, 1.12, -0.22, 0.82, 0.48); L.seg(0, 0.74, -0.24, 0, 0.88, -0.24); L.rectY(0, 0.745, -0.24, 0.26, 0.14);
-    L.rectY(0, 0.745, 0.08, 0.5, 0.15);
+    L.box(0, 1.12, -0.235, 0.84, 0.5, 0.03); L.seg(0, 0.74, -0.24, 0, 0.87, -0.24); L.rectY(0, 0.745, -0.24, 0.26, 0.14);
+    L.rectY(0, 0.76, 0.08, 0.5, 0.15);
     // cadeira
-    L.rectY(0, 0.48, 0.74, 0.5, 0.46); L.rectZ(0, 0.8, 0.98, 0.46, 0.5); L.seg(0, 0.48, 0.74, 0, 0.05, 0.74); L.ring(0, 0.04, 0.74, 0.26, 5);
+    L.box(0, 0.48, 0.74, 0.5, 0.06, 0.46); L.box(0, 0.8, 0.98, 0.46, 0.5, 0.05); L.seg(0, 0.45, 0.74, 0, 0.05, 0.74); L.ring(0, 0.04, 0.74, 0.26, 5);
     // pessoa: tronco em prisma, bracos em linhas
     L.prism(0, 0.7, 0.2, 0.15, 0.6, 1.12, 6);
-    for (const s of [-1, 1]) { L.seg(s * 0.19, 1.08, 0.7, s * 0.26, 0.86, 0.46); L.seg(s * 0.26, 0.86, 0.46, s * 0.14, 0.8, 0.16); }
+    const arms: Array<[number[], number[]]> = [];
+    for (const s of [-1, 1]) arms.push([[s * 0.19, 1.08, 0.7], [s * 0.26, 0.86, 0.46]], [[s * 0.26, 0.86, 0.46], [s * 0.14, 0.8, 0.16]]);
+    for (const [a, b] of arms) L.seg(a[0], a[1], a[2], b[0], b[1], b[2]);
     const H = new LB(); H.ring(0, 0, 0, 0.15, 16, 'xz'); H.ring(0, 0, 0, 0.15, 16, 'xy'); H.ring(0, 0, 0, 0.15, 16, 'yz');
-    const scr = new THREE.PlaneGeometry(0.78, 0.44); scr.translate(0, 1.12, -0.215);
-    return { body: L.geo(), head: H.geo(), screen: scr };
+    // corpos preenchidos (uma geometria so por ilha, compartilhada pelas mesas)
+    const B = (w: number, h: number, d: number, x: number, y: number, z: number) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
+    const C = (r1: number, r2: number, h: number, n: number, x: number, y: number, z: number) => new THREE.CylinderGeometry(r1, r2, h, n).rotateY(Math.PI / 6).translate(x, y, z);
+    const up = new THREE.Vector3(0, 1, 0);
+    const rod = (a: number[], b: number[], r: number) => {
+      const va = new THREE.Vector3(a[0], a[1], a[2]), vb = new THREE.Vector3(b[0], b[1], b[2]), d = vb.clone().sub(va);
+      const g = new THREE.CylinderGeometry(r, r, d.length(), 6);
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, d.normalize()));
+      const m = va.add(vb).multiplyScalar(0.5); return g.translate(m.x, m.y, m.z);
+    };
+    const parts = [
+      B(1.6, 0.04, 0.72, 0, 0.72, 0),
+      ...[[-0.76, -0.32], [0.76, -0.32], [-0.76, 0.32], [0.76, 0.32]].map(([x, z]) => B(0.04, 0.7, 0.04, x, 0.35, z)),
+      B(0.84, 0.5, 0.03, 0, 1.12, -0.235), B(0.04, 0.14, 0.04, 0, 0.81, -0.24), B(0.26, 0.01, 0.14, 0, 0.745, -0.24), B(0.5, 0.02, 0.15, 0, 0.75, 0.08),
+      B(0.5, 0.06, 0.46, 0, 0.48, 0.74), B(0.46, 0.5, 0.05, 0, 0.8, 0.98), C(0.03, 0.03, 0.42, 6, 0, 0.25, 0.74), C(0.26, 0.26, 0.02, 5, 0, 0.04, 0.74),
+      C(0.15, 0.2, 0.52, 6, 0, 0.86, 0.7), ...arms.map(([a, b]) => rod(a, b, 0.045)),
+    ];
+    const fill = mergeGeometries(parts)!; parts.forEach((p) => p.dispose());
+    const headFill = new THREE.SphereGeometry(0.14, 14, 10);
+    const scr = new THREE.PlaneGeometry(0.76, 0.42); scr.translate(0, 1.12, -0.218);
+    return { body: L.geo(), head: H.geo(), fill, headFill, screen: scr };
   }
   private desk(A: Area, it: Item, px: number, pz: number, G: ReturnType<OperationScene['deskGeos']>) {
     const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
-    const lm = this.line(A.color, 0.95);
+    const edge = new THREE.Color(A.color).lerp(new THREE.Color('#ffffff'), 0.2);
+    const lm = this.line(edge, 0.95), bm = this.body(A.color, 0.55);
     const body = new THREE.LineSegments(G.body, lm);
+    const fill = new THREE.Mesh(G.fill, bm);
     const head = new THREE.LineSegments(G.head, lm); head.position.set(0, 1.33, 0.7);
-    const sm = this.glow(A.color, it.status === 'ok' ? 0.5 : 0.22, null);
+    head.add(new THREE.Mesh(G.headFill, bm));
+    // tela acesa: face clara e solida + brilho atras
+    const ok = it.status === 'ok';
+    const sm = this.solid(new THREE.Color(A.color).lerp(new THREE.Color('#ffffff'), ok ? 0.45 : 0.15), ok ? 0.95 : 0.5);
     const scr = new THREE.Mesh(G.screen, sm);
+    const gm = this.glow(A.color, ok ? 0.5 : 0.2, null);
+    const scrGlow = new THREE.Mesh(G.screen, gm); scrGlow.scale.setScalar(1.12); scrGlow.position.set(0, -0.134, 0.03);
     this.heads.push({ m: head, base: 1.33, ph: Math.random() * 6.28 });
-    g.add(body, head, scr);
-    it.mats = [lm, sm];
+    g.add(fill, body, head, scr, scrGlow);
+    it.mats = [lm, bm, sm, gm];
     this.status(g, it, 1.8, 0.7);
     this.finish(it, g, this.G.pDesk);
   }
   private rackGeos() {
     const L = new LB(); L.box(0, 1, 0, 0.74, 2, 0.66);
-    for (let i = 1; i < 8; i++) L.seg(-0.3, i * 0.25, 0.331, 0.3, i * 0.25, 0.331);
     L.seg(-0.37, 2, -0.33, 0.37, 2, 0.33); L.seg(0.37, 2, -0.33, -0.37, 2, 0.33);
+    const S = new LB();
+    for (let i = 1; i < 8; i++) { const y = i * 0.25; S.seg(-0.3, y, 0.336, 0.3, y, 0.336); S.seg(0.372, y, -0.28, 0.372, y, 0.28); S.seg(-0.372, y, -0.28, -0.372, y, 0.28); }
     const fill = new THREE.BoxGeometry(0.74, 2, 0.66); fill.translate(0, 1, 0);
+    const face = new THREE.PlaneGeometry(0.64, 1.86); face.translate(0, 1, 0.334);
     const led = new THREE.PlaneGeometry(0.1, 0.035);
-    return { lines: L.geo(), fill, led };
+    return { lines: L.geo(), slots: S.geo(), fill, face, led };
   }
   private rack(A: Area, it: Item, px: number, pz: number, G: ReturnType<OperationScene['rackGeos']>) {
     const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
-    const lm = this.line(A.color, 0.9), fm = this.fill(A.color, 0.08);
-    const ledM = this.solid(STATUS_COL[it.status], 1), led2 = this.solid(A.color, 0.9);
-    g.add(new THREE.LineSegments(G.lines, lm), new THREE.Mesh(G.fill, fm));
+    const edge = new THREE.Color(A.color).lerp(new THREE.Color('#ffffff'), 0.2);
+    const lm = this.line(edge, 0.95), bm = this.body(A.color, 0.5);
+    const sl = this.line(new THREE.Color(A.color).lerp(new THREE.Color('#ffffff'), 0.5), 0.9);
+    const fg = this.glow(A.color, 0.25, null);
+    const ledM = this.solid(STATUS_COL[it.status], 1), led2 = this.solid(new THREE.Color(A.color).lerp(new THREE.Color('#ffffff'), 0.4), 1);
+    g.add(new THREE.Mesh(G.fill, bm), new THREE.Mesh(G.face, fg), new THREE.LineSegments(G.lines, lm), new THREE.LineSegments(G.slots, sl));
     for (let i = 0; i < 5; i++) {
-      const l = new THREE.Mesh(G.led, i % 2 ? led2 : ledM); l.position.set(-0.22 + (i % 2) * 0.16, 0.38 + i * 0.34, 0.34); g.add(l);
+      const l = new THREE.Mesh(G.led, i % 2 ? led2 : ledM); l.position.set(-0.22 + (i % 2) * 0.16, 0.38 + i * 0.34, 0.342); g.add(l);
     }
-    it.mats = [lm, fm, ledM, led2];
+    it.mats = [lm, bm, sl, fg, ledM, led2];
     this.status(g, it, 2.4);
     this.finish(it, g, this.G.pRack);
   }
@@ -447,16 +489,20 @@ export class OperationScene {
     L.rectZ(0, 1.2, 0.115, 0.42, 0.8);
     const scr = new THREE.PlaneGeometry(0.42, 0.8); scr.translate(0, 1.2, 0.12);
     const strip = new THREE.PlaneGeometry(0.3, 0.04); strip.translate(0, 1.78, 0.12);
-    return { lines: L.geo(), screen: scr, strip };
+    const parts = [new THREE.BoxGeometry(0.56, 1.8, 0.22).translate(0, 1.0, 0), new THREE.CylinderGeometry(0.3, 0.38, 0.1, 6).translate(0, 0.05, 0)];
+    const fill = mergeGeometries(parts)!; parts.forEach((g) => g.dispose());
+    return { lines: L.geo(), screen: scr, strip, fill };
   }
   private totem(A: Area, it: Item, px: number, pz: number, G: ReturnType<OperationScene['totemGeos']>) {
     const g = new THREE.Group(); g.position.set(px, A.top, pz); A.g.add(g);
     const off = it.status === 'crit';
     const lm = this.line(off ? STATUS_COL.crit : A.color, 0.9);
     const sm = this.glow(A.color, off ? 0.05 : 0.4, null);
-    const st = this.solid(STATUS_COL[it.status], 1);
-    g.add(new THREE.LineSegments(G.lines, lm), new THREE.Mesh(G.screen, sm), new THREE.Mesh(G.strip, st));
-    it.mats = [lm, sm, st];
+    const st = this.solid(STATUS_COL[it.status], 1), bm = this.body(A.color, 0.5);
+    const face = this.solid(new THREE.Color(A.color).lerp(new THREE.Color('#ffffff'), 0.4), off ? 0.08 : 0.85);
+    const scrFace = new THREE.Mesh(G.screen, face); scrFace.position.z = 0.002;
+    g.add(new THREE.Mesh(G.fill, bm), new THREE.LineSegments(G.lines, lm), new THREE.Mesh(G.screen, sm), scrFace, new THREE.Mesh(G.strip, st));
+    it.mats = [lm, sm, st, bm, face];
     this.status(g, it, 2.3);
     this.finish(it, g, this.G.pTotem);
   }
@@ -621,7 +667,7 @@ export class OperationScene {
     const gm = this.grid.material as THREE.Material; gm.transparent = true; gm.opacity = dark ? 0.4 : 0.55; gm.depthWrite = false;
     this.grid.position.y = 0.002; this.scene.add(this.grid);
     // tema claro: mesmas linhas neon, preenchimento um pouco mais forte e brilho bem mais fraco (sem bloom)
-    this.TK = dark ? { line: 1, fill: 0.75, glow: 0.45 } : { line: 1, fill: 1.6, glow: 0.4 };
+    this.TK = dark ? { line: 1, fill: 0.75, glow: 0.45, body: 0.8 } : { line: 1, fill: 1.6, glow: 0.4, body: 1.1 };
     for (const m of this.mats) {
       if (m.userData.kind === 'glow') { const b = dark ? THREE.AdditiveBlending : THREE.NormalBlending; if (m.blending !== b) { m.blending = b; m.needsUpdate = true; } }
       this.refresh(m);

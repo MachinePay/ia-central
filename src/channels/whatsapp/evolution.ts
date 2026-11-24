@@ -51,7 +51,7 @@ export async function setWebhook(instance: string) {
       headers: { 'x-webhook-token': env.EVOLUTION_WEBHOOK_TOKEN },
       byEvents: false,
       base64: true,
-      events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'],
+      events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'CONTACTS_UPSERT', 'CONTACTS_SET'],
     },
   });
 }
