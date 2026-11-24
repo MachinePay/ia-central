@@ -6,7 +6,7 @@ const LATE_SECONDS = 15 * 60;
 
 export type ParsedWa =
   | { kind: 'ignore'; reason: string }
-  | { kind: 'fromMe'; jid: string; text: string; id: string; botMarked: boolean; quotedId?: string }
+  | { kind: 'fromMe'; jid: string; text: string; id: string; botMarked: boolean; quotedId?: string; ts: number }
   | { kind: 'reaction' }
   | { kind: 'inbound'; event: InboundEvent };
 
@@ -43,7 +43,7 @@ export function parseEvolution(instance: string, data: any): ParsedWa {
 
   if (d.key.fromMe) {
     const quotedId = m.extendedTextMessage?.contextInfo?.stanzaId;
-    return { kind: 'fromMe', jid, text, id: d.key.id, botMarked: text.startsWith(BOT_MARK), quotedId };
+    return { kind: 'fromMe', jid, text, id: d.key.id, botMarked: text.startsWith(BOT_MARK), quotedId, ts: +d.messageTimestamp || Math.floor(Date.now() / 1000) };
   }
   // mensagem de um dos nossos numeros (rascunho, aprovacao, alerta): nunca vira conversa de cliente
   if (text.startsWith(BOT_MARK)) return { kind: 'ignore', reason: 'mensagem de outro numero do sistema' };

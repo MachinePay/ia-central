@@ -64,17 +64,17 @@ export async function saveInboundIfNew(ev: InboundEvent): Promise<{ message: Mes
   return { message, thread, contact };
 }
 
-export async function saveOutbound(threadId: string, content: string, sender: Agent, status: string, metadata: Record<string, unknown> = {}, externalId?: string) {
+export async function saveOutbound(threadId: string, content: string, sender: Agent, status: string, metadata: Record<string, unknown> = {}, externalId?: string, at?: Date) {
   const m = await one<Message>(
-    `INSERT INTO messages (thread_id, external_id, direction, sender, status, content, metadata)
-     VALUES ($1, $2, 'OUTBOUND', $3, $4, $5, $6) ON CONFLICT (external_id) DO NOTHING RETURNING *`,
-    [threadId, externalId ?? null, sender, status, content, JSON.stringify(metadata)],
+    `INSERT INTO messages (thread_id, external_id, direction, sender, status, content, metadata, created_at)
+     VALUES ($1, $2, 'OUTBOUND', $3, $4, $5, $6, coalesce($7::timestamptz, now())) ON CONFLICT (external_id) DO NOTHING RETURNING *`,
+    [threadId, externalId ?? null, sender, status, content, JSON.stringify(metadata), at ?? null],
   );
-  if (status === 'SENT' || sender === 'HUMAN') {
+  if (m && (status === 'SENT' || sender === 'HUMAN')) {
     await q(
-      `UPDATE threads SET last_outbound_at = now(), msgs_since_summary = msgs_since_summary + 1,
+      `UPDATE threads SET last_outbound_at = greatest(last_outbound_at, $3::timestamptz), msgs_since_summary = msgs_since_summary + 1,
          last_bot_at = CASE WHEN $2 <> 'HUMAN' THEN now() ELSE last_bot_at END WHERE id = $1`,
-      [threadId, sender],
+      [threadId, sender, m.created_at],
     );
   }
   if (m) await publish('message.created', { threadId, messageId: m.id, direction: 'OUTBOUND', sender, status });

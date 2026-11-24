@@ -12,14 +12,18 @@ import { cancelPendingRespond } from './lib/queues.js';
 import { keys, redis } from './lib/redis.js';
 
 const TAKEOVER_SECONDS = 2 * 3600;
+const OLD_FROM_ME_SECONDS = 5 * 60;
 
 export async function isTakeover(threadId: string): Promise<boolean> {
   return (await redis.exists(keys.takeover(threadId))) === 1;
 }
 
 export async function applyTakeover(thread: Thread, text: string | undefined, externalId?: string) {
+  if (text) {
+    const saved = await saveOutbound(thread.id, text, 'HUMAN', 'SENT', {}, externalId); // entra no historico dos agentes
+    if (!saved && externalId) return; // mensagem repetida (o WhatsApp reenviou): nao silencia a IA de novo
+  }
   await redis.set(keys.takeover(thread.id), '1', 'EX', TAKEOVER_SECONDS);
-  if (text) await saveOutbound(thread.id, text, 'HUMAN', 'SENT', {}, externalId); // entra no historico dos agentes
   await cancelPendingRespond(thread.id);
   logger.info({ threadId: thread.id }, 'takeover humano: bots em silencio por 2 h');
 }
@@ -45,12 +49,16 @@ export async function handleBotCommand(thread: Thread, text: string): Promise<bo
 }
 
 /** Mensagem fromMe que nao foi o bot: o Gabriel (ou a equipe) digitou no celular. */
-export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string }, ownerJid?: string) {
+export async function handleWhatsappFromMe(instance: string, p: { jid: string; text: string; id: string; botMarked: boolean; quotedId?: string; ts?: number }, ownerJid?: string) {
   if (p.botMarked || (await redis.exists(keys.sent(p.id)))) return; // foi o proprio bot
+  // mensagem antiga reenviada pelo WhatsApp (sincronizacao ao reconectar): so entra no historico, com o horario real
+  const at = p.ts ? new Date(p.ts * 1000) : undefined;
+  const old = !!p.ts && Date.now() / 1000 - p.ts > OLD_FROM_ME_SECONDS;
+  if (old && !p.text) return;
   // conversa "Voce" do Gabriel (consigo mesmo, no numero dele): fala com a IA central (orquestrador)
   const selfChat = isGabrielPhone(p.jid) && (!ownerJid || normalizePhone(ownerJid) === normalizePhone(p.jid));
   if (selfChat) {
-    if (!p.text) return;
+    if (!p.text || old) return; // pedido antigo reenviado: nao responde de novo
     if (await handleSentinelCommand(normalizePhone(p.jid), p.text)) return; // ok 42, /status, /custos...
     if (await handleGabrielReply(p.text, p.quotedId)) return; // resposta a uma aprovacao
     const where = ownerReplyTarget('self', instance);
@@ -64,10 +72,14 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
     const contact = await upsertContact(ev);
     if (contact.role === 'LEAD' && !contact.tags.length) await q(`UPDATE contacts SET role = 'PESSOAL' WHERE id = $1`, [contact.id]);
     thread = await upsertThread(ev, contact.id);
-    await saveOutbound(thread.id, p.text, 'HUMAN', 'SENT', {}, `wa:${instance}:${p.id}`);
+    await saveOutbound(thread.id, p.text, 'HUMAN', 'SENT', {}, `wa:${instance}:${p.id}`, at);
     return;
   }
   if (!thread) return;
+  if (old) {
+    await saveOutbound(thread.id, p.text, 'HUMAN', 'SENT', {}, `wa:${instance}:${p.id}`, at);
+    return;
+  }
   if (await handleBotCommand(thread, p.text)) {
     await deleteForEveryone(instance, p.jid, p.id); // o cliente nao ve o comando
     return;
