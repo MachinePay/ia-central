@@ -3,7 +3,7 @@ import { sendText } from './channels/whatsapp/evolution.js';
 import { saveOutbound } from './domain/repo.js';
 import { one } from './lib/db.js';
 import type { Agent, Thread } from './domain/types.js';
-import { approvalInstance, autoSendAgents, centralInstance, env, instanceRole, numberRule, sendMode, shadowNotify } from './lib/env.js';
+import { approvalInstance, autoSendAgents, centralInstance, env, instanceRole, numberOf, numberRule, sendMode, shadowNotify } from './lib/env.js';
 import { ownPhone } from './lib/owners.js';
 import { logger } from './lib/logger.js';
 import { outboundQueue } from './lib/queues.js';
@@ -29,7 +29,7 @@ export async function deliver(i: DeliverInput): Promise<'DRAFT' | 'QUEUED'> {
   const outboundKey = createHash('sha256').update(`${i.thread.id}|${i.lastInboundId ?? ''}|${i.agent}|${i.force ? i.text : ''}`).digest('hex').slice(0, 32);
   // marcado "responde sozinha" nesta conversa (ou o numero todo em envio automatico): sai sem rascunho
   const row = await one<{ ai_auto: boolean }>(`SELECT ai_auto FROM threads WHERE id = $1`, [i.thread.id]);
-  const auto = i.force || !!row?.ai_auto || numberRule(i.thread.instance).auto || autoSendEnabled(i.agent, i.thread.channel);
+  const auto = i.force || !!row?.ai_auto || numberRule(numberOf(i.thread.instance)).auto || autoSendEnabled(i.agent, i.thread.channel);
   const status = auto ? 'QUEUED' : 'DRAFT';
   const msg = await saveOutbound(i.thread.id, i.text, i.agent, status, { outboundKey, quotedId: i.quotedId });
   if (!msg) return status;
@@ -55,6 +55,7 @@ export async function deliver(i: DeliverInput): Promise<'DRAFT' | 'QUEUED'> {
 export async function notifyGabriel(text: string, instance?: string): Promise<string | undefined> {
   const central = centralInstance();
   if (central && env.GABRIEL_PERSONAL_PHONE) return sendText(central, env.GABRIEL_PERSONAL_PHONE, text);
+  if (instance) instance = numberOf(instance);
   if (instance && instanceRole(instance) !== 'OFF') {
     const self = await ownPhone(instance).catch(() => undefined);
     if (self) return sendText(instance, self, text);

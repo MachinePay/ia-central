@@ -32,6 +32,11 @@ export async function connectQr(instance: string): Promise<{ qr?: string; pairin
   return { state: (r?.instance ?? r)?.state };
 }
 
+/** Desconecta o WhatsApp desta instancia (sai do aparelho). Depois e so gerar o QR de novo para outro numero. */
+export async function logoutInstance(instance: string) {
+  return evo('DELETE', `/instance/logout/${instance}`);
+}
+
 export async function connectionState(instance: string): Promise<string> {
   const r = await evo('GET', `/instance/connectionState/${instance}`);
   return (r.instance ?? r).state;

@@ -64,6 +64,8 @@ const schema = z.object({
   EMOJIS: z.string().default('off'),   // off = a IA nunca manda emoji
   // regras de cada numero: {"joao":{"reply":"all","auto":false}} (reply: all = todos os contatos, selected = so os marcados)
   NUMBER_RULES: z.string().default('{}'),
+  // e-mail de cada numero (Gmail conectado pelo painel): {"gabriel":"gabriel@empresa.com"}
+  EMAILS: z.string().default('{}'),
   PERSONAS: z.string().default('gabriel:Gabriel|fundador da SelfMachine'),
 });
 
@@ -86,7 +88,7 @@ export type Env = typeof env;
  * Ajustes feitos no painel (tabela app.settings) valem por cima das variaveis de ambiente.
  * O cache e atualizado a cada 30 s em cada processo (lib/settings.ts).
  */
-export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS', 'NUMBER_RULES'] as const;
+export const EDITABLE_SETTINGS = ['WA_INSTANCES', 'SEND_MODE', 'AUTO_SEND_AGENTS', 'SHADOW_NOTIFY', 'BUSINESS_HOURS', 'MAX_AUTO_DISCOUNT_PERCENT', 'DAILY_COST_LIMIT_USD', 'PERSONAS', 'EMOJIS', 'NUMBER_RULES', 'EMAILS'] as const;
 export type EditableSetting = (typeof EDITABLE_SETTINGS)[number];
 const overrides: Partial<Record<EditableSetting, string>> = {};
 export function setOverrides(o: Partial<Record<EditableSetting, string>>) {
@@ -106,6 +108,7 @@ export const shadowNotify = () => /^(true|1)$/i.test(setting('SHADOW_NOTIFY'));
 export type Persona = { name: string; about: string };
 /** Pessoa que a IA "e" em cada numero (ou conta de e-mail). */
 export function personaFor(instance: string): Persona {
+  if (instance.includes('@')) instance = numberOf(instance);
   const map = new Map<string, Persona>();
   for (const part of setting('PERSONAS').split(/[;\n]/)) {
     const [inst, rest] = part.split(/:(.*)/s).map((s) => s?.trim());
@@ -160,4 +163,15 @@ export function numberRule(instance: string): NumberRule {
     reply: r.reply === 'all' || r.reply === 'selected' ? r.reply : instanceRole(instance) === 'ATENDIMENTO' ? 'all' : 'selected',
     auto: !!r.auto,
   };
+}
+
+/** E-mail ligado a cada numero. */
+export function emailsByNumber(): Record<string, string> {
+  try { return JSON.parse(setting('EMAILS') || '{}'); } catch { return {}; }
+}
+/** Conversa de e-mail: o numero (pessoa) dono daquela conta. WhatsApp: o proprio numero. */
+export function numberOf(instance: string): string {
+  if (!instance.includes('@')) return instance;
+  const hit = Object.entries(emailsByNumber()).find(([, mail]) => mail.toLowerCase() === instance.toLowerCase());
+  return hit ? hit[0] : instance;
 }

@@ -1,6 +1,6 @@
 import { generateText, stepCountIs } from 'ai';
 import type { Specialist } from '../domain/types.js';
-import { env, personaFor, setting } from '../lib/env.js';
+import { env, numberOf, personaFor, setting } from '../lib/env.js';
 import { withFallback } from '../lib/llm.js';
 import { isBusinessHours, nowLabel } from '../lib/util.js';
 import { companiesText, contactProfile, toModelMessages, type ContextPack } from '../memory/context.js';
@@ -39,8 +39,8 @@ export async function systemPrompt(agent: Specialist, pack: ContextPack, interna
   const company = pack.companies.find((c) => c.slug === pack.thread.company_slug);
   const persona = personaFor(pack.thread.instance);
   const [style, knowledge] = await Promise.all([
-    styleFor(pack.thread.instance, pack.thread.company_slug).catch(() => ''),
-    knowledgeFor(pack.blockText, pack.thread.company_slug, pack.thread.instance).catch(() => ({ text: '', evidence: [] })),
+    styleFor(numberOf(pack.thread.instance), pack.thread.company_slug).catch(() => ''),
+    knowledgeFor(pack.blockText, pack.thread.company_slug, numberOf(pack.thread.instance)).catch(() => ({ text: '', evidence: [] })),
   ]);
   const common = fill(loadPrompt('comum'), {
     PERSONA_NAME: persona.name,

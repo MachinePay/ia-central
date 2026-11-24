@@ -52,3 +52,16 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   if (!session) return reply.code(401).send({ error: 'Faça login de novo.' });
   (req as any).user = session.u;
 }
+
+/** Estado assinado para o retorno do login do Google (nao da para forjar qual numero recebe a conta). */
+export function signState(data: string): string {
+  const payload = Buffer.from(JSON.stringify({ d: data, exp: Date.now() + 15 * 60_000 })).toString('base64url');
+  return `${payload}.${sign(payload)}`;
+}
+export function readState(state: string | undefined): string | undefined {
+  if (!state) return undefined;
+  const [payload, sig] = state.split('.');
+  if (!payload || !sig || !safeEq(sig, sign(payload))) return undefined;
+  const j = JSON.parse(Buffer.from(payload, 'base64url').toString());
+  return j.exp > Date.now() && typeof j.d === 'string' ? j.d : undefined;
+}

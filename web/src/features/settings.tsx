@@ -6,9 +6,9 @@ import { toast, toastError } from '../lib/toast';
 import { Button, Card, cx, ErrorState, Field, inputCls, PageHeader, Pill, Skeleton, StatusBadge } from '../ui';
 
 const ROLES = [
-  { v: 'ATENDIMENTO', l: 'Atendimento', d: 'O Léo roteia e os agentes respondem (rascunho ou envio)' },
+  { v: 'ATENDIMENTO', l: 'Atendimento', d: 'João (comercial) e Clara (suporte) atendem como a pessoa deste número' },
   { v: 'OBSERVAR', l: 'Só aprendendo', d: 'Guarda as conversas e aprende com a equipe; nunca responde' },
-  { v: 'GABRIEL', l: 'Pessoal do Gabriel', d: 'Fala como a pessoa; só com os contatos marcados em IAs → Cada IA' },
+  { v: 'GABRIEL', l: 'Pessoa', d: 'Fala como a pessoa deste número; responde quem você marcar em IAs → Cada IA' },
   { v: 'OFF', l: 'Desligado', d: 'Ignorado pelo sistema' },
 ];
 
@@ -29,6 +29,13 @@ export function Settings() {
     }
     setPersonas(p);
   }, [q.data]);
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const g = u.searchParams.get('gmail');
+    if (!g) return;
+    toast(u.searchParams.get('msg') ?? (g === 'ok' ? 'E-mail conectado.' : 'Não deu para conectar o e-mail.'), g === 'ok' ? 'ok' : 'crit');
+    window.history.replaceState(null, '', u.pathname);
+  }, []);
   const save = useMutation({ mutationFn: (body: Record<string, string>) => put('/api/settings', body), onSuccess: () => { toast('Ajuste salvo. Vale em até 30 segundos, sem deploy.'); void qc.invalidateQueries({ queryKey: ['settings'] }); }, onError: toastError });
   if (q.isLoading) return <Skeleton lines={8} />;
   if (q.error) return <ErrorState error={q.error} retry={() => q.refetch()} />;
@@ -59,6 +66,7 @@ export function Settings() {
                         onChange={(e) => setPersonas({ ...personas, [i.name]: { name: personas[i.name]?.name ?? '', about: e.target.value } })} />
                     </div>
                   )}
+                  <NumberLinks name={i.name} state={i.state} email={q.data.emails?.[i.name]} gmailReady={q.data.gmailReady} />
                 </li>
               ))}
             </ul>
@@ -70,6 +78,15 @@ export function Settings() {
               })}>Salvar números</Button>
             </div>
           </Card>
+
+          {!q.data.gmailReady || Object.keys(q.data.emails ?? {}).length === 0 ? (
+            <Card className="p-4 text-[12px] text-text-2">
+              <p className="font-semibold text-text">Para conectar e-mails</p>
+              <p className="mt-1">No Google Cloud, no cliente OAuth usado pelo Gmail (tipo Aplicativo da Web), adicione este endereço em URIs de redirecionamento autorizados:</p>
+              <code className="mt-1 block break-all rounded bg-bg px-2 py-1 text-text">{q.data.gmailRedirectUri}</code>
+              {!q.data.gmailReady && <p className="mt-1 text-amber">Faltam GMAIL_CLIENT_ID e GMAIL_CLIENT_SECRET no Render.</p>}
+            </Card>
+          ) : null}
 
           <PersonaProfiles />
 
@@ -125,6 +142,86 @@ export function Settings() {
   );
 }
 
+/** WhatsApp (desconectar / conectar por QR) e e-mail (Gmail) de cada numero. */
+function NumberLinks({ name, state, email, gmailReady }: { name: string; state: string; email?: { email: string; connected: boolean }; gmailReady: boolean }) {
+  const qc = useQueryClient();
+  const [qrOpen, setQrOpen] = useState(false);
+  const [mail, setMail] = useState(email?.email ?? '');
+  const logout = useMutation({
+    mutationFn: () => post(`/api/whatsapp/instances/${name}/logout`, {}),
+    onSuccess: () => { toast(`WhatsApp do número ${name} desconectado. Agora é só conectar o novo pelo QR.`); void qc.invalidateQueries({ queryKey: ['settings'] }); setQrOpen(true); },
+    onError: toastError,
+  });
+  const connectMail = useMutation({
+    mutationFn: () => api<{ url: string }>(`/api/gmail/connect/${name}?${new URLSearchParams(mail.trim() ? { email: mail.trim() } : {})}`),
+    onSuccess: (r) => { window.location.href = r.url; },
+    onError: toastError,
+  });
+  const removeMail = useMutation({
+    mutationFn: () => api(`/api/gmail/${name}`, { method: 'DELETE' }),
+    onSuccess: () => { toast('E-mail desligado deste número.'); setMail(''); void qc.invalidateQueries({ queryKey: ['settings'] }); },
+    onError: toastError,
+  });
+  const open = state === 'open';
+  return (
+    <div className="grid w-full gap-3 pl-[140px] md:grid-cols-2">
+      <div className="rounded-[8px] border border-line p-2.5">
+        <p className="text-[12px] font-semibold text-text-2">WhatsApp</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <Pill tone={open ? 'ok' : 'amber'}>{open ? 'conectado' : 'desconectado'}</Pill>
+          {open
+            ? <Button size="sm" busy={logout.isPending} onClick={() => { if (confirm(`Desconectar o WhatsApp do número ${name}? As conversas e o aprendizado ficam guardados.`)) logout.mutate(); }}>Desconectar</Button>
+            : <Button size="sm" variant="primary" onClick={() => setQrOpen(true)}>Conectar (QR)</Button>}
+        </div>
+        {qrOpen && <QrBox name={name} onDone={() => setQrOpen(false)} />}
+      </div>
+      <div className="rounded-[8px] border border-line p-2.5">
+        <p className="text-[12px] font-semibold text-text-2">E-mail (Gmail)</p>
+        {email?.connected ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <Pill tone="ok">{email.email}</Pill>
+            <Button size="sm" busy={removeMail.isPending} onClick={() => { if (confirm(`Desligar o e-mail ${email.email} deste número?`)) removeMail.mutate(); }}>Desligar</Button>
+          </div>
+        ) : (
+          <div className="mt-1.5 flex gap-2">
+            <input className={cx(inputCls, 'h-8!')} placeholder="email@empresa.com" value={mail} onChange={(e) => setMail(e.target.value)} aria-label={`E-mail do número ${name}`} />
+            <Button size="sm" variant="primary" disabled={!gmailReady} busy={connectMail.isPending} onClick={() => connectMail.mutate()}>Ativar</Button>
+          </div>
+        )}
+        <p className="mt-1 text-[11px] text-text-2">{email?.connected ? 'A IA lê e responde este e-mail como a pessoa deste número.' : 'Abre o login do Google para autorizar a conta.'}</p>
+      </div>
+    </div>
+  );
+}
+
+function QrBox({ name, onDone }: { name: string; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [qr, setQr] = useState<string | null>(null);
+  const [state, setState] = useState('');
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      try {
+        const r: any = await api(`/api/whatsapp/instances/${name}/qr`);
+        if (stop) return;
+        if (r.qr) setQr(r.qr);
+        setState(r.state ?? '');
+        if (r.state === 'open') { toast(`Número ${name} conectado.`); void qc.invalidateQueries({ queryKey: ['settings'] }); onDone(); stop = true; }
+      } catch { /* tenta de novo */ }
+    };
+    void tick();
+    const t = setInterval(() => { if (!stop) void tick(); }, 5000);
+    return () => { stop = true; clearInterval(t); };
+  }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="mt-2 text-center">
+      {qr ? <img src={qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`} alt={`QR code para conectar o número ${name}`} className="mx-auto w-48 rounded bg-white p-2" /> : <p className="text-[12px] text-text-2">Gerando QR…</p>}
+      <p className="mt-1 text-[11px] text-text-2">No celular: WhatsApp → Aparelhos conectados → Conectar aparelho. O QR atualiza sozinho. {state && `(${state})`}</p>
+      <Button size="sm" variant="ghost" onClick={onDone}>Fechar</Button>
+    </div>
+  );
+}
+
 /** Jeito de escrever de cada numero: gerado das mensagens reais da pessoa, editavel. */
 function PersonaProfiles() {
   const qc = useQueryClient();
@@ -135,6 +232,13 @@ function PersonaProfiles() {
     onSuccess: () => { toast('Jeito de escrever reaprendido das suas mensagens.'); void qc.invalidateQueries({ queryKey: ['personas'] }); },
     onError: toastError,
   });
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const g = u.searchParams.get('gmail');
+    if (!g) return;
+    toast(u.searchParams.get('msg') ?? (g === 'ok' ? 'E-mail conectado.' : 'Não deu para conectar o e-mail.'), g === 'ok' ? 'ok' : 'crit');
+    window.history.replaceState(null, '', u.pathname);
+  }, []);
   const save = useMutation({
     mutationFn: (instance: string) => put(`/api/personas/${instance}`, { profile: edit[instance] }),
     onSuccess: (_d, instance) => { toast('Salvo. A IA usa o novo jeito em até 10 minutos.'); setEdit((e) => { const n = { ...e }; delete n[instance]; return n; }); void qc.invalidateQueries({ queryKey: ['personas'] }); },

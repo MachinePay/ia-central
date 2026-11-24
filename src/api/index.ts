@@ -73,8 +73,8 @@ app.post('/webhooks/gmail', async (req, reply) => {
   }
   const msg = (req.body as any)?.message;
   const data = msg?.data ? JSON.parse(Buffer.from(msg.data, 'base64').toString('utf8')) : {};
-  await ingestQueue.add('gmail-sync', { historyId: data.historyId }, {
-    deduplication: { id: 'gmail-sync', ttl: 3000 },
+  await ingestQueue.add('gmail-sync', { historyId: data.historyId, account: data.emailAddress }, {
+    deduplication: { id: `gmail-sync-${String(data.emailAddress ?? '').replace(/[^\w.@-]/g, '')}`, ttl: 3000 },
     removeOnComplete: 100,
   });
   return reply.code(204).send();

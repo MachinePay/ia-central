@@ -50,13 +50,13 @@ export async function outboundWorker(job: Job) {
     const subject = String(meta.subject ?? thread.subject ?? 'SelfMachine');
     const body = msg.content;
     const raw = buildMime({
-      fromName: personaFor(thread.instance).name || DISPLAY[agent], to: contact.email!, agent,
+      from: thread.instance, fromName: personaFor(thread.instance).name || DISPLAY[agent], to: contact.email!, agent,
       subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
       inReplyTo: meta.messageIdHeader,
       references: [...(meta.references ?? []), meta.messageIdHeader].filter(Boolean).join(' '),
       text: mdToText(body), html: mdToHtml(body),
     });
-    const id = await sendOrDraft(mode, raw, thread.external_id);
+    const id = await sendOrDraft(thread.instance, mode, raw, thread.external_id);
     await q(`UPDATE messages SET status = $2, external_id = coalesce(external_id, $3) WHERE id = $1`,
       [messageId, mode === 'send' ? 'SENT' : 'DRAFT', id ? `gm:${id}` : null]);
   }

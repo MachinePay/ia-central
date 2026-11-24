@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { sweepApprovals } from '../approvals/approvals.js';
-import { gmailEnabled, startWatch } from '../channels/gmail/gmail.js';
+import { gmailAccounts, gmailEnabled, startWatch } from '../channels/gmail/gmail.js';
 import { notifyGabriel } from '../delivery.js';
 import { q } from '../lib/db.js';
 import { env } from '../lib/env.js';
@@ -46,14 +46,21 @@ export async function maintenanceWorker(job: Job) {
   }
 }
 
-export async function renewGmailWatch() {
+export async function renewGmailWatch(account?: string) {
   if (!gmailEnabled()) return;
-  const w = await startWatch();
-  await q(
-    `INSERT INTO gmail_sync_state (account, history_id, watch_expires_at) VALUES ($1, $2, $3)
-     ON CONFLICT (account) DO UPDATE SET watch_expires_at = EXCLUDED.watch_expires_at`,
-    [env.GMAIL_ACCOUNT, w.historyId, w.expiration],
-  );
+  for (const acc of await gmailAccounts()) {
+    if (account && acc.email !== account.toLowerCase()) continue;
+    try {
+      const w = await startWatch(acc.email);
+      await q(
+        `INSERT INTO gmail_sync_state (account, history_id, watch_expires_at) VALUES ($1, $2, $3)
+         ON CONFLICT (account) DO UPDATE SET watch_expires_at = EXCLUDED.watch_expires_at`,
+        [acc.email, w.historyId, w.expiration],
+      );
+    } catch (e) {
+      logger.warn({ err: String(e), account: acc.email }, 'watch do Gmail nao renovado');
+    }
+  }
 }
 
 /** Thread inativa ha 30 min depois de resposta do bot: atualiza resumo e fatos. */

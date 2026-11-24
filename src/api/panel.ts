@@ -2,12 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { Redis } from 'ioredis';
 import { z } from 'zod';
 import { decideApproval } from '../approvals/approvals.js';
-import { connectionState, connectQr, createInstance, setSettings, setWebhook } from '../channels/whatsapp/evolution.js';
+import { connectionState, connectQr, createInstance, logoutInstance, setSettings, setWebhook } from '../channels/whatsapp/evolution.js';
 import { deliver } from '../delivery.js';
 import { getThread, setThread } from '../domain/repo.js';
 import type { Agent } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
-import { centralInstance, EDITABLE_SETTINGS, env, instanceRoles, numberRule, personaFor, setting, type EditableSetting } from '../lib/env.js';
+import { centralInstance, EDITABLE_SETTINGS, emailsByNumber, env, instanceRoles, numberRule, personaFor, setting, type EditableSetting } from '../lib/env.js';
 import { buildContactTreatment, buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
@@ -22,7 +22,12 @@ import { checkUrl } from '../sentinela/collectors/urls.js';
 import { costSummary } from '../sentinela/costs.js';
 import { ack, resolveManually } from '../sentinela/incidents.js';
 import { sendAlert } from '../sentinela/notify.js';
-import { login, requireAuth } from './auth.js';
+import { login, readState, requireAuth, signState } from './auth.js';
+import { google } from 'googleapis';
+import { GMAIL_SCOPES, gmailAccounts, oauthClient } from '../channels/gmail/gmail.js';
+import { renewGmailWatch } from '../workers/maintenance.js';
+
+const gmailRedirectUri = () => `${env.PUBLIC_URL.replace(/\/$/, '')}/api/gmail/callback`;
 
 const user = (req: any): string => req.user ?? 'painel';
 
@@ -46,6 +51,37 @@ export async function panelRoutes(app: FastifyInstance) {
     const token = await login(req.ip, b.data.user, b.data.password);
     if (!token) return bad(reply, 'Usuário ou senha incorretos.', 401);
     return { token, user: b.data.user };
+  });
+
+  // ------------------------------------------------------------------ volta do login do Google (Gmail de um numero)
+  app.get('/api/gmail/callback', async (req, reply) => {
+    const { code, state, error } = req.query as Record<string, string | undefined>;
+    const instance = readState(state);
+    const back = (ok: boolean, msg: string) => {
+      const origin = env.WEB_ORIGIN.split(',').map((s) => s.trim()).find((s) => s && s !== '*');
+      if (origin) return reply.redirect(`${origin}/configuracoes?gmail=${ok ? 'ok' : 'erro'}&msg=${encodeURIComponent(msg)}`);
+      return reply.type('text/html; charset=utf-8').send(`<p style="font-family:sans-serif">${msg} Pode fechar esta aba.</p>`);
+    };
+    if (error || !code || !instance) return back(false, error ? `O Google recusou: ${error}.` : 'Link vencido. Tente conectar de novo.');
+    try {
+      const auth = oauthClient(gmailRedirectUri());
+      const { tokens } = await auth.getToken(code);
+      if (!tokens.refresh_token) return back(false, 'O Google não mandou a autorização permanente. Remova o acesso do app na sua conta Google e conecte de novo.');
+      auth.setCredentials(tokens);
+      const profile = await google.gmail({ version: 'v1', auth }).users.getProfile({ userId: 'me' });
+      const email = String(profile.data.emailAddress ?? '').toLowerCase();
+      if (!email) return back(false, 'Não consegui ler o e-mail da conta.');
+      await q(
+        `INSERT INTO app.gmail_accounts (email, instance, refresh_token) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET instance = EXCLUDED.instance, refresh_token = EXCLUDED.refresh_token`,
+        [email, instance, tokens.refresh_token],
+      );
+      await saveSetting('EMAILS', JSON.stringify({ ...emailsByNumber(), [instance]: email }), 'google');
+      await renewGmailWatch(email).catch(() => undefined);
+      return back(true, `E-mail ${email} conectado ao número ${instance}.`);
+    } catch (e: any) {
+      return back(false, `Não consegui conectar: ${String(e.message).slice(0, 150)}`);
+    }
   });
 
   app.register(async (api) => {
@@ -691,8 +727,10 @@ export async function panelRoutes(app: FastifyInstance) {
         return { name, role, state };
       }));
       const values = Object.fromEntries(EDITABLE_SETTINGS.map((k) => [k, setting(k)]));
+      const connected = new Set((await gmailAccounts()).map((a) => a.email));
+      const emails = Object.fromEntries(Object.entries(emailsByNumber()).map(([inst, mail]) => [inst, { email: mail, connected: connected.has(mail.toLowerCase()) }]));
       return {
-        values, instances,
+        values, instances, emails, gmailRedirectUri: gmailRedirectUri(), gmailReady: !!(env.GMAIL_CLIENT_ID && env.GMAIL_CLIENT_SECRET),
         info: {
           approvalInstance: env.APPROVAL_INSTANCE, gabrielPhone: env.GABRIEL_PERSONAL_PHONE, models: { agent: env.LLM_AGENT_MODEL, router: env.LLM_ROUTER_MODEL, small: env.LLM_SMALL_MODEL },
           integrations: {
@@ -751,6 +789,36 @@ export async function panelRoutes(app: FastifyInstance) {
       } catch (e: any) {
         return bad(reply, `Não consegui o QR agora: ${String(e.message).slice(0, 150)}`);
       }
+    });
+
+    // desconectar o WhatsApp do numero (para conectar outro chip no lugar)
+    api.post<{ Params: { name: string } }>('/api/whatsapp/instances/:name/logout', async (req, reply) => {
+      if (!instanceRoles().has(req.params.name)) return bad(reply, 'Número não encontrado.', 404);
+      try {
+        await logoutInstance(req.params.name);
+        return { ok: true };
+      } catch (e: any) {
+        return bad(reply, `A Evolution recusou: ${String(e.message).slice(0, 150)}`);
+      }
+    });
+
+    // ---------------------------------------------------------------- e-mail (Gmail) de cada numero
+    api.get<{ Params: { instance: string } }>('/api/gmail/connect/:instance', async (req, reply) => {
+      if (!env.GMAIL_CLIENT_ID || !env.GMAIL_CLIENT_SECRET) return bad(reply, 'Faltam GMAIL_CLIENT_ID e GMAIL_CLIENT_SECRET no Render.');
+      if (!instanceRoles().has(req.params.instance)) return bad(reply, 'Número não encontrado.', 404);
+      const url = oauthClient(gmailRedirectUri()).generateAuthUrl({
+        access_type: 'offline', prompt: 'consent', scope: GMAIL_SCOPES, state: signState(req.params.instance),
+        login_hint: String((req.query as any).email ?? '') || undefined,
+      });
+      return { url, redirectUri: gmailRedirectUri() };
+    });
+    api.delete<{ Params: { instance: string } }>('/api/gmail/:instance', async (req) => {
+      const map = emailsByNumber();
+      const email = map[req.params.instance];
+      if (email) await q(`DELETE FROM app.gmail_accounts WHERE email = $1`, [email.toLowerCase()]);
+      delete map[req.params.instance];
+      await saveSetting('EMAILS', JSON.stringify(map), user(req));
+      return { ok: true };
     });
 
     // ---------------------------------------------------------------- busca global

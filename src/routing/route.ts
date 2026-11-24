@@ -2,7 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { fill, loadPrompt } from '../agents/prompts.js';
 import type { Agent, Specialist } from '../domain/types.js';
-import { instanceRole, numberRule } from '../lib/env.js';
+import { instanceRole, numberOf, numberRule } from '../lib/env.js';
 import { addCost, costUsd, withFallback } from '../lib/llm.js';
 import { keys, redis } from '../lib/redis.js';
 import { fence } from '../lib/util.js';
@@ -32,7 +32,10 @@ const isSpecialist = (a: Agent): a is Specialist => a === 'JOAO' || a === 'CLARA
 // ------------------------------------------------------------------ nivel 1: deterministico (sem LLM)
 export async function preRoute(p: ContextPack): Promise<RouteDecision | { action: 'CHECK_CONTINUITY' } | null> {
   const { thread, contact } = p;
-  if (thread.channel === 'WHATSAPP' && instanceRole(thread.instance) === 'OBSERVAR') return { action: 'SILENT', reason: 'numero so aprendendo' };
+  // e-mail ligado a um numero segue as regras daquela pessoa; conta de e-mail solta segue o atendimento normal
+  const num = numberOf(thread.instance);
+  const ofNumber = thread.channel === 'WHATSAPP' || num !== thread.instance;
+  if (ofNumber && instanceRole(num) === 'OBSERVAR') return { action: 'SILENT', reason: 'numero so aprendendo' };
   if (await isTakeover(thread.id)) return { action: 'SILENT', reason: 'takeover humano' };
   if (thread.status === 'PAUSED') return { action: 'SILENT', reason: 'thread pausada' };
   if (contact.opted_out) return { action: 'SILENT', reason: 'opt-out' };
@@ -43,11 +46,11 @@ export async function preRoute(p: ContextPack): Promise<RouteDecision | { action
   if (rate > RATE_PER_HOUR) return { action: 'SILENT', reason: 'limite de respostas por hora', escalate: rate === RATE_PER_HOUR + 1 };
 
   // regra do numero: "so os marcados" = a IA so responde conversas com a caixinha marcada (configurado na tela IAs)
-  if (thread.channel === 'WHATSAPP') {
+  if (ofNumber) {
     const allowed = !!thread.ai_enabled;
-    if (numberRule(thread.instance).reply === 'selected' && !allowed) return { action: 'SILENT', reason: 'contato nao marcado para a IA deste numero' };
+    if (numberRule(num).reply === 'selected' && !allowed) return { action: 'SILENT', reason: 'contato nao marcado para a IA deste numero' };
     // numero de pessoa (Gabriel, Leo...): quem responde e sempre a propria pessoa
-    if (instanceRole(thread.instance) === 'GABRIEL') return { action: 'AGENT', agent: 'GABRIEL', level: 1, reason: 'numero de pessoa', internalNote: '' };
+    if (instanceRole(num) === 'GABRIEL') return { action: 'AGENT', agent: 'GABRIEL', level: 1, reason: 'numero de pessoa', internalNote: '' };
   }
 
   if (/\b(falar com o gabriel|quero o gabriel|chama o gabriel)\b/i.test(p.blockText)) return { action: 'AGENT', agent: 'GABRIEL', level: 1, reason: 'pedido explícito', internalNote: 'Cliente pediu o Gabriel: use notify_real_gabriel.' };

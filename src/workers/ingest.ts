@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
 import { handleGabrielReply, isGabrielPhone } from '../approvals/approvals.js';
-import { antiLoop, getAttachment, getMessage, gmail, gmailEnabled, toInboundEvent } from '../channels/gmail/gmail.js';
+import { antiLoop, getAttachment, getMessage, gmailAccounts, gmailEnabled, gmailFor, toInboundEvent } from '../channels/gmail/gmail.js';
 import { getMediaBase64 } from '../channels/whatsapp/evolution.js';
 import { parseEvolution } from '../channels/whatsapp/parse.js';
 import { notifyGabriel } from '../delivery.js';
@@ -22,8 +22,8 @@ export async function ingestWorker(job: Job) {
   switch (job.name) {
     case 'whatsapp': return ingestWhatsapp(job.data.instance, job.data.data, job.data.owner);
     case 'wa-connection': return connectionChanged(job.data.instance, job.data.state);
-    case 'gmail-sync': return syncGmail();
-    case 'gmail': return ingestGmail(job.data.id);
+    case 'gmail-sync': return syncGmail(job.data.account);
+    case 'gmail': return ingestGmail(job.data.id, job.data.account);
   }
 }
 
@@ -102,7 +102,7 @@ export async function mediaWorker(job: Job) {
     for (const [i, att] of (raw?.attachments ?? []).entries()) {
       const item = msg.media[i];
       if (!item || item.kind === 'other') { if (item) media.push(item); continue; }
-      const b64 = await getAttachment(raw.messageId, att.id).catch(() => undefined);
+      const b64 = await getAttachment(instance, raw.messageId, att.id).catch(() => undefined);
       const description = await describeMedia(item, b64);
       media.push({ ...item, description });
       parts.push(description);
@@ -113,47 +113,50 @@ export async function mediaWorker(job: Job) {
   if (!job.data.observeOnly) await enqueueRespond(threadId, channel);
 }
 
-// ------------------------------------------------------------------ Gmail
-async function syncGmail() {
+// ------------------------------------------------------------------ Gmail (uma ou varias contas)
+async function syncGmail(account?: string) {
   if (!gmailEnabled()) return;
-  const state = await one<{ history_id: string }>(`SELECT history_id FROM gmail_sync_state WHERE account = $1`, [env.GMAIL_ACCOUNT]);
+  const accounts = (await gmailAccounts()).map((x) => x.email).filter((e) => !account || e === account.toLowerCase());
+  for (const acc of accounts) await syncGmailAccount(acc).catch((e) => logger.warn({ err: String(e), acc }, 'sincronizacao do Gmail falhou'));
+}
+
+async function syncGmailAccount(account: string) {
+  const state = await one<{ history_id: string }>(`SELECT history_id FROM gmail_sync_state WHERE account = $1`, [account]);
   if (!state) return; // o maintenance cria o estado ao ligar o watch
+  const gm = await gmailFor(account);
+  const add = (id: string) => ingestQueue.add('gmail', { id, account }, { jobId: `gm-${id}`, attempts: 3 });
   let pageToken: string | undefined;
   let lastHistoryId = state.history_id;
   try {
     do {
-      const res = await gmail().users.history.list({
-        userId: 'me', startHistoryId: state.history_id, historyTypes: ['messageAdded'], pageToken,
-      });
-      for (const h of res.data.history ?? []) {
-        for (const added of h.messagesAdded ?? []) {
-          if (added.message?.id) await ingestQueue.add('gmail', { id: added.message.id }, { jobId: `gm-${added.message.id}`, attempts: 3 });
-        }
-      }
+      const res = await gm.users.history.list({ userId: 'me', startHistoryId: state.history_id, historyTypes: ['messageAdded'], pageToken });
+      for (const h of res.data.history ?? []) for (const added of h.messagesAdded ?? []) if (added.message?.id) await add(added.message.id);
       if (res.data.historyId) lastHistoryId = String(res.data.historyId);
       pageToken = res.data.nextPageToken ?? undefined;
     } while (pageToken);
   } catch (e: any) {
     if (e?.code !== 404) throw e;
     // historyId antigo demais: sincronizacao completa das ultimas 24 h
-    const list = await gmail().users.messages.list({ userId: 'me', q: 'newer_than:1d in:inbox' });
-    for (const m of list.data.messages ?? []) await ingestQueue.add('gmail', { id: m.id }, { jobId: `gm-${m.id}`, attempts: 3 });
-    const profile = await gmail().users.getProfile({ userId: 'me' });
+    const list = await gm.users.messages.list({ userId: 'me', q: 'newer_than:1d in:inbox' });
+    for (const m of list.data.messages ?? []) if (m.id) await add(m.id);
+    const profile = await gm.users.getProfile({ userId: 'me' });
     lastHistoryId = String(profile.data.historyId);
   }
-  await q(`UPDATE gmail_sync_state SET history_id = $2 WHERE account = $1`, [env.GMAIL_ACCOUNT, lastHistoryId]);
+  await q(`UPDATE gmail_sync_state SET history_id = $2 WHERE account = $1`, [account, lastHistoryId]);
 }
 
-async function ingestGmail(id: string) {
-  const msg = await getMessage(id);
-  const f = antiLoop(msg);
+async function ingestGmail(id: string, account?: string) {
+  const acc = account ?? (await gmailAccounts())[0]?.email;
+  if (!acc) return;
+  const msg = await getMessage(acc, id);
+  const f = antiLoop(msg, acc);
   if (f.skip) {
     if (f.humanSent && msg.threadId) {
       // resposta manual pela conta (sem o header interno): takeover da thread
-      const thread = await one<Thread>(`SELECT * FROM threads WHERE channel = 'GMAIL' AND external_id = $1`, [msg.threadId]);
+      const thread = await one<Thread>(`SELECT * FROM threads WHERE channel = 'GMAIL' AND external_id = $1 AND instance = $2`, [msg.threadId, acc]);
       if (thread) await applyTakeover(thread, msg.snippet ?? undefined, `gm:${msg.id}`);
     }
     return;
   }
-  await persistAndQueue(toInboundEvent(msg));
+  await persistAndQueue(toInboundEvent(msg, acc));
 }
