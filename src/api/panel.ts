@@ -26,6 +26,7 @@ import { login, readState, requireAuth, signState } from './auth.js';
 import { google } from 'googleapis';
 import { GMAIL_SCOPES, gmailAccounts, oauthClient } from '../channels/gmail/gmail.js';
 import { renewGmailWatch } from '../workers/maintenance.js';
+import { sendDailyBrief } from '../owner/brief.js';
 import { guessServers, mailAccounts, saveAccount, testAccount } from '../channels/mail/imap.js';
 
 const gmailRedirectUri = () => `${env.PUBLIC_URL.replace(/\/$/, '')}/api/gmail/callback`;
@@ -848,6 +849,9 @@ export async function panelRoutes(app: FastifyInstance) {
       await saveSetting('EMAILS', JSON.stringify(map), user(req));
       return { ok: true };
     });
+
+    // resumo do dia: manda agora (teste)
+    api.post('/api/brief/send', async () => ({ sent: await sendDailyBrief() }));
 
     // ---------------------------------------------------------------- busca global
     api.get('/api/search', async (req) => {

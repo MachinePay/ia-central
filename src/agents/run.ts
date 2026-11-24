@@ -2,7 +2,7 @@ import { generateText, stepCountIs } from 'ai';
 import type { Specialist } from '../domain/types.js';
 import { env, numberOf, personaFor, setting } from '../lib/env.js';
 import { withFallback } from '../lib/llm.js';
-import { isBusinessHours, nowLabel } from '../lib/util.js';
+import { nowLabel } from '../lib/util.js';
 import { companiesText, contactProfile, toModelMessages, type ContextPack } from '../memory/context.js';
 import { knowledgeFor, ownMessagesTo, styleFor } from '../memory/style.js';
 import { toolsFor, type ToolCtx } from '../tools/index.js';
@@ -47,8 +47,6 @@ export async function systemPrompt(agent: Specialist, pack: ContextPack, interna
     PERSONA_ABOUT: persona.about || 'atendimento',
     CHANNEL_NAME: pack.thread.channel === 'GMAIL' ? 'e-mail' : 'WhatsApp',
     TODAY: nowLabel(env.TIMEZONE),
-    BUSINESS_HOURS: setting('BUSINESS_HOURS'),
-    IN_HOURS: isBusinessHours(setting('BUSINESS_HOURS'), env.TIMEZONE) ? 'agora é horário de atendimento' : 'agora é FORA do horário: o que depender de outra pessoa fica para o próximo dia útil, avise isso com naturalidade',
     STYLE: style || '(ainda sem exemplos deste número: escreva de forma simpática, curta e natural, como alguém no celular)',
     CHANNEL_RULES: pack.thread.channel === 'GMAIL' ? EMAIL_RULES : WHATSAPP_RULES,
     KNOWLEDGE: knowledge.text || '(nada específico sobre este assunto ainda)',

@@ -235,7 +235,7 @@ function claraTools(ctx: ToolCtx): ToolSet {
       inputSchema: z.object({ what: z.string().max(200) }),
       execute: wrap(ctx, 'get_invoice_copy', async ({ what }) => {
         await notifyGabriel(`🧾 ${ctx.contact.name ?? ctx.contact.phone ?? ctx.contact.email} pediu segunda via: ${what}`, ctx.thread.instance).catch(() => undefined);
-        return { available: false, note: 'Ainda não há integração com o financeiro. Diga que a equipe envia a segunda via por aqui ainda hoje (em horário comercial).' };
+        return { available: false, note: 'Ainda não há integração com o financeiro. Diga que vai averiguar e já te retorna por aqui, sem prometer prazo.' };
       }),
     }),
     request_refund: tool({

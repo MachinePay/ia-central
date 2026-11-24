@@ -10,6 +10,7 @@ import { backfillEmbeddings } from '../memory/kb.js';
 import { learnFromTeam } from '../memory/learn.js';
 import { buildPersonaProfile, refreshContactTreatments } from '../memory/persona.js';
 import { instanceRoles } from '../lib/env.js';
+import { sendDailyBrief } from '../owner/brief.js';
 
 export async function scheduleMaintenance() {
   const every = (name: string, pattern: string) =>
@@ -26,6 +27,7 @@ export async function scheduleMaintenance() {
   await every('learn', '*/30 * * * *');
   await every('personas', '0 4 * * *');                // jeito geral de cada numero, toda madrugada
   await every('treatments', '20 * * * *');             // jeito com cada contato, de hora em hora
+  await every('daily-brief', '0 8 * * *');             // resumo do dia de cada IA, no "Você" de cada numero
 }
 
 export async function maintenanceWorker(job: Job) {
@@ -40,6 +42,7 @@ export async function maintenanceWorker(job: Job) {
     case 'queue-health': return queueHealth();
     case 'lgpd-retention': return retention();
     case 'learn': { await learnFromTeam(); return; }
+    case 'daily-brief': { await sendDailyBrief(); return; }
     case 'treatments': { await refreshContactTreatments(); return; }
     case 'personas': {
       for (const [inst, role] of instanceRoles()) if (role !== 'OFF') await buildPersonaProfile(inst).catch((e) => logger.warn({ err: String(e), inst }, 'perfil nao gerado'));
