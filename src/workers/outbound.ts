@@ -9,6 +9,8 @@ import { one, q } from '../lib/db.js';
 import { keys, redis } from '../lib/redis.js';
 import { personaFor } from '../lib/env.js';
 import { sleep } from '../lib/util.js';
+import { logger } from '../lib/logger.js';
+import { isTakeover } from '../takeover.js';
 
 const DISPLAY: Record<Agent, string> = {
   LEO: 'SelfMachine', JOAO: 'João · Comercial SelfMachine', CLARA: 'Clara · Suporte SelfMachine',
@@ -27,6 +29,20 @@ export async function outboundWorker(job: Job) {
   const thread = (await getThread(msg.thread_id))!;
   const contact = (await getContact(thread.contact_id))!;
   const agent = (msg.sender ?? 'LEO') as Agent;
+
+  // alguem da equipe respondeu enquanto a IA escrevia: a resposta da IA nao sai (senao o cliente recebe duas)
+  if (mode === 'send' && agent !== 'HUMAN') {
+    const humano = (await isTakeover(thread.id)) || !!(await one(
+      `SELECT 1 FROM messages h WHERE h.thread_id = $1 AND h.direction = 'OUTBOUND' AND h.sender = 'HUMAN'
+          AND h.created_at > coalesce((SELECT max(created_at) FROM messages WHERE thread_id = $1 AND direction = 'INBOUND' AND created_at <= $2), $2 - interval '10 minutes')
+        LIMIT 1`, [thread.id, msg.created_at],
+    ));
+    if (humano) {
+      await q(`UPDATE messages SET status = 'DRAFT_DISCARDED' WHERE id = $1`, [messageId]);
+      logger.info({ threadId: thread.id }, 'resposta da IA descartada: a equipe ja respondeu');
+      return;
+    }
+  }
 
   if (thread.channel === 'WHATSAPP') {
     const number = thread.external_id; // JID bruto (funciona com @lid e com o nono digito como o WhatsApp conhece)
