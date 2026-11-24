@@ -3,7 +3,7 @@
  * e o PDF do pedido (/api/orders/:id/receipt-pdf). O relatorio de vendas usa o login de admin (PRIMEPLUSH_ADMIN_SENHA).
  */
 const BASE = () => (process.env.PRIMEPLUSH_API_URL || 'https://backendprimeplush.onrender.com').replace(/\/$/, '');
-const brl = (n: number) => `R$ ${Number(n).toFixed(2).replace('.', ',')}`;
+const brl = (n: number) => `R$ ${Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 
 export type PpProduto = { id: string; name: string; price: number; category?: string | null; stock: number | null; isAvailable?: boolean; active?: boolean; description?: string | null };
@@ -122,7 +122,7 @@ export async function relatorioPrimeplush(inicio: Date, fim: Date) {
     faturamento: brl(s.totalRevenue ?? 0), pedidos: s.successfulOrders ?? s.totalOrders, cancelados: s.canceledOrders, pendentes: s.pendingOrders,
     itens_vendidos: s.totalItemsSold, ticket_medio: brl(s.averageTicket ?? 0),
     a_pagar_girakids: brl(s.totalToPayGiraKids ?? 0), pago_girakids: brl(s.totalPaidToGiraKids ?? 0),
-    mais_vendidos: (j.analytics?.topProductsByVolume ?? []).slice(0, 8).map((p: any) => `${p.name ?? p.nome}: ${p.quantity ?? p.quantidade ?? p.total ?? ''}`),
-    alertas_estoque: (j.analytics?.stockAlerts ?? []).slice(0, 10).map((p: any) => `${p.name ?? p.nome}: ${p.stock ?? p.estoque ?? ''}`),
+    mais_vendidos: (j.analytics?.topProductsByVolume ?? []).slice(0, 8).map((p: any) => `${p.name}: ${p.quantitySold ?? 0} un · ${brl(p.revenue ?? 0)}`),
+    alertas_estoque: (j.analytics?.stockAlerts ?? []).slice(0, 10).map((p: any) => `${p.name}: ${p.stock ?? 0} em estoque${p.minStock ? ` (mínimo ${p.minStock})` : ''}`),
   };
 }
