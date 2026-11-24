@@ -83,7 +83,7 @@ function Month({ month, setMonth, events, name, showWho, onDay, onItem }: { mont
   return (
     <Card className="p-3">
       <div className="mb-2 flex items-center gap-2 px-1">
-        <h2 className="serif text-[28px] capitalize leading-none">{month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</h2>
+        <h2 className="serif text-[28px] leading-none">{((t) => t.charAt(0).toUpperCase() + t.slice(1))(month.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }))}</h2>
         <div className="ml-auto flex gap-1">
           <Button size="sm" variant="ghost" aria-label="Mês anterior" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={16} /></Button>
           <Button size="sm" onClick={() => { const d = new Date(); setMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Hoje</Button>
