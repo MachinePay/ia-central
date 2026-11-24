@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { Bell, Bot, CheckCheck, Home, LogOut, MessagesSquare, Moon, Search, Settings, ShieldCheck, Sun, Wallet } from 'lucide-react';
+import { Bell, Bot, CheckCheck, Home, LogOut, Mail, MessagesSquare, Moon, Search, Settings, ShieldCheck, Sun, Wallet } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, setToken } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -13,6 +13,7 @@ export const AREAS = [
   { to: '/conversas', label: 'Conversas', key: 'conv', icon: MessagesSquare },
   { to: '/aprovacoes', label: 'Aprovações', key: 'appr', icon: CheckCheck },
   { to: '/agentes', label: 'IAs', key: 'agents', icon: Bot },
+  { to: '/email', label: 'E-mail', key: 'mail', icon: Mail },
   { to: '/sentinela', label: 'Sentinela', key: 'sent', icon: ShieldCheck },
   { to: '/custos', label: 'Custos', key: 'cost', icon: Wallet },
 ] as const;

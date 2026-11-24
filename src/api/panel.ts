@@ -854,6 +854,63 @@ export async function panelRoutes(app: FastifyInstance) {
       return { ok: true };
     });
 
+    // ---------------------------------------------------------------- pagina E-mail
+    api.get('/api/email/accounts', async () => {
+      const google = new Set((await gmailAccounts()).map((a) => a.email));
+      const imap = new Map((await mailAccounts()).map((a) => [a.email, a]));
+      return Object.entries(emailsByNumber()).map(([instance, mail]) => {
+        const m = mail.toLowerCase();
+        return {
+          instance, email: m, persona: personaFor(instance),
+          provider: google.has(m) ? 'google' : imap.has(m) ? 'imap' : 'desconectado',
+          canSend: google.has(m) || !!imap.get(m)?.smtp_ok,
+        };
+      });
+    });
+    api.get<{ Params: { instance: string } }>('/api/email/:instance/messages', async (req) => {
+      const f = req.query as Record<string, string | undefined>;
+      const params: unknown[] = [req.params.instance];
+      const where = ['e.instance = $1'];
+      if (f.action) { params.push(f.action); where.push(`e.action = ${params.length}`); }
+      if (f.q) { params.push(`%${f.q}%`); where.push(`(e.from_email ILIKE ${params.length} OR e.from_name ILIKE ${params.length} OR e.subject ILIKE ${params.length} OR e.snippet ILIKE ${params.length})`); }
+      const items = await q(
+        `SELECT e.*, (SELECT m.status FROM app.messages m WHERE m.thread_id = e.thread_id AND m.direction = 'OUTBOUND' ORDER BY m.created_at DESC LIMIT 1) AS reply_status
+           FROM app.emails e WHERE ${where.join(' AND ')} ORDER BY e.received_at DESC LIMIT 200`,
+        params,
+      );
+      const stats = await one(
+        `SELECT count(*) FILTER (WHERE received_at > now() - interval '24 hours')::int AS today,
+                count(*) FILTER (WHERE action = 'ia' AND received_at > now() - interval '7 days')::int AS ia,
+                count(*) FILTER (WHERE action = 'apagado' AND received_at > now() - interval '7 days')::int AS deleted,
+                count(*) FILTER (WHERE notified AND received_at > now() - interval '7 days')::int AS notified,
+                count(*) FILTER (WHERE action IN ('guardado', 'filtrado') AND received_at > now() - interval '7 days')::int AS kept
+           FROM app.emails WHERE instance = $1`,
+        [req.params.instance],
+      );
+      return { items, stats };
+    });
+    const RuleBody = z.object({ kind: z.enum(['from', 'domain', 'subject']), pattern: z.string().trim().min(2).max(300), action: z.enum(['reply', 'delete', 'notify', 'ignore']), active: z.boolean().optional() });
+    api.get<{ Params: { instance: string } }>('/api/email/:instance/rules', async (req) =>
+      q(`SELECT * FROM app.email_rules WHERE instance = $1 ORDER BY created_at DESC`, [req.params.instance]));
+    api.post<{ Params: { instance: string } }>('/api/email/:instance/rules', async (req, reply) => {
+      const b = RuleBody.safeParse(req.body);
+      if (!b.success) return bad(reply, 'Preencha quando e o que fazer.');
+      const dup = await one(`SELECT id FROM app.email_rules WHERE instance = $1 AND kind = $2 AND lower(pattern) = lower($3) AND action = $4`, [req.params.instance, b.data.kind, b.data.pattern, b.data.action]);
+      if (dup) return bad(reply, 'Essa regra já existe.');
+      return one(`INSERT INTO app.email_rules (instance, kind, pattern, action) VALUES ($1, $2, $3, $4) RETURNING *`, [req.params.instance, b.data.kind, b.data.pattern.toLowerCase(), b.data.action]);
+    });
+    api.patch<{ Params: { instance: string; id: string } }>('/api/email/:instance/rules/:id', async (req, reply) => {
+      const b = RuleBody.partial().safeParse(req.body);
+      if (!b.success) return bad(reply, 'Dados inválidos.');
+      const cols = Object.entries(b.data).filter(([, v]) => v !== undefined);
+      if (cols.length) await q(`UPDATE app.email_rules SET ${cols.map(([k], i) => `${k} = ${i + 3}`).join(', ')} WHERE id = $1 AND instance = $2`, [req.params.id, req.params.instance, ...cols.map(([, v]) => v)]);
+      return { ok: true };
+    });
+    api.delete<{ Params: { instance: string; id: string } }>('/api/email/:instance/rules/:id', async (req) => {
+      await q(`DELETE FROM app.email_rules WHERE id = $1 AND instance = $2`, [req.params.id, req.params.instance]);
+      return { ok: true };
+    });
+
     // resumo do dia: manda agora (teste)
     api.post('/api/brief/send', async () => ({ sent: await sendDailyBrief() }));
 

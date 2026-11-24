@@ -25,6 +25,7 @@ const routeTree = root.addChildren([
   r('/conversas/$id', () => import('./features/conversations'), 'Conversations'),
   r('/aprovacoes', () => import('./features/approvals'), 'Approvals'),
   r('/agentes', () => import('./features/agents'), 'Agents'),
+  r('/email', () => import('./features/email'), 'Email'),
   r('/sentinela', () => import('./features/sentinel'), 'Sentinel'),
   r('/custos', () => import('./features/costs'), 'Costs'),
   r('/totens', () => import('./features/totems'), 'Totems'),

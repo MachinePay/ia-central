@@ -135,7 +135,7 @@ export function toEvent(m: ParsedMail, account: string): InboundEvent {
  * Busca as mensagens novas da caixa de entrada (UID maior que o ultimo visto).
  * Na primeira vez so marca o ponto de partida: nao responde e-mail antigo.
  */
-export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent) => Promise<void>, onOwnSent: (threadKey: string, text: string, id: string) => Promise<void>) {
+export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent, skip?: string) => Promise<'delete' | void>, onOwnSent: (threadKey: string, text: string, id: string) => Promise<void>) {
   const imap = imapClient(a, decrypt(a.password_enc));
   await imap.connect();
   const lock = await imap.getMailboxLock('INBOX');
@@ -152,10 +152,12 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent) 
       if (msg.uid <= last || !msg.source) continue;
       const parsed = await simpleParser(msg.source);
       const skip = skipReason(parsed, a.email);
-      if (!skip) await onMessage(toEvent(parsed, a.email));
-      else if (skip.ownSent) {
+      if (skip?.ownSent) {
         const ev = toEvent(parsed, a.email);
         await onOwnSent(ev.externalThreadId, ev.content, ev.externalMessageId);
+      } else if (!skip || skip.reason !== 'enviado pela conta') {
+        const r = await onMessage(toEvent(parsed, a.email), skip?.reason);
+        if (r === 'delete') await moveToTrash(imap, msg.uid).catch((e) => logger.warn({ err: String(e) }, 'e-mail nao foi para a lixeira'));
       }
       last = Math.max(last, msg.uid);
       await q(`UPDATE app.mail_accounts SET last_uid = $2 WHERE email = $1`, [a.email, last]);
@@ -164,6 +166,14 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent) 
     lock.release();
     await imap.logout().catch(() => undefined);
   }
+}
+
+/** Move para a Lixeira (nao apaga de vez: da para recuperar no webmail). */
+async function moveToTrash(imap: ImapFlow, uid: number) {
+  const boxes = await imap.list();
+  const trash = boxes.find((b) => b.specialUse === '\\Trash') ?? boxes.find((b) => /^(trash|lixeira|lixo|deleted|itens exclu)/i.test(b.name));
+  if (trash) await imap.messageMove(String(uid), trash.path, { uid: true });
+  else await imap.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true });
 }
 
 // ------------------------------------------------------------------ envio

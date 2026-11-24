@@ -16,6 +16,7 @@ import { answerOwner, ownerReplyTarget } from '../owner/assistant.js';
 import { applyTakeover, handleWhatsappFromMe } from '../takeover.js';
 import { rememberOwnPhone } from '../lib/owners.js';
 import { mailAccounts, pollAccount } from '../channels/mail/imap.js';
+import { decideEmail, linkEmailThread } from '../mail/inbox.js';
 
 const OPT_OUT = /^\s*(parar|pare|sair|stop|descadastrar|n[aã]o quero mais (receber )?mensagens?)\s*[.!]?\s*$/i;
 
@@ -120,7 +121,11 @@ async function pollMail() {
   for (const a of await mailAccounts()) {
     await pollAccount(
       a,
-      (ev) => persistAndQueue(ev),
+      async (ev, skip) => {
+        const d = await decideEmail(ev, skip);
+        if (d.delete) return 'delete';
+        if (d.process) { await persistAndQueue(ev); await linkEmailThread(ev, d.forceReply); }
+      },
       async (threadKey, text, id) => {
         // a pessoa respondeu pelo proprio e-mail: guarda no historico e a IA fica quieta naquela conversa
         const thread = await one<Thread>(`SELECT * FROM threads WHERE channel = 'GMAIL' AND external_id = $1 AND instance = $2`, [threadKey, a.email]);
@@ -167,7 +172,7 @@ async function ingestGmail(id: string, account?: string) {
   if (!acc) return;
   const msg = await getMessage(acc, id);
   const f = antiLoop(msg, acc);
-  if (f.skip) {
+  if (f.skip && f.reason === 'enviado pela conta') {
     if (f.humanSent && msg.threadId) {
       // resposta manual pela conta (sem o header interno): takeover da thread
       const thread = await one<Thread>(`SELECT * FROM threads WHERE channel = 'GMAIL' AND external_id = $1 AND instance = $2`, [msg.threadId, acc]);
@@ -175,5 +180,11 @@ async function ingestGmail(id: string, account?: string) {
     }
     return;
   }
-  await persistAndQueue(toInboundEvent(msg, acc));
+  // tudo o que chega passa pelas regras da IA (pagina E-mail): apagar, avisar, so guardar ou responder sempre
+  const ev = toInboundEvent(msg, acc);
+  const d = await decideEmail(ev, f.skip ? f.reason : undefined);
+  if (d.delete) { await (await gmailFor(acc)).users.messages.trash({ userId: 'me', id }).catch((e) => logger.warn({ err: String(e) }, 'e-mail nao foi para a lixeira')); return; }
+  if (!d.process) return;
+  await persistAndQueue(ev);
+  await linkEmailThread(ev, d.forceReply);
 }

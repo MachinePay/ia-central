@@ -50,6 +50,12 @@ async function numberBrief(instance: string, ours: string[]): Promise<NumberBrie
       WHERE a.status = 'PENDING' AND t.instance = ANY($1) ORDER BY a.created_at`,
     [accounts],
   );
+  const [mail] = await q<{ n: number; ia: number; del: number; kept: number }>(
+    `SELECT count(*)::int n, count(*) FILTER (WHERE action = 'ia')::int ia, count(*) FILTER (WHERE action = 'apagado')::int del,
+            count(*) FILTER (WHERE action IN ('guardado', 'filtrado'))::int kept
+       FROM app.emails WHERE instance = $1 AND received_at > now() - interval '24 hours'`,
+    [instance],
+  ).catch(() => []);
   const ago = (d: Date) => {
     const h = Math.floor((Date.now() - new Date(d).getTime()) / 3_600_000);
     return h < 1 ? 'há pouco' : h < 24 ? `há ${h} h` : `há ${Math.floor(h / 24)} d`;
@@ -58,6 +64,7 @@ async function numberBrief(instance: string, ours: string[]): Promise<NumberBrie
   const lines = [
     `${persona.name}: ${plural(s.convs, 'conversa', 'conversas')} nas últimas 24 h, ${plural(s.sent, 'resposta enviada', 'respostas enviadas')} pela IA` +
       (s.drafts ? `, ${plural(s.drafts, 'rascunho', 'rascunhos')}` : '') + (s.mine ? `, ${plural(s.mine, 'mensagem sua', 'mensagens suas')}` : '') + '.',
+    mail?.n ? `E-mails: ${plural(mail.n, 'recebido', 'recebidos')} (${mail.ia} para a IA, ${mail.kept} só guardados${mail.del ? `, ${mail.del} apagados` : ''}).` : '',
     approvals.length ? `Aprovações esperando: ${approvals.map((a) => `#${a.code} (${a.name})`).join(', ')}.` : '',
     waiting.length ? `Esperando resposta: ${waiting.map((w) => `${w.name} (${ago(w.since)})`).join(', ')}.` : 'Ninguém esperando resposta.',
   ].filter(Boolean);
