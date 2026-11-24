@@ -10,7 +10,7 @@ import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
-import { catalogo, COMO_PEDIR, LOJA_URL, produtoLinha } from '../integrations/girakids.js';
+import { catalogo, COMO_PEDIR, cotarFrete, LOJA_URL, produtoLinha } from '../integrations/girakids.js';
 import { fecharPedido, montarOrcamento } from '../integrations/vendas.js';
 import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
 
@@ -158,6 +158,11 @@ function catalogTool(ctx: ToolCtx) {
 
 function joaoTools(ctx: ToolCtx): ToolSet {
   return {
+    girakids_frete: tool({
+      description: 'Calcula o frete da Girakids AGORA (PAC, SEDEX, Braspress, retirada grátis na loja) para o CEP e os itens (produto = SKU ou nome do catálogo, pacotes = quantidade de pacotes). Use assim que tiver o CEP; não peça rua e número para cotar.',
+      inputSchema: z.object({ cep: z.string().min(8), itens: z.array(z.object({ produto: z.string().min(1), pacotes: z.number().int().min(1) })).min(1) }),
+      execute: wrap(ctx, 'girakids_frete', async ({ cep, itens }) => cotarFrete(cep, itens)),
+    }),
     girakids_orcamento: tool({
       description: `Monta um ORÇAMENTO no sistema da Girakids (não é pedido ainda). Use quando o cliente (ou o dono) quiser comprar ou pedir preço fechado.
 Itens: produto = SKU ou nome exato do catálogo (consulte catalogo_girakids antes) e pacotes = quantidade de PACOTES.

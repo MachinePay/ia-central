@@ -22,7 +22,28 @@ export const COMO_PEDIR = [
   'Se preferir, o comercial monta o pedido pelo WhatsApp: precisa dos produtos e quantidades em pacotes, CPF/CNPJ, endereço ou retirada e a forma de pagamento.',
 ].join('\n');
 
-export async function catalogo(o: { busca?: string; categoria?: string; pagina?: number }) {
+/** Busca no catalogo; se a frase inteira nao achar nada, tenta com menos palavras (o site procura a frase exata). */
+type Catalogo = { produtos: GkProduto[]; total: number; paginas: number; categorias?: Array<{ categoria: string; total: number }> };
+export async function catalogo(o: { busca?: string; categoria?: string; pagina?: number }): Promise<Catalogo> {
+  if (!o.busca) return catalogoBruto(o);
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const palavras = norm(o.busca).replace(/[^\w\s]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !/^(de|da|do|com|para|pct|pacote|pacotes|unidade|unidades)$/.test(w));
+  // palavra que da nome ao produto (pokemon, minecraft, bolinha...): o resultado tem que conter ela
+  const chave = palavras.find((w) => !/^\d+$/.test(w) && !/^(polegada|polegadas|capsula|capsulas|brinquedo|brinquedos|mm)$/.test(w)) ?? palavras[0];
+  const bate = (p: GkProduto) => !chave || norm(`${p.nome} ${p.descricao ?? ''} ${p.categoria} ${p.sku}`).includes(chave);
+  const tentativas = [o.busca, palavras.slice(0, 3).join(' '), palavras.slice(0, 2).join(' '), chave].filter((t, i, a) => t && a.indexOf(t) === i);
+  let ultimo: Awaited<ReturnType<typeof catalogoBruto>> | undefined;
+  for (const busca of tentativas) {
+    const r = await catalogoBruto({ ...o, busca });
+    ultimo = r;
+    const pontos = (p: GkProduto) => { const t = norm(`${p.nome} ${p.descricao ?? ''} ${p.categoria}`); return palavras.filter((w) => t.includes(w)).length + (p.disponivel ? 0.5 : 0); };
+    const ok = r.produtos.filter(bate).sort((a, b) => pontos(b) - pontos(a));
+    if (ok.length) return { ...r, produtos: ok, total: ok.length };
+  }
+  return { ...(ultimo as any), produtos: [], total: 0 };
+}
+
+async function catalogoBruto(o: { busca?: string; categoria?: string; pagina?: number }) {
   const u = new URL(`${BASE()}/catalogo`);
   if (o.busca) u.searchParams.set('busca', o.busca);
   if (o.categoria) u.searchParams.set('categoria', o.categoria);
@@ -103,4 +124,26 @@ export const gerarPedido = (orcamentoId: string) => girakids<PedidoResumo>(`/orc
 export function resumoPedido(p: PedidoResumo): string {
   const itens = (p.itens ?? []).map((i) => `${i.quantidade} pct ${i.nome} (${i.unidadesPacote} un) = ${brl(Number(i.total))}`).join('; ');
   return `${p.tipo === 'ORCAMENTO' ? 'Orçamento' : 'Pedido'} nº ${p.numero}: ${itens}${p.frete ? ` + frete ${brl(Number(p.frete))}` : ''} · total ${brl(Number(p.total))}`;
+}
+
+/** Frete pelo sistema da Girakids (Correios PAC/SEDEX, Braspress, retirada, transportadora) para os itens e o CEP. */
+export async function cotarFrete(cep: string, itens: ItemPedido[]) {
+  const resolved: Array<{ produtoId: string; quantidade: number }> = [];
+  let subtotal = 0;
+  for (const it of itens) {
+    const p = await acharProduto(it.produto);
+    if (!p || 'varios' in p) return { erro: `Não identifiquei "${it.produto}" no catálogo para calcular o frete.` };
+    resolved.push({ produtoId: p.id, quantidade: it.pacotes });
+    subtotal += p.precoVenda * (p.unidadesPacote || 1) * it.pacotes;
+  }
+  const r = await girakids<{ opcoes: Array<{ metodo: string; nome: string; valor: number; prazoDias: number | null; disponivel: boolean; motivo?: string }>; pesoGramas: number }>(
+    '/checkout/frete', { method: 'POST', body: { cep: cep.replace(/\D/g, ''), itens: resolved } },
+  );
+  return {
+    subtotal_produtos: brl(subtotal),
+    peso: `${((r.pesoGramas ?? 0) / 1000).toFixed(1)} kg`,
+    opcoes: (r.opcoes ?? []).map((o) => o.disponivel
+      ? `${o.nome}: ${o.valor ? brl(o.valor) : 'sem custo'}${o.prazoDias ? ` · ${o.prazoDias} dias úteis` : ''}${o.valor ? ` · total com produtos ${brl(subtotal + o.valor)}` : ''}`
+      : `${o.nome}: indisponível (${o.motivo ?? 'sem cotação'})`),
+  };
 }

@@ -902,8 +902,8 @@ export async function panelRoutes(app: FastifyInstance) {
       const f = req.query as Record<string, string | undefined>;
       const params: unknown[] = [req.params.instance];
       const where = ['e.instance = $1'];
-      if (f.action) { params.push(f.action); where.push(`e.action = ${params.length}`); }
-      if (f.q) { params.push(`%${f.q}%`); where.push(`(e.from_email ILIKE ${params.length} OR e.from_name ILIKE ${params.length} OR e.subject ILIKE ${params.length} OR e.snippet ILIKE ${params.length})`); }
+      if (f.action) { params.push(f.action); where.push(`e.action = $${params.length}`); }
+      if (f.q) { params.push(`%${f.q}%`); const n = params.length; where.push(`(e.from_email ILIKE $${n} OR e.from_name ILIKE $${n} OR e.subject ILIKE $${n} OR e.snippet ILIKE $${n})`); }
       const items = await q(
         `SELECT e.*, (SELECT m.status FROM app.messages m WHERE m.thread_id = e.thread_id AND m.direction = 'OUTBOUND' ORDER BY m.created_at DESC LIMIT 1) AS reply_status
            FROM app.emails e WHERE ${where.join(' AND ')} ORDER BY e.received_at DESC LIMIT 200`,

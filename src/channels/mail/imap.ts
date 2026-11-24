@@ -147,20 +147,45 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent, 
       return;
     }
     let last = Number(a.last_uid);
-    if (next - 1 <= last) return;
-    for await (const msg of imap.fetch({ uid: `${last + 1}:*` }, { uid: true, source: true }, { uid: true })) {
-      if (msg.uid <= last || !msg.source) continue;
-      const parsed = await simpleParser(msg.source);
-      const skip = skipReason(parsed, a.email);
-      if (skip?.ownSent) {
-        const ev = toEvent(parsed, a.email);
-        await onOwnSent(ev.externalThreadId, ev.content, ev.externalMessageId);
-      } else if (!skip || skip.reason !== 'enviado pela conta') {
-        const r = await onMessage(toEvent(parsed, a.email), skip?.reason);
-        if (r === 'delete') await moveToTrash(imap, msg.uid).catch((e) => logger.warn({ err: String(e) }, 'e-mail nao foi para a lixeira'));
+    const apagar: number[] = [];
+    if (next - 1 > last) {
+      // 1) baixa tudo primeiro: o servidor nao aceita outro comando no meio da leitura (mover para a lixeira falhava ai)
+      const novos: Array<{ uid: number; source: Buffer }> = [];
+      for await (const msg of imap.fetch({ uid: `${last + 1}:*` }, { uid: true, source: true }, { uid: true })) {
+        if (msg.uid > last && msg.source) novos.push({ uid: msg.uid, source: msg.source });
       }
-      last = Math.max(last, msg.uid);
-      await q(`UPDATE app.mail_accounts SET last_uid = $2 WHERE email = $1`, [a.email, last]);
+      // 2) aplica as regras
+      for (const msg of novos) {
+        const parsed = await simpleParser(msg.source);
+        const skip = skipReason(parsed, a.email);
+        if (skip?.ownSent) {
+          const ev = toEvent(parsed, a.email);
+          await onOwnSent(ev.externalThreadId, ev.content, ev.externalMessageId);
+        } else if (!skip || skip.reason !== 'enviado pela conta') {
+          const r = await onMessage(toEvent(parsed, a.email), skip?.reason);
+          if (r === 'delete') apagar.push(msg.uid);
+        }
+        last = Math.max(last, msg.uid);
+        await q(`UPDATE app.mail_accounts SET last_uid = $2 WHERE email = $1`, [a.email, last]);
+      }
+    }
+    // 3) o que a regra mandou apagar (os de agora e os que ficaram para tras) vai para a lixeira
+    const pendentes = await q<{ message_id: string }>(
+      `SELECT message_id FROM app.emails WHERE account = $1 AND action = 'apagado' AND NOT trashed AND received_at > now() - interval '30 days'`, [a.email],
+    );
+    for (const p of pendentes) {
+      const mid = p.message_id.replace(`mail:${a.email}:`, '');
+      const uids = await imap.search({ header: { 'message-id': mid } }, { uid: true }).catch(() => [] as number[]);
+      for (const u of uids || []) if (!apagar.includes(u)) apagar.push(u);
+    }
+    if (apagar.length) {
+      try {
+        await moveToTrash(imap, apagar);
+        if (pendentes.length) await q(`UPDATE app.emails SET trashed = true WHERE account = $1 AND action = 'apagado' AND NOT trashed`, [a.email]);
+        logger.info({ account: a.email, n: apagar.length }, 'e-mails movidos para a lixeira');
+      } catch (e) {
+        logger.warn({ err: String(e), account: a.email }, 'e-mail nao foi para a lixeira');
+      }
     }
   } finally {
     lock.release();
@@ -169,11 +194,12 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent, 
 }
 
 /** Move para a Lixeira (nao apaga de vez: da para recuperar no webmail). */
-async function moveToTrash(imap: ImapFlow, uid: number) {
+async function moveToTrash(imap: ImapFlow, uids: number[]) {
   const boxes = await imap.list();
-  const trash = boxes.find((b) => b.specialUse === '\\Trash') ?? boxes.find((b) => /^(trash|lixeira|lixo|deleted|itens exclu)/i.test(b.name));
-  if (trash) await imap.messageMove(String(uid), trash.path, { uid: true });
-  else await imap.messageFlagsAdd(String(uid), ['\\Deleted'], { uid: true });
+  const trash = boxes.find((b) => b.specialUse === '\\Trash') ?? boxes.find((b) => /^(trash|lixeira|lixo|deleted|itens exclu)/i.test(b.name) || /(trash|lixeira|deleted)/i.test(b.path));
+  const range = uids.join(',');
+  if (trash) await imap.messageMove(range, trash.path, { uid: true });
+  else await imap.messageDelete(range, { uid: true }); // sem lixeira: marca apagado e expurga
 }
 
 // ------------------------------------------------------------------ envio
