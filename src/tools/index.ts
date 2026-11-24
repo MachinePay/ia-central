@@ -10,8 +10,8 @@ import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
-import { acharProduto, catalogo, COMO_PEDIR, criarOrcamento, gerarPedido, LOJA_URL, produtoLinha, resumoPedido } from '../integrations/girakids.js';
-import { sendText } from '../channels/whatsapp/evolution.js';
+import { catalogo, COMO_PEDIR, LOJA_URL, produtoLinha } from '../integrations/girakids.js';
+import { fecharPedido, montarOrcamento } from '../integrations/vendas.js';
 import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
 
 /**
@@ -172,21 +172,13 @@ Depois mande ao cliente o resumo (itens, total) e pergunte se aprova. Só gere o
         observacoes: z.string().max(500).optional(),
       }),
       execute: wrap(ctx, 'girakids_orcamento', async ({ itens, cliente, entrega, pagamento, observacoes }) => {
-        const resolved: Array<{ produtoId: string; quantidade: number }> = [];
-        for (const it of itens) {
-          const p = await acharProduto(it.produto);
-          if (!p) return { erro: `Não achei "${it.produto}" no catálogo. Confirme o nome ou SKU com catalogo_girakids.` };
-          if ('varios' in p) return { erro: `"${it.produto}" bate com vários produtos; pergunte qual:`, opcoes: p.varios };
-          if (!p.disponivel) return { erro: `${p.nome} está esgotado.` };
-          resolved.push({ produtoId: p.id, quantidade: it.pacotes });
-        }
-        const orc = await criarOrcamento({
-          itens: resolved, metodoEnvio: entrega, formaPagamento: pagamento,
+        const r = await montarOrcamento({
+          itens, entrega, pagamento, observacoes, via: `WhatsApp ${ctx.thread.instance}`,
           cliente: { ...cliente, telefone: cliente.telefone ?? ctx.contact.phone ?? undefined, email: cliente.email ?? ctx.contact.email ?? undefined },
-          observacoes: observacoes ? `${observacoes} (feito pela IA no WhatsApp)` : undefined,
         });
-        await q(`UPDATE threads SET facts = jsonb_set(coalesce(facts, '{}'), '{orcamento_girakids}', to_jsonb($2::text)) WHERE id = $1`, [ctx.thread.id, orc.id]);
-        return { ok: true, orcamento_id: orc.id, resumo: resumoPedido(orc), proximo_passo: 'Mande o resumo ao cliente e pergunte se aprova. Se aprovar, use girakids_aprovar_orcamento.' };
+        if ('erro' in r) return r;
+        await q(`UPDATE threads SET facts = jsonb_set(coalesce(facts, '{}'), '{orcamento_girakids}', to_jsonb($2::text)) WHERE id = $1`, [ctx.thread.id, r.orcamento.id]);
+        return { ok: true, orcamento_id: r.orcamento.id, resumo: r.resumo, proximo_passo: 'Mande o resumo ao cliente e pergunte se aprova. Se aprovar, use girakids_aprovar_orcamento.' };
       }),
     }),
     girakids_aprovar_orcamento: tool({
@@ -195,12 +187,8 @@ Depois mande ao cliente o resumo (itens, total) e pergunte se aprova. Só gere o
       execute: wrap(ctx, 'girakids_aprovar_orcamento', async ({ orcamento_id }) => {
         const id = orcamento_id ?? (ctx.thread.facts as any)?.orcamento_girakids;
         if (!id) return { erro: 'Não há orçamento nesta conversa. Monte um com girakids_orcamento.' };
-        const pedido = await gerarPedido(id);
-        const aviso = setting('GIRAKIDS_AVISO_PEDIDOS').replace(/\D/g, '');
-        const texto = `Pedido novo pela IA (${ctx.contact.name ?? ctx.contact.phone ?? ''}): ${resumoPedido(pedido)}`;
-        if (aviso) await sendText(ctx.thread.instance, aviso, texto).catch(() => notifyGabriel(texto, ctx.thread.instance));
-        else await notifyGabriel(texto, ctx.thread.instance);
-        return { ok: true, pedido: resumoPedido(pedido), orientacao: 'Confirme ao cliente o número do pedido e diga que o comercial segue com pagamento e entrega.' };
+        const r = await fecharPedido(id, { cliente: ctx.contact.name ?? ctx.contact.phone ?? undefined, instance: ctx.thread.instance });
+        return { ok: true, pedido: r.resumo, orientacao: 'Confirme ao cliente o número do pedido e diga que o comercial segue com pagamento e entrega.' };
       }),
     }),
     get_product_catalog: catalogTool(ctx),

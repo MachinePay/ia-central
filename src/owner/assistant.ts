@@ -19,6 +19,7 @@ import { costSummary, formatCosts } from '../sentinela/costs.js';
 import { ack } from '../sentinela/incidents.js';
 import { brl, clienteLinha, dia, gkBuscar, gkClientes, gkCobrancasMes, gkHistorico, type GkProduto } from '../integrations/gk.js';
 import { catalogo, COMO_PEDIR, girakids, produtoLinha } from '../integrations/girakids.js';
+import { fecharPedido, mandarOrcamentoAoCliente, montarOrcamento, numeroVendedor } from '../integrations/vendas.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
 /**
@@ -221,6 +222,45 @@ function tools(log: string[], here: string) {
           total: r.total != null ? brl(r.total) : undefined, vencidos: r.vencidos,
           linhas: (r.linhas ?? []).slice(0, 20).map((l: any) => `${l.clienteNome} · pedido ${l.numero} · ${brl(l.valor)} · vence ${dia(l.vencimento)}${l.vencido ? ' (VENCIDO)' : ''}`),
         };
+      },
+    }),
+
+    girakids_orcamento: tool({
+      description: `Monta um orçamento na Girakids a pedido do dono (ele está pedindo para tirar um pedido para um cliente).
+itens: produto = SKU ou nome do catálogo (confira com girakids_catalogo) e pacotes = quantidade de PACOTES.
+cliente: nome e telefone; CPF/CNPJ e endereço se ele disser (para virar pedido o CPF/CNPJ é obrigatório).
+entrega: RETIRAR_LOCAL, TRANSPORTADORA, PAC ou SEDEX. pagamento: PIX_ONLINE, CREDITO_LINK, BOLETO, TRANSFERENCIA ou A_DEFINIR.
+mandar_para_cliente: true manda o resumo ao cliente pelo WhatsApp do João (o vendedor). Mostre o resumo ao dono e pergunte se fecha o pedido.`,
+      inputSchema: z.object({
+        itens: z.array(z.object({ produto: z.string().min(1), pacotes: z.number().int().min(1) })).min(1),
+        cliente: z.object({ nome: z.string().min(2), telefone: z.string().optional(), documento: z.string().optional(), email: z.string().optional(), cep: z.string().optional(), rua: z.string().optional(), numero: z.string().optional(), complemento: z.string().optional(), bairro: z.string().optional(), cidade: z.string().optional(), estado: z.string().optional() }),
+        entrega: z.enum(['RETIRAR_LOCAL', 'TRANSPORTADORA', 'PAC', 'SEDEX']).optional(),
+        pagamento: z.enum(['PIX_ONLINE', 'CREDITO_LINK', 'BOLETO', 'TRANSFERENCIA', 'A_DEFINIR']).optional(),
+        observacoes: z.string().max(500).optional(),
+        mandar_para_cliente: z.boolean().optional(),
+      }),
+      execute: async ({ itens, cliente, entrega, pagamento, observacoes, mandar_para_cliente }) => {
+        const r = await montarOrcamento({ itens, cliente, entrega, pagamento, observacoes, via: `pedido de ${personaFor(here).name}` });
+        if ('erro' in r) return r;
+        let enviado = '';
+        if (mandar_para_cliente) {
+          const vendedor = numeroVendedor();
+          const tel = (cliente.telefone ?? '').replace(/\D/g, '');
+          if (!vendedor || tel.length < 10) enviado = 'não mandei ao cliente: falta o telefone dele ou o número do João';
+          else {
+            await mandarOrcamentoAoCliente({ vendedor, telefone: tel.startsWith('55') ? tel : `55${tel}`, nome: cliente.nome, resumo: r.resumo, orcamentoId: r.orcamento.id });
+            enviado = `mandado ao cliente pelo WhatsApp de ${personaFor(vendedor).name}`;
+          }
+        }
+        return { ok: done(`orçamento criado: ${r.resumo}${enviado ? ` · ${enviado}` : ''}`), orcamento_id: r.orcamento.id, proximo: 'Pergunte ao dono se fecha o pedido; só então use girakids_fechar_pedido.' };
+      },
+    }),
+    girakids_fechar_pedido: tool({
+      description: 'Transforma o orçamento da Girakids em PEDIDO (quando o dono mandar fechar ou disser que o cliente aprovou) e avisa o comercial no WhatsApp cadastrado.',
+      inputSchema: z.object({ orcamento_id: z.string().min(8) }),
+      execute: async ({ orcamento_id }) => {
+        const r = await fecharPedido(orcamento_id, { instance: numeroVendedor() });
+        return { ok: done(`pedido gerado: ${r.resumo}`) };
       },
     }),
 
