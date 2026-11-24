@@ -834,14 +834,15 @@ export async function panelRoutes(app: FastifyInstance) {
       if (!b.success) return bad(reply, 'Preencha e-mail, senha e servidores.');
       if (!instanceRoles().has(req.params.instance)) return bad(reply, 'Número não encontrado.', 404);
       const d = { ...b.data, email: b.data.email.toLowerCase(), username: b.data.username?.trim() || b.data.email.toLowerCase() };
+      let smtpOk = true;
       try {
-        await testAccount(d, d.password);
+        smtpOk = (await testAccount(d, d.password)).smtpOk;
       } catch (e: any) {
         return bad(reply, String(e.message).slice(0, 300));
       }
-      await saveAccount({ ...d, instance: req.params.instance });
+      await saveAccount({ ...d, instance: req.params.instance, smtp_ok: smtpOk });
       await saveSetting('EMAILS', JSON.stringify({ ...emailsByNumber(), [req.params.instance]: d.email }), user(req));
-      return { ok: true };
+      return { ok: true, smtpOk };
     });
     api.delete<{ Params: { instance: string } }>('/api/gmail/:instance', async (req) => {
       const map = emailsByNumber();

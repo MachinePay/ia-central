@@ -15,7 +15,7 @@ import { AGENT_HEADER, cleanBody, htmlToText } from '../gmail/gmail.js';
  */
 export type MailAccount = {
   email: string; instance: string | null; username: string; password_enc: string;
-  imap_host: string; imap_port: number; smtp_host: string; smtp_port: number; last_uid: string | null;
+  imap_host: string; imap_port: number; smtp_host: string; smtp_port: number; last_uid: string | null; smtp_ok: boolean;
 };
 
 // ------------------------------------------------------------------ senha guardada criptografada
@@ -58,8 +58,12 @@ const imapClient = (a: Pick<MailAccount, 'imap_host' | 'imap_port' | 'username'>
 const smtpClient = (a: Pick<MailAccount, 'smtp_host' | 'smtp_port' | 'username'>, password: string) =>
   nodemailer.createTransport({ host: a.smtp_host, port: a.smtp_port, secure: a.smtp_port === 465, auth: { user: a.username, pass: password }, connectionTimeout: 20_000 });
 
-/** Testa entrar no IMAP e no SMTP antes de salvar (mensagem clara se falhar). */
-export async function testAccount(a: Pick<MailAccount, 'imap_host' | 'imap_port' | 'smtp_host' | 'smtp_port' | 'username'>, password: string) {
+/**
+ * Testa entrar no IMAP e no SMTP antes de salvar (mensagem clara se falhar).
+ * Se so o envio nao conecta (provedor que bloqueia envio vindo de servidor na nuvem, como a Uni5), a conta funciona assim mesmo:
+ * le normal e as respostas ficam em Rascunhos do webmail. Senha errada no envio continua sendo erro.
+ */
+export async function testAccount(a: Pick<MailAccount, 'imap_host' | 'imap_port' | 'smtp_host' | 'smtp_port' | 'username'>, password: string): Promise<{ smtpOk: boolean }> {
   const imap = imapClient(a, password);
   try {
     await imap.connect();
@@ -69,18 +73,20 @@ export async function testAccount(a: Pick<MailAccount, 'imap_host' | 'imap_port'
   }
   try {
     await smtpClient(a, password).verify();
+    return { smtpOk: true };
   } catch (e: any) {
+    if (/ETIMEDOUT|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|timeout|Greeting never received/i.test(`${e.code ?? ''} ${e.message ?? ''}`)) return { smtpOk: false };
     throw new Error(`Entrou para ler, mas não no envio (SMTP ${a.smtp_host}:${a.smtp_port}): ${e.response ?? e.message}`);
   }
 }
 
-export async function saveAccount(o: { email: string; instance: string; username: string; password: string; imap_host: string; imap_port: number; smtp_host: string; smtp_port: number }) {
+export async function saveAccount(o: { email: string; instance: string; username: string; password: string; imap_host: string; imap_port: number; smtp_host: string; smtp_port: number; smtp_ok: boolean }) {
   await q(
-    `INSERT INTO app.mail_accounts (email, instance, username, password_enc, imap_host, imap_port, smtp_host, smtp_port)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO app.mail_accounts (email, instance, username, password_enc, imap_host, imap_port, smtp_host, smtp_port, smtp_ok)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (email) DO UPDATE SET instance = EXCLUDED.instance, username = EXCLUDED.username, password_enc = EXCLUDED.password_enc,
-       imap_host = EXCLUDED.imap_host, imap_port = EXCLUDED.imap_port, smtp_host = EXCLUDED.smtp_host, smtp_port = EXCLUDED.smtp_port, last_uid = NULL`,
-    [o.email.toLowerCase(), o.instance, o.username, encrypt(o.password), o.imap_host, o.imap_port, o.smtp_host, o.smtp_port],
+       imap_host = EXCLUDED.imap_host, imap_port = EXCLUDED.imap_port, smtp_host = EXCLUDED.smtp_host, smtp_port = EXCLUDED.smtp_port, smtp_ok = EXCLUDED.smtp_ok, last_uid = NULL`,
+    [o.email.toLowerCase(), o.instance, o.username, encrypt(o.password), o.imap_host, o.imap_port, o.smtp_host, o.smtp_port, o.smtp_ok],
   );
 }
 
@@ -161,6 +167,39 @@ export async function pollAccount(a: MailAccount, onMessage: (ev: InboundEvent) 
 }
 
 // ------------------------------------------------------------------ envio
+type Outgoing = { fromName: string; to: string; subject: string; inReplyTo?: string; references?: string; text: string; html: string; agent: string };
+
+/** Monta a mensagem completa (para guardar em Rascunhos pelo IMAP). */
+function buildRaw(from: string, o: Outgoing, messageId?: string): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    nodemailer.createTransport({ streamTransport: true, buffer: true }).sendMail(
+      { from: { name: o.fromName, address: from }, to: o.to, subject: o.subject, text: o.text, html: o.html, inReplyTo: o.inReplyTo, references: o.references, messageId, headers: { [AGENT_HEADER]: o.agent } },
+      (err, r) => (err ? reject(err) : resolve(r.message as Buffer)),
+    );
+  });
+}
+
+/** Guarda a resposta pronta na pasta Rascunhos da conta (aparece no webmail, no mesmo fio, para enviar com um clique). */
+export async function appendDraft(account: string, o: Outgoing): Promise<string> {
+  const a = await mailAccount(account);
+  if (!a) throw new Error(`conta de e-mail nao conectada: ${account}`);
+  const messageId = `<sm-${Date.now().toString(36)}-${randomBytes(4).toString('hex')}@${a.email.split('@')[1]}>`;
+  const raw = await buildRaw(a.email, o, messageId);
+  const imap = imapClient(a, decrypt(a.password_enc));
+  await imap.connect();
+  try {
+    const boxes = await imap.list();
+    const drafts = boxes.find((b) => b.specialUse === '\\Drafts') ?? boxes.find((b) => /^(drafts?|rascunhos?)$/i.test(b.name)) ?? boxes.find((b) => /draft|rascunho/i.test(b.path));
+    await imap.append(drafts?.path ?? 'Drafts', raw, ['\\Draft', '\\Seen']);
+  } finally {
+    await imap.logout().catch(() => undefined);
+  }
+  return messageId;
+}
+
+/** Envio liberado? (provedor que bloqueia envio vindo da nuvem: as respostas vao para Rascunhos) */
+export const canSend = async (account: string) => !!(await mailAccount(account))?.smtp_ok;
+
 export async function sendMail(account: string, o: { fromName: string; to: string; subject: string; inReplyTo?: string; references?: string; text: string; html: string; agent: string }): Promise<string | undefined> {
   const a = await mailAccount(account);
   if (!a) throw new Error(`conta de e-mail nao conectada: ${account}`);

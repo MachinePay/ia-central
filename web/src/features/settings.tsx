@@ -190,7 +190,12 @@ function NumberLinks({ name, state, email, gmailReady }: { name: string; state: 
   });
   const saveImap = useMutation({
     mutationFn: () => post(`/api/mail/${name}`, { email: mail.trim(), ...imap }),
-    onSuccess: () => { toast(`E-mail ${mail.trim()} conectado ao número ${name}.`); setImap(null); void qc.invalidateQueries({ queryKey: ['settings'] }); },
+    onSuccess: (r: any) => {
+      toast(r?.smtpOk === false
+        ? `E-mail ${mail.trim()} conectado para ler. O provedor não deixa enviar a partir do servidor: as respostas da IA ficam prontas em Rascunhos do webmail.`
+        : `E-mail ${mail.trim()} conectado ao número ${name}.`);
+      setImap(null); void qc.invalidateQueries({ queryKey: ['settings'] });
+    },
     onError: toastError,
   });
   const removeMail = useMutation({

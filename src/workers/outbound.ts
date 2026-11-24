@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import { buildMime, mdToHtml, mdToText, sendOrDraft } from '../channels/gmail/gmail.js';
 import { sendPresence, sendText } from '../channels/whatsapp/evolution.js';
-import { mailAccount, sendMail } from '../channels/mail/imap.js';
+import { appendDraft, canSend, mailAccount, sendMail } from '../channels/mail/imap.js';
 import { toBubbles, typingMs } from '../channels/whatsapp/format.js';
 import { getContact, getThread } from '../domain/repo.js';
 import type { Agent, Message } from '../domain/types.js';
@@ -16,7 +16,7 @@ const DISPLAY: Record<Agent, string> = {
 };
 
 export async function outboundWorker(job: Job) {
-  const { messageId, outboundKey, mode } = job.data as { messageId: string; outboundKey: string; mode: 'send' | 'draft' };
+  let { messageId, outboundKey, mode } = job.data as { messageId: string; outboundKey: string; mode: 'send' | 'draft' };
   // idempotencia de envio: a mesma resposta nunca sai duas vezes (nem em retentativa)
   if (!(await redis.set(keys.sentKey(outboundKey), job.id ?? '1', 'EX', 86400, 'NX'))) {
     const owner = await redis.get(keys.sentKey(outboundKey));
@@ -59,14 +59,15 @@ export async function outboundWorker(job: Job) {
     });
     let id: string | undefined;
     if (await mailAccount(thread.instance)) {
-      // e-mail IMAP: rascunho fica so no painel; envio pelo SMTP da propria conta
-      if (mode === 'draft') return;
-      id = await sendMail(thread.instance, {
+      // e-mail IMAP: envia pelo SMTP da conta; rascunho (ou provedor que bloqueia envio) vai para Rascunhos do webmail
+      const out = {
         fromName: personaFor(thread.instance).name || DISPLAY[agent], to: contact.email!, agent,
         subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`, inReplyTo: meta.messageIdHeader,
         references: [...(meta.references ?? []), meta.messageIdHeader].filter(Boolean).join(' '),
         text: mdToText(body), html: mdToHtml(body),
-      });
+      };
+      if (mode === 'send' && !(await canSend(thread.instance))) mode = 'draft';
+      id = mode === 'send' ? await sendMail(thread.instance, out) : await appendDraft(thread.instance, out);
     } else {
       id = await sendOrDraft(thread.instance, mode, raw, thread.external_id);
     }
