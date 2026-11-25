@@ -170,7 +170,41 @@ export async function buscarContaCliente(busca: string): Promise<ContaGirakids[]
 
 /** O que o cliente reconhece como login: o e-mail de verdade; conta criada sem e-mail ("...@sememail...") vira CPF/CNPJ ou nome. */
 export const loginDe = (c: Pick<ContaGirakids, 'email' | 'documento' | 'nome'>) =>
-  c.email && !/sememail/i.test(c.email) ? c.email : c.documento ? `${c.documento.length === 14 ? 'CNPJ' : 'CPF'} ${c.documento}` : `cadastro no nome ${c.nome}`;
+  c.email && !/sememail/i.test(c.email) ? c.email : c.documento ? `${c.documento.length === 14 ? 'CNPJ' : 'CPF'} terminado em ${c.documento.slice(-4)}` : `cadastro no nome ${c.nome}`;
 
 export const contaLinha = (c: ContaGirakids) =>
-  `${c.nome} · login ${loginDe(c)}${c.documento ? ` · doc ${c.documento}` : ''}${c.totalPedidos ? ` · ${c.totalPedidos} pedidos` : ''} [id ${c.id}]`;
+  `${c.nome} · login ${loginDe(c)}${c.documento ? ` · doc final ${c.documento.slice(-4)}` : ''}${c.totalPedidos ? ` · ${c.totalPedidos} pedidos` : ''} [id ${c.id}]`;
+
+/** Endereco pelo CEP (ViaCEP): o cliente so precisa dizer o numero. */
+export async function enderecoPorCep(cep: string): Promise<{ rua: string; bairro: string; cidade: string; estado: string } | undefined> {
+  const d = cep.replace(/\D/g, '');
+  if (d.length !== 8) return undefined;
+  const r = await fetch(`https://viacep.com.br/ws/${d}/json/`, { signal: AbortSignal.timeout(10_000) }).catch(() => undefined);
+  const j: any = r?.ok ? await r.json().catch(() => undefined) : undefined;
+  if (!j || j.erro) return undefined;
+  return { rua: j.logradouro ?? '', bairro: j.bairro ?? '', cidade: j.localidade ?? '', estado: j.uf ?? '' };
+}
+
+export type NovaConta = { nome: string; email: string; documento: string; telefone: string; cep: string; rua: string; numero: string; complemento?: string; bairro: string; cidade: string; estado: string };
+
+/**
+ * Cria a conta de cliente no site. Tenta pelo cadastro interno (com troca de senha no primeiro acesso);
+ * sem essa permissao, usa o cadastro publico ("Criar Nova Conta"). Devolve a conta e a senha provisoria.
+ */
+export async function criarContaCliente(d: NovaConta): Promise<{ conta: ContaGirakids; senha: string }> {
+  const senha = `Gk${Math.random().toString(36).slice(2, 8)}${Math.floor(10 + Math.random() * 89)}`;
+  const corpo = { ...d, documento: d.documento.replace(/\D/g, ''), cep: d.cep.replace(/\D/g, ''), telefone: d.telefone.replace(/\D/g, ''), email: d.email.trim().toLowerCase(), senha };
+  let u: any;
+  try {
+    u = await girakids('/usuarios', { method: 'POST', body: { ...corpo, role: 'CLIENTE', trocarSenha: true } });
+  } catch (e) {
+    const msg = String((e as Error).message);
+    if (/j[aá] existe/i.test(msg)) throw new Error('Já existe uma conta com esse e-mail no site.');
+    if (!/permiss|acesso|403|negad/i.test(msg)) throw e;
+    const r = await fetch(`${BASE()}/auth/registrar`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(30_000) });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Girakids: ${String(j.error ?? j.message ?? r.status).slice(0, 200)}`);
+    u = j.usuario ?? j;
+  }
+  return { conta: { id: String(u.id), nome: u.nome, email: u.email ?? corpo.email, documento: u.documento ?? corpo.documento, telefone: u.telefone ?? corpo.telefone }, senha };
+}

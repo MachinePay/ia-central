@@ -2,7 +2,8 @@ import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { requestApproval, NEUTRAL_REPLY, type ApprovalAction } from '../approvals/approvals.js';
 import { notifyGabriel } from '../delivery.js';
-import { recentMessages, setThread } from '../domain/repo.js';
+import { recentMessages, saveOutbound, setThread } from '../domain/repo.js';
+import { sendText } from '../channels/whatsapp/evolution.js';
 import type { Agent, Contact, Specialist, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { env, setting } from '../lib/env.js';
@@ -10,7 +11,7 @@ import { clip } from '../lib/util.js';
 import type { Company } from '../memory/context.js';
 import { historyText } from '../memory/context.js';
 import { searchKnowledge } from '../memory/kb.js';
-import { buscarContaCliente, catalogo, COMO_PEDIR, contaLinha, cotarFrete, LOJA_URL, loginDe, produtoLinha, type ContaGirakids } from '../integrations/girakids.js';
+import { buscarContaCliente, catalogo, COMO_PEDIR, contaLinha, cotarFrete, criarContaCliente, enderecoPorCep, LOJA_URL, loginDe, produtoLinha, type ContaGirakids } from '../integrations/girakids.js';
 import { fecharPedido, fecharPedidoPrimeplush, montarOrcamento } from '../integrations/vendas.js';
 import { catalogoPrimeplush, orcarPrimeplush, produtoLinhaPp, type OrcamentoPp } from '../integrations/primeplush.js';
 import { brl, clienteLinha, dia, gkHistorico, gkPorTelefone, type GkProduto } from '../integrations/gk.js';
@@ -168,6 +169,47 @@ function joaoTools(ctx: ToolCtx): ToolSet {
     await q(`UPDATE contacts SET logins = jsonb_set(coalesce(logins, '{}'), $2::text[], $3::jsonb) WHERE id = $1`, [ctx.contact.id, [sistema], JSON.stringify(v)]);
   };
   return {
+    girakids_criar_conta: tool({
+      description: `Cria a conta (login) do cliente no site da Girakids quando ele não tem cadastro. Chame com o que já souber da conversa (não peça de novo).
+Precisa: nome completo, e-mail, CPF ou CNPJ, CEP e número. Rua, bairro, cidade e estado saem do CEP sozinhos; o telefone é o desta conversa.
+Se faltar algo, a ferramenta devolve só o que falta: peça tudo isso numa mensagem só. Depois de criar, o login já fica salvo e confirmado: mande ao cliente o login e a senha provisória.`,
+      inputSchema: z.object({ nome: z.string().optional(), email: z.string().optional(), documento: z.string().optional(), cep: z.string().optional(), numero: z.string().optional(), complemento: z.string().optional(), rua: z.string().optional(), bairro: z.string().optional(), cidade: z.string().optional(), estado: z.string().optional() }),
+      execute: wrap(ctx, 'girakids_criar_conta', async (d) => {
+        const end = d.cep ? await enderecoPorCep(d.cep) : undefined;
+        const dados = {
+          nome: (d.nome ?? '').trim(), email: (d.email ?? '').trim(), documento: (d.documento ?? '').replace(/\D/g, ''),
+          telefone: (ctx.contact.phone ?? '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, ''),
+          cep: (d.cep ?? '').replace(/\D/g, ''), numero: (d.numero ?? '').trim(), complemento: d.complemento,
+          rua: d.rua || end?.rua || '', bairro: d.bairro || end?.bairro || '', cidade: d.cidade || end?.cidade || '', estado: d.estado || end?.estado || '',
+        };
+        const faltam = [
+          !dados.nome.includes(' ') && 'nome completo',
+          !/^\S+@\S+\.\S+$/.test(dados.email) && 'e-mail',
+          dados.documento.length !== 11 && dados.documento.length !== 14 && 'CPF ou CNPJ',
+          dados.cep.length !== 8 && 'CEP',
+          !dados.numero && 'número da casa ou empresa',
+          dados.cep.length === 8 && !dados.rua && 'rua',
+          dados.cep.length === 8 && !dados.bairro && 'bairro',
+        ].filter(Boolean);
+        if (faltam.length) return { faltam, pergunte: `Peça numa mensagem só: ${faltam.join(', ')}. Não peça o que já tem.` };
+        const existentes = await buscarContaCliente(dados.email).catch(() => [] as ContaGirakids[]);
+        if (existentes.length) return { erro: `Já existe conta com esse e-mail: ${contaLinha(existentes[0])}. Pergunte se é dele e confirme com login_cliente.`, cliente_id: existentes[0].id };
+        const { conta, senha } = await criarContaCliente(dados as any);
+        await salvarLogin('girakids', { id: conta.id, email: conta.email, nome: conta.nome, documento: conta.documento ?? null });
+        await setFact('login_confirmado_girakids', conta.id);
+        // login e senha saem direto pelo sistema (a IA nao escreve senha); no historico a senha fica omitida
+        let enviado = false;
+        if (ctx.thread.channel === 'WHATSAPP' && ctx.contact.phone) {
+          const txt = (s: string) => `Prontinho, criei seu cadastro na Girakids.
+Login: ${conta.email}
+Senha provisória: ${s}
+Dá para trocar a senha no site depois.`;
+          await sendText(ctx.thread.instance, ctx.contact.phone, txt(senha)).then(() => { enviado = true; }).catch(() => undefined);
+          if (enviado) await saveOutbound(ctx.thread.id, txt('[omitida]'), 'JOAO', 'SENT', {}, `conta:${conta.id}`);
+        }
+        return { ok: true, conta: contaLinha(conta), login: conta.email, credenciais: enviado ? 'login e senha provisória JÁ FORAM ENVIADOS ao cliente nesta conversa (não repita a senha)' : 'não consegui enviar a senha: avise que o comercial manda o acesso', proximo: 'Siga com o orçamento.' };
+      }),
+    }),
     login_cliente: tool({
       description: `Login (conta) do cliente no sistema de venda. SEMPRE antes de tirar um pedido:
 - acao=ver: mostra o login salvo deste contato. Se tiver, pergunte ao cliente "seu login é X?" antes de fechar o pedido. Se não tiver, já procura a conta pelo telefone desta conversa.
@@ -182,10 +224,10 @@ function joaoTools(ctx: ToolCtx): ToolSet {
             if (doc.length !== 11 && doc.length !== 14) return { erro: 'Preciso do CPF ou CNPJ do cliente.' };
             await salvarLogin('primeplush', { documento: doc, nome: nome ?? salvo?.nome ?? ctx.contact.name ?? '' });
             await setFact('login_confirmado_primeplush', doc);
-            return { ok: true, salvo: `CPF/CNPJ ${doc}`, proximo: 'Login confirmado. Pode fechar o pedido.' };
+            return { ok: true, salvo: `CPF/CNPJ final ${doc.slice(-4)}`, proximo: 'Login confirmado. Pode fechar o pedido.' };
           }
           return salvo
-            ? { salvo: `CPF/CNPJ ${salvo.documento} (${salvo.nome})`, pergunte: `Antes de fechar, pergunte: "seu login é o ${salvo.documento.length === 14 ? 'CNPJ' : 'CPF'} ${salvo.documento}?"` }
+            ? { salvo: `CPF/CNPJ final ${salvo.documento.slice(-4)} (${salvo.nome})`, pergunte: `Antes de fechar, pergunte: "seu login é o ${salvo.documento.length === 14 ? 'CNPJ' : 'CPF'} terminado em ${salvo.documento.slice(-4)}?"` }
             : { salvo: null, pergunte: 'Peça o CPF ou CNPJ e o nome completo do cliente: é o login dele na PrimePlush.' };
         }
         if (acao === 'confirmar') {
@@ -201,7 +243,7 @@ function joaoTools(ctx: ToolCtx): ToolSet {
         const contas = termo ? await buscarContaCliente(termo) : [];
         await setFact('contas_girakids', contas.slice(0, 8));
         if (!contas.length) return acao === 'buscar'
-          ? { contas: [], resultado: `NÃO EXISTE conta com "${busca}" no site. Não peça esse dado de novo: diga isso ao cliente e peça o outro (e-mail se ele passou CPF, CPF/CNPJ se passou e-mail). Se não tiver cadastro, oriente a criar no site.` }
+          ? { contas: [], resultado: `NÃO EXISTE conta com "${busca}" no site. Não peça esse dado de novo. Diga ao cliente que não achou cadastro e ofereça criar a conta agora: use girakids_criar_conta com o que já tem e peça numa mensagem só o que faltar.` }
           : { contas: [], pergunte: 'Não achei conta pelo telefone. Peça o e-mail de login ou o CPF/CNPJ do cadastro no site (uma vez só) e busque com acao=buscar.' };
         if (contas.length === 1 && acao === 'buscar') return { contas: contas.map(contaLinha), cliente_id: contas[0].id, pergunte: `Achei. Pergunte: "seu cadastro é ${contas[0].nome} (${loginDe(contas[0])})?" Com o sim, chame acao=confirmar com este cliente_id.` };
         return { contas: contas.slice(0, 8).map(contaLinha), pergunte: contas.length === 1 ? `Pergunte: "seu cadastro é ${contas[0].nome} (${loginDe(contas[0])})?"` : 'Pergunte qual é o cadastro dele, mostrando o nome e o login de cada um.' };
@@ -278,7 +320,7 @@ Mande ao cliente o resumo com o total e pergunte uma vez "posso fechar o pedido?
       execute: wrap(ctx, 'primeplush_fechar_pedido', async ({ nome, documento, pagamento, observacao }) => {
         const orc = (ctx.thread.facts as any)?.orcamento_primeplush as OrcamentoPp | undefined;
         if (!orc?.itens?.length) return { erro: 'Não há orçamento da PrimePlush nesta conversa. Monte com primeplush_orcamento.' };
-        if (!facts().login_confirmado_primeplush) { const c = (ctx.contact.logins as any)?.primeplush; return { erro: c ? `Antes de fechar pergunte "seu login é o CPF/CNPJ ${c.documento}?" e confirme com login_cliente.` : 'Peça CPF ou CNPJ e nome e confirme com login_cliente (sistema primeplush, acao confirmar).' }; }
+        if (!facts().login_confirmado_primeplush) { const c = (ctx.contact.logins as any)?.primeplush; return { erro: c ? `Antes de fechar pergunte "seu login é o CPF/CNPJ terminado em ${c.documento.slice(-4)}?" e confirme com login_cliente.` : 'Peça CPF ou CNPJ e nome e confirme com login_cliente (sistema primeplush, acao confirmar).' }; }
         const r = await fecharPedidoPrimeplush(orc, { nome, documento, pagamento, observacao }, { instance: ctx.thread.instance, telefone: ctx.thread.channel === 'WHATSAPP' ? ctx.contact.phone ?? undefined : undefined });
         await q(`UPDATE threads SET facts = facts - 'orcamento_primeplush' - 'login_confirmado_primeplush' WHERE id = $1`, [ctx.thread.id]);
         return { ok: true, pedido: r.resumo, pdf: r.pdf, orientacao: `Confirme o pedido ao cliente${r.pdf?.startsWith('PDF do pedido enviado') ? ' e diga que mandou o PDF' : ''}; pagamento e entrega a loja combina.` };
