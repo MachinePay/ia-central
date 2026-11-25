@@ -127,9 +127,13 @@ function tools(log: string[], here: string, where?: Where) {
       },
     }),
     responder_contato: tool({
-      description: 'Manda para um contato EXATAMENTE o texto que o dono ditou, pelo número da conversa dele. Só use se o dono ditou o texto.',
-      inputSchema: z.object({ busca: z.string().min(2), texto: z.string().min(1).max(2000) }),
-      execute: async ({ busca, texto }) => {
+      description: 'Manda uma mensagem para um contato pelo número da conversa dele. texto = a mensagem final que o contato vai ler (nunca a instrução do dono). Se o dono ditou o texto, mande igual. Se ele pediu para você responder ou ver o que a pessoa quer, leia a conversa (ler_conversa), escreva a resposta do jeito dele e mostre antes; só mande com confirmado=true depois do sim.',
+      inputSchema: z.object({ busca: z.string().min(2), texto: z.string().min(1).max(2000), ditado_pelo_dono: z.boolean().describe('true só se o texto é exatamente o que o dono mandou escrever'), confirmado: z.boolean().default(false) }),
+      execute: async ({ busca, texto, ditado_pelo_dono, confirmado }) => {
+        // instrucao do dono ("verifique o que ela quer", "responde ela") nunca vai como mensagem para o contato
+        if (/(verifiw*|veja|v[eê] (o|oq|o que)|o que (ela|ele) quer|perguntw* (pra|para|a|o) (ela|ele)|respondew*|fala (pra|para) (ela|ele)|diz (pra|para) (ela|ele)|manda (pra|para) (ela|ele))/i.test(texto) && !confirmado)
+          return { erro: 'Isso parece uma instrução para você, não a mensagem. Leia a conversa (ler_conversa), escreva a resposta e mostre ao dono antes de mandar.' };
+        if (!ditado_pelo_dono && !confirmado) return { confirmar: `Mando para ${busca}: "${texto}"?` };
         const found = await findThread(busca);
         if (found.length !== 1) return found.length ? { varios: found.map((f) => `${f.contact} (${f.phone ?? ''}, número ${f.instance})`) } : { erro: 'Não achei esse contato.' };
         const th = (await getThread(found[0].id))!;
@@ -215,7 +219,7 @@ function tools(log: string[], here: string, where?: Where) {
       },
     }),
     girakids_vendas: tool({
-      description: 'Vendas da Girakids num período (AAAA-MM-DD; padrão: do dia 1 até hoje): total vendido, recebido, em aberto, boletos, ticket médio e produtos que mais saíram.',
+      description: 'Vendas da Girakids num período (AAAA-MM-DD; padrão: do dia 1 até hoje): total vendido, recebido, em aberto, boletos, ticket médio, produtos que mais saíram (pacotes e receita), produtos com MAIOR MARGEM de lucro (% e R$) e os que mais deram LUCRO em reais. Use para qualquer pergunta de margem ou lucro por produto.',
       inputSchema: z.object({ inicio: z.string().optional(), fim: z.string().optional() }),
       execute: async ({ inicio, fim }) => {
         const qs = new URLSearchParams({ ...(inicio && { inicio }), ...(fim && { fim }) });
@@ -224,7 +228,10 @@ function tools(log: string[], here: string, where?: Where) {
         return {
           periodo: r.periodo, vendido: card('total'), recebido: card('recebida'), em_aberto: card('aberto'), boletos: card('boletos'), aguardando: card('aguardando'),
           ticket_medio: r.extras?.ticketMedio != null ? brl(r.extras.ticketMedio) : undefined,
-          mais_vendidos: (r.topQuantidade ?? []).slice(0, 5).map((p: any) => `${p.nome ?? p.produto} (${p.quantidade ?? p.qtd ?? ''})`),
+          mais_vendidos: (r.topQuantidade ?? []).slice(0, 5).map((p: any) => `${p.nome}: ${p.pacotes} pacotes, receita ${brl(p.receita)}, lucro ${brl(p.lucro)} (${p.margemPercentual}%)`),
+          maior_margem: (r.topMargem ?? []).slice(0, 5).map((p: any) => `${p.nome}: margem ${p.margemPercentual}%, lucro ${brl(p.lucro)} em ${p.pacotes} pacotes`),
+          mais_lucro_em_reais: [...(r.topMargem ?? [])].sort((a: any, b: any) => b.lucro - a.lucro).slice(0, 5).map((p: any) => `${p.nome}: lucro ${brl(p.lucro)} (${p.margemPercentual}%)`),
+          obs_margem: 'Margem só dos produtos com custo cadastrado.',
         };
       },
     }),
