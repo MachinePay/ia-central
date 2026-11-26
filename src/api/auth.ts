@@ -36,13 +36,14 @@ export async function login(ip: string, user: string, password: string): Promise
   const fails = Number((await redis.get(key)) ?? 0);
   if (fails >= 10) return undefined;
   await new Promise((r) => setTimeout(r, 400 + fails * 300));
-  const ok = !!env.ADMIN_PASSWORD && user === env.ADMIN_USER && safeEq(password, env.ADMIN_PASSWORD);
+  const gabriel = isGabrielUser(user) && !!env.GABRIEL_PASSWORD && safeEq(password, env.GABRIEL_PASSWORD);
+  const ok = gabriel || (!!env.ADMIN_PASSWORD && user === env.ADMIN_USER && safeEq(password, env.ADMIN_PASSWORD));
   if (!ok) {
     await redis.multi().incr(key).expire(key, 900).exec();
     return undefined;
   }
   await redis.del(key);
-  return issueToken(user);
+  return issueToken(gabriel ? env.GABRIEL_USER : user);
 }
 
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
@@ -65,3 +66,9 @@ export function readState(state: string | undefined): string | undefined {
   const j = JSON.parse(Buffer.from(payload, 'base64url').toString());
   return j.exp > Date.now() && typeof j.d === 'string' ? j.d : undefined;
 }
+
+// ------------------------------------------------------------------ conversas do Gabriel (numero pessoal)
+export const isGabrielUser = (user: string) => !!env.GABRIEL_USER && user.trim().toUpperCase() === env.GABRIEL_USER.toUpperCase();
+
+/** So o login do Gabriel ve as conversas do numero pessoal dele. */
+export const hasGabrielKey = (req: FastifyRequest): boolean => isGabrielUser(String((req as any).user ?? ''));

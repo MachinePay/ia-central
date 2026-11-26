@@ -22,7 +22,7 @@ import { checkUrl } from '../sentinela/collectors/urls.js';
 import { costSummary } from '../sentinela/costs.js';
 import { ack, resolveManually } from '../sentinela/incidents.js';
 import { sendAlert } from '../sentinela/notify.js';
-import { login, readState, requireAuth, signState } from './auth.js';
+import { hasGabrielKey, login, readState, requireAuth, signState } from './auth.js';
 import { google } from 'googleapis';
 import { GMAIL_SCOPES, gmailAccounts, oauthClient } from '../channels/gmail/gmail.js';
 import { renewGmailWatch } from '../workers/maintenance.js';
@@ -45,6 +45,11 @@ async function nameResolver() {
   };
 }
 const bad = (reply: any, msg: string, code = 400) => reply.code(code).send({ error: msg });
+
+/** Numeros pessoais (papel GABRIEL): as conversas deles so saem do servidor para quem entrou com o login do Gabriel. */
+const gabrielInstances = () => [...instanceRoles()].filter(([, r]) => r === 'GABRIEL').map(([n]) => n);
+const hiddenInstances = (req: any): string[] => (hasGabrielKey(req) ? [] : gabrielInstances());
+const lockedReply = (reply: any) => reply.code(403).send({ error: 'Conversa do Gabriel: só aparece entrando com o login do Gabriel.', locked: true });
 
 export async function panelRoutes(app: FastifyInstance) {
   // ------------------------------------------------------------------ login
@@ -90,21 +95,41 @@ export async function panelRoutes(app: FastifyInstance) {
   app.register(async (api) => {
     api.addHook('onRequest', requireAuth);
 
+    // conversas do Gabriel: fora do login do Gabriel, nada de conversa/mensagem/e-mail desses numeros sai daqui
+    api.addHook('preHandler', async (req, reply) => {
+      const hidden = hiddenInstances(req);
+      if (!hidden.length) return;
+      const route = req.routeOptions.url ?? '';
+      const p = (req.params ?? {}) as Record<string, string>;
+      let instance: string | undefined;
+      if (route.startsWith('/api/threads/:id')) {
+        instance = (await one<{ instance: string }>(`SELECT instance FROM app.threads WHERE id::text = $1`, [p.id]).catch(() => undefined))?.instance;
+      } else if (route.startsWith('/api/messages/:id')) {
+        instance = (await one<{ instance: string }>(`SELECT t.instance FROM app.messages m JOIN app.threads t ON t.id = m.thread_id WHERE m.id::text = $1`, [p.id]).catch(() => undefined))?.instance;
+      } else if (route === '/api/numbers/:instance/contacts' || route === '/api/email/:instance/messages') {
+        instance = p.instance;
+      }
+      if (instance && hidden.includes(instance)) return lockedReply(reply);
+    });
+
+
     // ---------------------------------------------------------------- inicio
-    api.get('/api/summary', async () => {
+    api.get('/api/summary', async (req) => {
+      const hidden = hiddenInstances(req);
       const [approvals, incidents, unanswered, promises, today, events, takeovers] = await Promise.all([
         q(`SELECT a.id, a.code, a.action, a.requested_by, a.created_at, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, a.thread_id
              FROM app.pending_approvals a JOIN app.threads t ON t.id = a.thread_id JOIN app.contacts c ON c.id = t.contact_id
-            WHERE a.status = 'PENDING' ORDER BY a.created_at`),
+            WHERE a.status = 'PENDING' AND NOT (t.instance = ANY($1::text[])) ORDER BY a.created_at`, [hidden]),
         q(`SELECT id, severity, title, status, opened_at FROM sentinela.incidents WHERE status <> 'RESOLVED' ORDER BY severity DESC, opened_at`),
         q(`SELECT t.id, t.instance, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, t.last_inbound_at
              FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
             WHERE t.last_inbound_at > now() - interval '3 days' AND t.last_inbound_at < now() - interval '1 hour'
               AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)
-            ORDER BY t.last_inbound_at LIMIT 20`),
+              AND NOT (t.instance = ANY($1::text[]))
+            ORDER BY t.last_inbound_at LIMIT 20`, [hidden]),
         q(`SELECT t.id AS thread_id, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, p->>'o_que' AS what, p->>'prazo' AS due
              FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id, jsonb_array_elements(coalesce(t.facts->'promessas', '[]')) p
-            WHERE (p->>'prazo') ~ '^\\d{4}-\\d{2}-\\d{2}$' AND (p->>'prazo')::date <= current_date LIMIT 20`),
+            WHERE (p->>'prazo') ~ '^\\d{4}-\\d{2}-\\d{2}$' AND (p->>'prazo')::date <= current_date AND NOT (t.instance = ANY($1::text[])) LIMIT 20`, [hidden]),
         one(`SELECT
                (SELECT count(DISTINCT thread_id)::int FROM app.messages WHERE direction = 'INBOUND' AND created_at::date = current_date) AS conversations,
                (SELECT coalesce(avg(latency_ms), 0)::int FROM app.agent_runs WHERE created_at::date = current_date AND latency_ms > 0) AS avg_latency_ms,
@@ -121,7 +146,8 @@ export async function panelRoutes(app: FastifyInstance) {
     });
 
     // ---------------------------------------------------------------- cena 3D do Inicio: cada numero e uma ilha com a sua "pessoa"
-    api.get('/api/scene', async () => {
+    api.get('/api/scene', async (req) => {
+      const hidden = hiddenInstances(req);
       const roles = [...instanceRoles()].filter(([, r]) => r !== 'OFF' && r !== 'CENTRAL');
       const central = centralInstance();
       const [threads, resources, monitors, approvals, incidents, numbers, runs] = await Promise.all([
@@ -132,7 +158,7 @@ export async function panelRoutes(app: FastifyInstance) {
                FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
                LEFT JOIN LATERAL (SELECT content, status FROM app.messages m WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
               WHERE coalesce(t.last_inbound_at, t.updated_at) > now() - interval '7 days') x
-            WHERE rn <= 12`),
+            WHERE rn <= 12 AND NOT (instance = ANY($1::text[]))`, [hidden]),
         q(`SELECT source, external_id, name, kind, status, meta FROM sentinela.resources WHERE status <> 'SUSPENDED' AND source IN ('RENDER', 'VERCEL')
             ORDER BY (status IN ('FAIL', 'WARN')) DESC, name LIMIT 14`),
         q(`SELECT id, name, url, last_status, last_latency_ms FROM sentinela.monitors WHERE enabled ORDER BY (last_status = 'FAIL') DESC, name LIMIT 6`),
@@ -215,6 +241,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const where: string[] = [];
       const params: unknown[] = [];
       const add = (sql: string, v: unknown) => { params.push(v); where.push(sql.replace('$?', `$${params.length}`)); };
+      add(`NOT (t.instance = ANY($?::text[]))`, hiddenInstances(req));
       if (f.channel) add(`t.channel = $?::app.channel`, f.channel);
       if (f.instance) add(`t.instance = ANY(string_to_array($?, ','))`, f.instance);
       if (f.agent) add(`t.active_agent::text = ANY(string_to_array($?, ','))`, f.agent);
@@ -367,8 +394,8 @@ export async function panelRoutes(app: FastifyInstance) {
       return q(
         `SELECT a.*, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.company, c.crm_stage, t.channel, t.instance, t.summary
            FROM app.pending_approvals a JOIN app.threads t ON t.id = a.thread_id JOIN app.contacts c ON c.id = t.contact_id
-          WHERE ($1 = 'ALL' OR a.status = $1) ORDER BY a.created_at DESC LIMIT 100`,
-        [status],
+          WHERE ($1 = 'ALL' OR a.status = $1) AND NOT (t.instance = ANY($2::text[])) ORDER BY a.created_at DESC LIMIT 100`,
+        [status, hiddenInstances(req)],
       );
     });
     api.post<{ Params: { id: string } }>('/api/approvals/:id/decide', async (req, reply) => {
@@ -442,9 +469,11 @@ export async function panelRoutes(app: FastifyInstance) {
       await q(`UPDATE app.knowledge_chunks SET active = false, updated_at = now() WHERE id = $1`, [req.params.id]);
       return { ok: true };
     });
-    api.get('/api/knowledge/gaps', async () =>
+    api.get('/api/knowledge/gaps', async (req) =>
       q(`SELECT g.*, (SELECT coalesce(c.name, c.phone) FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id WHERE t.id = g.thread_id) AS contact
-           FROM app.knowledge_gaps g WHERE resolved_at IS NULL ORDER BY created_at DESC LIMIT 100`));
+           FROM app.knowledge_gaps g WHERE resolved_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM app.threads t WHERE t.id = g.thread_id AND t.instance = ANY($1::text[]))
+          ORDER BY created_at DESC LIMIT 100`, [hiddenInstances(req)]));
     api.post<{ Params: { id: string } }>('/api/knowledge/gaps/:id/answer', async (req, reply) => {
       const b = z.object({ answer: z.string().min(2), instances: z.array(z.string().min(1)).optional() }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Escreva a resposta.');
@@ -950,14 +979,17 @@ export async function panelRoutes(app: FastifyInstance) {
       const term = String((req.query as any).q ?? '').trim();
       if (term.length < 2) return { contacts: [], messages: [], incidents: [], knowledge: [] };
       const like = `%${term}%`;
+      const hidden = hiddenInstances(req);
       const [contacts, messages, incidents, knowledge] = await Promise.all([
         q(`SELECT c.id, coalesce(c.name, c.phone, c.email) AS name, c.phone, c.company,
-                  (SELECT t.id FROM app.threads t WHERE t.contact_id = c.id ORDER BY t.updated_at DESC LIMIT 1) AS thread_id
-             FROM app.contacts c WHERE c.name ILIKE $1 OR c.phone LIKE $2 OR c.email ILIKE $1 OR c.company ILIKE $1
-            ORDER BY similarity(coalesce(c.name, ''), $3) DESC LIMIT 8`, [like, `%${term.replace(/\D/g, '') || term}%`, term]),
+                  (SELECT t.id FROM app.threads t WHERE t.contact_id = c.id AND NOT (t.instance = ANY($4::text[])) ORDER BY t.updated_at DESC LIMIT 1) AS thread_id
+             FROM app.contacts c WHERE (c.name ILIKE $1 OR c.phone LIKE $2 OR c.email ILIKE $1 OR c.company ILIKE $1)
+              AND (NOT EXISTS (SELECT 1 FROM app.threads t WHERE t.contact_id = c.id)
+                   OR EXISTS (SELECT 1 FROM app.threads t WHERE t.contact_id = c.id AND NOT (t.instance = ANY($4::text[]))))
+            ORDER BY similarity(coalesce(c.name, ''), $3) DESC LIMIT 8`, [like, `%${term.replace(/\D/g, '') || term}%`, term, hidden]),
         q(`SELECT m.thread_id, left(m.content, 160) AS snippet, m.created_at, coalesce(c.name, c.phone) AS contact
              FROM app.messages m JOIN app.threads t ON t.id = m.thread_id JOIN app.contacts c ON c.id = t.contact_id
-            WHERE m.content ILIKE $1 ORDER BY m.created_at DESC LIMIT 8`, [like]),
+            WHERE m.content ILIKE $1 AND NOT (t.instance = ANY($2::text[])) ORDER BY m.created_at DESC LIMIT 8`, [like, hidden]),
         q(`SELECT id, title, status, severity FROM sentinela.incidents WHERE title ILIKE $1 OR ('#i-' || lpad(id::text, 3, '0')) ILIKE $1 OR id::text = $2 ORDER BY opened_at DESC LIMIT 5`, [like, term.replace(/\D/g, '')]),
         q(`SELECT id, title, kind FROM app.knowledge_chunks WHERE active AND (title ILIKE $1 OR content ILIKE $1) LIMIT 5`, [like]),
       ]);

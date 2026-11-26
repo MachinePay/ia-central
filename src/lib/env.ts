@@ -55,6 +55,8 @@ const schema = z.object({
   ADMIN_USER: z.string().default('admin'),
   ADMIN_PASSWORD: z.string().default(''),
   SESSION_SECRET: z.string().default(''),        // assina o token de login do painel
+  GABRIEL_USER: z.string().default('GABRIEL'),   // login do painel que ve tambem as conversas do numero pessoal (papel GABRIEL)
+  GABRIEL_PASSWORD: z.string().default('GABRIEL'),
   WEB_ORIGIN: z.string().default('*'),            // endereco do painel (CORS)
 
   // Sentinela
