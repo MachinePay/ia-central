@@ -133,7 +133,7 @@ function tools(log: string[], here: string, where?: Where) {
       inputSchema: z.object({ busca: z.string().min(2), texto: z.string().min(1).max(2000), ditado_pelo_dono: z.boolean().describe('true só se o texto é exatamente o que o dono mandou escrever'), confirmado: z.boolean().default(false) }),
       execute: async ({ busca, texto, ditado_pelo_dono, confirmado }) => {
         // instrucao do dono ("verifique o que ela quer", "responde ela") nunca vai como mensagem para o contato
-        if (/\b(verifi\w*|veja|v[eê] (o|oq|o que)|o que (ela|ele) quer|pergunt\w* (pra|para|a|o) (ela|ele)|respond\w*|fala (pra|para) (ela|ele)|diz (pra|para) (ela|ele)|manda (pra|para) (ela|ele))\b/i.test(texto) && !confirmado)
+        if (/\b(verifi\w*|veja|v[eê] (o|oq|o que)|o que (ela|ele) quer|pergunt\w* (pra|para|a|o) (ela|ele)|responde\w*|fala (pra|para) (ela|ele)|diz (pra|para) (ela|ele)|manda (pra|para) (ela|ele))\b/i.test(texto) && !confirmado)
           return { erro: 'Isso parece uma instrução para você, não a mensagem. Leia a conversa (ler_conversa), escreva a resposta e mostre ao dono antes de mandar.' };
         if (!ditado_pelo_dono && !confirmado) return { confirmar: `Mando para ${busca}: "${texto}"?` };
         const found = await findThread(busca);
