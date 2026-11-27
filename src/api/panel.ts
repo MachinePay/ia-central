@@ -388,6 +388,24 @@ export async function panelRoutes(app: FastifyInstance) {
         `UPDATE app.contacts SET ${cols.map(([k], i) => `${k} = $${i + 2}${k === 'crm_stage' ? '::app.crm_stage' : ''}`).join(', ')}, updated_at = now() WHERE id = $1`,
         [req.params.id, ...cols.map(([, v]) => v)],
       );
+      // nome corrigido a mao: vale em todos os numeros e ganha do nome que vem do WhatsApp (perfil da pessoa)
+      if (b.data.name !== undefined) {
+        const c = await one<{ phone: string | null }>(`SELECT phone FROM app.contacts WHERE id = $1`, [req.params.id]);
+        const name = (b.data.name ?? '').trim();
+        if (c?.phone) {
+          if (name) {
+            for (const inst of instanceRoles().keys()) {
+              await q(
+                `INSERT INTO app.contact_names (instance, phone, name, manual) VALUES ($1, $2, $3, true)
+                 ON CONFLICT (instance, phone) DO UPDATE SET name = EXCLUDED.name, manual = true, updated_at = now()`,
+                [inst, c.phone, name.slice(0, 120)],
+              );
+            }
+          } else {
+            await q(`DELETE FROM app.contact_names WHERE phone = $1 AND manual`, [c.phone]);
+          }
+        }
+      }
       // editado a mao: o aprendizado automatico nao sobrescreve mais (ate pedir para reaprender)
       if (b.data.treatment !== undefined) await q(`UPDATE app.contacts SET treatment_manual = true, treatment_at = now() WHERE id = $1`, [req.params.id]);
       return { ok: true };

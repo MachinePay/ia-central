@@ -238,6 +238,7 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
   const c = d.contact;
   const [factsText, setFactsText] = useState(JSON.stringify(d.thread.facts ?? {}, null, 2));
   const [tag, setTag] = useState('');
+  const [name, setName] = useState<string | null>(null);
   const saveContact = useMutation({ mutationFn: (body: any) => patch(`/api/contacts/${c.id}`, body), onSuccess: () => { toast('Contato atualizado.'); onChanged(); }, onError: toastError });
   const saveAi = useMutation({ mutationFn: (body: { enabled?: boolean; auto?: boolean }) => patch(`/api/threads/${d.thread.id}/ai`, body), onSuccess: () => { toast('Permissão da IA salva.'); onChanged(); }, onError: toastError });
   const saveFacts = useMutation({
@@ -249,7 +250,11 @@ function ContextPanel({ d, onChanged }: { d: any; onChanged: () => void }) {
   return (
     <aside className="hidden min-h-0 overflow-y-auto border-l border-line bg-surface xl:block" aria-label="Contexto">
       <Section title="Contato">
-        <p className="text-[16px] font-semibold">{c.name ?? '—'}</p>
+        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); if (name !== null) { saveContact.mutate({ name: name.trim() || null }); setName(null); } }}>
+          <input value={name ?? c.name ?? ''} onChange={(e) => setName(e.target.value)} placeholder="Nome do contato" aria-label="Nome do contato"
+            title="Corrija o nome aqui: ele passa a valer em todos os números e o WhatsApp não troca mais" className={cx(inputCls, 'font-semibold')} />
+          {name !== null && <Button size="sm" type="submit" busy={saveContact.isPending}>Salvar</Button>}
+        </form>
         <p className="text-text-2">{phone(c.phone)} {c.email}</p>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <select className={inputCls} value={c.role} onChange={(e) => saveContact.mutate({ role: e.target.value })} aria-label="Papel">

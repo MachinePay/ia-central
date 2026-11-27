@@ -10,7 +10,8 @@ export async function saveAgendaNames(instance: string, list: Array<{ jid: strin
     if (!phone || !name || name.replace(/\D/g, '') === phone.replace(/\D/g, '') || name === c.jid.split('@')[0]) continue;
     await q(
       `INSERT INTO app.contact_names (instance, phone, name) VALUES ($1, $2, $3)
-       ON CONFLICT (instance, phone) DO UPDATE SET name = EXCLUDED.name, updated_at = now()`,
+       ON CONFLICT (instance, phone) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+       WHERE NOT app.contact_names.manual`, // nome corrigido a mao no painel nunca e sobrescrito
       [instance, phone, name.slice(0, 120)],
     );
   }
