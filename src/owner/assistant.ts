@@ -5,7 +5,7 @@ import { decideApproval } from '../approvals/approvals.js';
 import { sendDocument, sendText } from '../channels/whatsapp/evolution.js';
 import { stripEmojis } from '../channels/whatsapp/format.js';
 import { deliver } from '../delivery.js';
-import { getThread } from '../domain/repo.js';
+import { findWaThread, getThread, saveOutbound } from '../domain/repo.js';
 import { one, q } from '../lib/db.js';
 import { centralInstance, env, instanceRole, instanceRoles, personaFor } from '../lib/env.js';
 import { addCost, costToday, costUsd, withFallback } from '../lib/llm.js';
@@ -32,7 +32,8 @@ import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, remov
  * ou pela conversa "Voce" do numero pessoal dele. Le tudo e executa o que ele mandar.
  */
 
-const HISTORY_KEY = 'owner-chat:history';
+// v2: comeca limpo (o historico antigo ensinava a pedir confirmacao e perguntar de qual numero mandar)
+const HISTORY_KEY = 'owner-chat:v2';
 
 /** owner: o numero pessoal de quem pediu (ex.: 'leo'), quando veio pelo Maestro */
 type Where = { instance: string; to: string; owner?: string };
@@ -53,6 +54,41 @@ async function findThread(search: string) {
       ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC LIMIT 5`,
     [`%${search}%`, digits.length >= 4 ? digits : ''],
   );
+}
+
+/** Quebra textos longos em partes que o WhatsApp aceita bem, sem cortar linhas no meio. */
+function splitText(text: string, max = 3500): string[] {
+  const parts: string[] = [];
+  let cur = '';
+  for (const line of text.split('\n')) {
+    if (cur && cur.length + line.length + 1 > max) { parts.push(cur); cur = ''; }
+    cur = cur ? `${cur}\n${line}` : line;
+    while (cur.length > max) { parts.push(cur.slice(0, max)); cur = cur.slice(max); }
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts;
+}
+
+/** Para quem mandar: numero digitado, nome na agenda do celular deste numero (contact_names) ou contato conhecido. */
+async function findPerson(instance: string, busca: string): Promise<Array<{ phone: string; name: string }>> {
+  const digits = busca.replace(/\D/g, '');
+  if (digits.length >= 10) return [{ phone: normalizePhone(digits), name: busca.trim() }];
+  const words = busca.trim().split(/\s+/).filter((w) => w.length >= 2).slice(0, 6);
+  if (!words.length) return [];
+  const all = (col: string) => words.map((_, i) => `${col} ILIKE $${i + 2}`).join(' AND ');
+  const rows = await q<{ phone: string; name: string }>(
+    `SELECT phone, name FROM (
+       SELECT phone, name, 1 AS rank FROM contact_names WHERE instance = $1 AND ${all('name')}
+       UNION ALL
+       SELECT c.phone, c.name, 2 AS rank FROM contacts c WHERE c.phone IS NOT NULL AND c.name IS NOT NULL AND ${all('c.name')}
+     ) x ORDER BY rank LIMIT 30`,
+    [instance, ...words.map((w) => `%${w}%`)],
+  );
+  const byPhone = new Map<string, { phone: string; name: string }>();
+  for (const r of rows) { const ph = normalizePhone(r.phone); if (ph && !byPhone.has(ph)) byPhone.set(ph, { phone: ph, name: r.name }); }
+  const list = [...byPhone.values()];
+  const exact = list.filter((r) => r.name.trim().toLowerCase() === busca.trim().toLowerCase());
+  return exact.length === 1 ? exact : list;
 }
 
 function tools(log: string[], here: string, where?: Where) {
@@ -129,20 +165,35 @@ function tools(log: string[], here: string, where?: Where) {
         } catch (e: any) { return { erro: e.message }; }
       },
     }),
-    responder_contato: tool({
-      description: 'Manda uma mensagem para um contato pelo número da conversa dele. texto = a mensagem final que o contato vai ler (nunca a instrução do dono). Se o dono ditou o texto, mande igual. Se ele pediu para você responder ou ver o que a pessoa quer, leia a conversa (ler_conversa), escreva a resposta do jeito dele e mostre antes; só mande com confirmado=true depois do sim.',
-      inputSchema: z.object({ busca: z.string().min(2), texto: z.string().min(1).max(2000), ditado_pelo_dono: z.boolean().describe('true só se o texto é exatamente o que o dono mandou escrever'), confirmado: z.boolean().default(false) }),
-      execute: async ({ busca, texto, ditado_pelo_dono, confirmado }) => {
-        // instrucao do dono ("verifique o que ela quer", "responde ela") nunca vai como mensagem para o contato
-        if (/\b(verifi\w*|veja|v[eê] (o|oq|o que)|o que (ela|ele) quer|pergunt\w* (pra|para|a|o) (ela|ele)|responde\w*|fala (pra|para) (ela|ele)|diz (pra|para) (ela|ele)|manda (pra|para) (ela|ele))\b/i.test(texto) && !confirmado)
-          return { erro: 'Isso parece uma instrução para você, não a mensagem. Leia a conversa (ler_conversa), escreva a resposta e mostre ao dono antes de mandar.' };
-        if (!ditado_pelo_dono && !confirmado) return { confirmar: `Mando para ${busca}: "${texto}"?` };
-        const found = await findThread(busca);
-        if (found.length !== 1) return found.length ? { varios: found.map((f) => `${f.contact} (${f.phone ?? ''}, número ${f.instance})`) } : { erro: 'Não achei esse contato.' };
-        const th = (await getThread(found[0].id))!;
-        await redis.set(keys.takeover(th.id), '1', 'EX', TAKEOVER_SECONDS); // voce falou: a IA daquela conversa fica quieta 30 min
-        await deliver({ thread: th, agent: 'HUMAN', text: texto, force: true });
-        return { ok: done(`mandado para ${found[0].contact} pelo número ${th.instance}`) };
+    enviar_mensagem: tool({
+      description: 'Manda mensagem DO WHATSAPP DO PRÓPRIO DONO que está falando com você (nunca de outro número) para uma pessoa. para = nome como está salvo na agenda do celular dele, nome do contato ou o número de telefone. texto = a mensagem final que a pessoa vai ler (se ele ditou, igual ao ditado). Texto longo (ex.: lista de máquinas) vai inteiro: o envio divide em partes sozinho. arquivo_conteudo (opcional) manda junto um arquivo .txt com esse conteúdo.',
+      inputSchema: z.object({
+        para: z.string().min(2),
+        texto: z.string().min(1).max(30000),
+        arquivo_nome: z.string().max(80).optional(),
+        arquivo_conteudo: z.string().max(300000).optional(),
+      }),
+      execute: async ({ para, texto, arquivo_nome, arquivo_conteudo }) => {
+        const found = await findPerson(here, para);
+        if (!found.length) return { erro: `Não achei "${para}" na agenda do seu celular nem nos contatos. Nada foi enviado. Peça o número.` };
+        if (found.length > 1) return { varios: found.slice(0, 8).map((f) => `${f.name} (${f.phone})`), pedir: 'Nada foi enviado. Pergunte qual deles.' };
+        const { phone, name } = found[0];
+        const parts = splitText(texto);
+        let sent = 0;
+        try {
+          for (const part of parts) { await sendText(here, phone, part); sent++; }
+          if (arquivo_conteudo) await sendDocument(here, phone, Buffer.from(arquivo_conteudo, 'utf8'), (arquivo_nome || 'lista').replace(/\.txt$/i, '') + '.txt', '', 'text/plain');
+        } catch (e: any) {
+          logger.warn({ err: String(e), here, phone }, 'envio do dono falhou');
+          return { erro: `O WhatsApp não enviou${sent ? ` (só ${sent} de ${parts.length} partes saíram${arquivo_conteudo ? ', o arquivo não' : ''})` : ' (nada saiu)'}: ${String(e.message).slice(0, 150)}` };
+        }
+        // fica registrado na conversa daquele contato, e a IA de la fica quieta (foi voce que falou)
+        const th = await findWaThread(here, `${phone}@s.whatsapp.net`).catch(() => undefined);
+        if (th) {
+          await redis.set(keys.takeover(th.id), '1', 'EX', TAKEOVER_SECONDS);
+          await saveOutbound(th.id, texto, 'HUMAN', 'SENT').catch(() => undefined);
+        }
+        return { ok: done(`enviado do seu WhatsApp (número ${here}) para ${name} (${phone})${parts.length > 1 ? ` em ${parts.length} mensagens` : ''}${arquivo_conteudo ? ' + arquivo' : ''}`) };
       },
     }),
     ligar_ia_contato: tool({
@@ -608,15 +659,15 @@ export async function answerOwner(text: string, where: Where): Promise<string | 
         system: fill(loadPrompt('central'), { OWNER: owner, TODAY: nowLabel(env.TIMEZONE) }),
         messages: [...history, { role: 'user', content: fence('mensagem_do_dono', text) }],
         tools: allowedTools(tools(log, here, where), isCentral || instanceRole(here) === 'GABRIEL'),
-        stopWhen: stepCountIs(6),
-        abortSignal: AbortSignal.timeout(60_000),
+        stopWhen: stepCountIs(12),
+        abortSignal: AbortSignal.timeout(120_000),
         maxRetries: 1,
         providerOptions: { openai: { reasoningEffort: env.LLM_REASONING_EFFORT } },
       }),
       () => log.length === 0,
     );
     await addCost(costUsd(r.modelSpec, r.totalUsage?.inputTokens ?? 0, r.totalUsage?.outputTokens ?? 0));
-    const reply = stripEmojis(r.text.trim()) || (log.length ? log.join('\n') : 'feito');
+    const reply = stripEmojis(r.text.trim()) || (log.length ? log.join('\n') : 'Não consegui fazer isso agora. Me pede de novo?');
     await redis.multi()
       .rpush(historyKey, JSON.stringify({ role: 'user', content: text }), JSON.stringify({ role: 'assistant', content: reply }))
       .ltrim(historyKey, -30, -1).expire(historyKey, 3 * 86400).exec();
