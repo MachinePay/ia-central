@@ -1,5 +1,6 @@
 import { one, q } from '../lib/db.js';
 import { publish } from '../lib/events.js';
+import { isClosingMessage } from '../lib/closing.js';
 import { normalizePhone, phoneVariants } from '../lib/phone.js';
 import type { Agent, Contact, InboundEvent, Message, Thread } from './types.js';
 
@@ -61,7 +62,15 @@ export async function saveInboundIfNew(ev: InboundEvent): Promise<{ message: Mes
     ],
   );
   if (!message) return undefined;
-  await q(`UPDATE threads SET last_inbound_at = $2, msgs_since_summary = msgs_since_summary + 1 WHERE id = $1`, [thread.id, ev.receivedAt]);
+  // encerramento so conta se nada antes dele estava esperando resposta ("quero orcamento" + "obrigado" continua sem resposta)
+  const closing = isClosingMessage(ev.content, ev.needsMedia || ev.media.length > 0);
+  await q(
+    `UPDATE threads SET last_inbound_at = $2, msgs_since_summary = msgs_since_summary + 1,
+            last_inbound_closing = CASE WHEN $3 THEN (last_inbound_at IS NULL OR (last_outbound_at IS NOT NULL AND last_outbound_at >= last_inbound_at) OR coalesce(last_inbound_closing, false))
+                                        ELSE false END
+      WHERE id = $1`,
+    [thread.id, ev.receivedAt, closing],
+  );
   await publish('message.created', { threadId: thread.id, messageId: message.id, direction: 'INBOUND' });
   return { message, thread, contact };
 }

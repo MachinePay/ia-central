@@ -56,7 +56,7 @@ async function numberBrief(instance: string, ours: string[], kind: 'manha' | 'no
        JOIN LATERAL (SELECT m.direction, m.created_at FROM app.messages m
                       WHERE m.thread_id = t.id AND m.status NOT IN ('DRAFT', 'DRAFT_DISCARDED')
                       ORDER BY m.created_at DESC LIMIT 1) last ON true
-      WHERE t.instance = ANY($1) AND last.direction = 'INBOUND'
+      WHERE t.instance = ANY($1) AND last.direction = 'INBOUND' AND NOT coalesce(t.last_inbound_closing, false)
         AND last.created_at > now() - interval '3 days' AND last.created_at < now() - interval '30 minutes'
         AND c.role <> 'PESSOAL' AND (c.phone IS NULL OR NOT (c.phone = ANY($2)))
       ORDER BY last.created_at LIMIT 8`,

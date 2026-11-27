@@ -114,7 +114,7 @@ function tools(log: string[], here: string, where?: Where) {
         const [approvals, unanswered, numbers] = await Promise.all([
           q(`SELECT code, action, requested_by FROM pending_approvals WHERE status = 'PENDING' ORDER BY created_at`),
           q(`SELECT coalesce(c.name, c.phone) AS contato, t.instance AS numero, t.last_inbound_at FROM threads t JOIN contacts c ON c.id = t.contact_id
-              WHERE t.last_inbound_at > now() - interval '2 days' AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at) AND c.role <> 'PESSOAL'
+              WHERE t.last_inbound_at > now() - interval '2 days' AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at) AND NOT coalesce(t.last_inbound_closing, false) AND c.role <> 'PESSOAL'
               ORDER BY t.last_inbound_at LIMIT 10`),
           Promise.resolve([...instanceRoles()].map(([n, r]) => `${n} (${r}, ${personaFor(n).name})`)),
         ]);
@@ -129,7 +129,7 @@ function tools(log: string[], here: string, where?: Where) {
            FROM threads t JOIN contacts c ON c.id = t.contact_id
            LEFT JOIN LATERAL (SELECT content, direction FROM messages m WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
           WHERE ($2::text IS NULL OR t.instance = $2)
-            AND ($1 <> 'sem_resposta' OR (t.last_inbound_at IS NOT NULL AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)))
+            AND ($1 <> 'sem_resposta' OR (t.last_inbound_at IS NOT NULL AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at) AND NOT coalesce(t.last_inbound_closing, false)))
             AND ($1 <> 'com_aprovacao' OR EXISTS (SELECT 1 FROM pending_approvals a WHERE a.thread_id = t.id AND a.status = 'PENDING'))
           ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC LIMIT 10`,
         [filtro, numero ?? null],

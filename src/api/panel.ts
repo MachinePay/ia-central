@@ -138,7 +138,7 @@ export async function panelRoutes(app: FastifyInstance) {
         q(`SELECT t.id, t.instance, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, t.last_inbound_at
              FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
             WHERE t.last_inbound_at > now() - interval '3 days' AND t.last_inbound_at < now() - interval '1 hour'
-              AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)
+              AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at) AND NOT coalesce(t.last_inbound_closing, false)
               AND NOT (t.instance = ANY($1::text[]))
             ORDER BY t.last_inbound_at LIMIT 20`, [hidden]),
         q(`SELECT t.id AS thread_id, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, p->>'o_que' AS what, p->>'prazo' AS due
@@ -167,7 +167,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const [threads, resources, monitors, approvals, incidents, numbers, runs] = await Promise.all([
         q(`SELECT * FROM (
              SELECT t.id, t.instance, t.channel, t.active_agent, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.tags, c.role, t.ai_enabled, t.ai_auto,
-                    t.last_inbound_at, t.last_outbound_at, left(lm.content, 120) AS last, lm.status AS last_status,
+                    t.last_inbound_at, t.last_outbound_at, t.last_inbound_closing, left(lm.content, 120) AS last, lm.status AS last_status,
                     row_number() OVER (PARTITION BY t.instance ORDER BY coalesce(t.last_inbound_at, t.updated_at) DESC) AS rn
                FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
                LEFT JOIN LATERAL (SELECT content, status FROM app.messages m WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
@@ -213,7 +213,7 @@ export async function panelRoutes(app: FastifyInstance) {
       }];
       threads.forEach((t: any, i: number) => {
         if (!areas.some((a) => a.id === t.instance)) return;
-        const unanswered = t.last_inbound_at && (!t.last_outbound_at || new Date(t.last_outbound_at) < new Date(t.last_inbound_at));
+        const unanswered = t.last_inbound_at && !t.last_inbound_closing && (!t.last_outbound_at || new Date(t.last_outbound_at) < new Date(t.last_inbound_at));
         const pending = pendingSet.has(t.id);
         const takeover = !!flags[i];
         const old = unanswered && Date.now() - new Date(t.last_inbound_at).getTime() > 3600_000;
@@ -263,7 +263,7 @@ export async function panelRoutes(app: FastifyInstance) {
       if (f.stage) add(`c.crm_stage::text = ANY(string_to_array($?, ','))`, f.stage);
       if (f.tag) add(`$? = ANY(c.tags)`, f.tag);
       if (f.pending === '1') where.push(`EXISTS (SELECT 1 FROM app.pending_approvals a WHERE a.thread_id = t.id AND a.status = 'PENDING')`);
-      if (f.unanswered === '1') where.push(`t.last_inbound_at IS NOT NULL AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)`);
+      if (f.unanswered === '1') where.push(`t.last_inbound_at IS NOT NULL AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at) AND NOT coalesce(t.last_inbound_closing, false)`);
       if (f.since) add(`coalesce(t.last_inbound_at, t.updated_at) > now() - make_interval(hours => $?::int)`, Number(f.since));
       if (f.q) add(`(c.name ILIKE $? OR c.phone LIKE '%' || regexp_replace($?, '\\D', '', 'g') || '%' OR c.email ILIKE $?
                      OR EXISTS (SELECT 1 FROM app.messages m2 WHERE m2.thread_id = t.id AND m2.content ILIKE $?))`.replace(/\$\?/g, `$${params.length + 1}`), `%${f.q}%`);
@@ -274,7 +274,7 @@ export async function panelRoutes(app: FastifyInstance) {
                 lm.content AS last_content, lm.direction AS last_direction, lm.sender AS last_sender, lm.status AS last_status,
                 coalesce(lm.created_at, t.updated_at) AS last_at,
                 (SELECT count(*)::int FROM app.pending_approvals a WHERE a.thread_id = t.id AND a.status = 'PENDING') AS pending,
-                (t.last_inbound_at IS NOT NULL AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at)) AS unanswered
+                (t.last_inbound_at IS NOT NULL AND (t.last_outbound_at IS NULL OR t.last_outbound_at < t.last_inbound_at) AND NOT coalesce(t.last_inbound_closing, false)) AS unanswered
            FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id
            LEFT JOIN LATERAL (SELECT content, direction, sender, status, created_at FROM app.messages m
                                WHERE m.thread_id = t.id ORDER BY created_at DESC LIMIT 1) lm ON true
@@ -330,7 +330,7 @@ export async function panelRoutes(app: FastifyInstance) {
       await redis.del(keys.takeover(thread.id));
       await setThread(thread.id, { status: 'OPEN', ...(b.agent ? { active_agent: b.agent, pending_handoff: null } : {}) });
       // a IA assume de volta: se o contato ficou sem resposta, ela responde agora
-      const unanswered = thread.last_inbound_at && (!thread.last_outbound_at || new Date(thread.last_outbound_at) < new Date(thread.last_inbound_at));
+      const unanswered = thread.last_inbound_at && !thread.last_inbound_closing && (!thread.last_outbound_at || new Date(thread.last_outbound_at) < new Date(thread.last_inbound_at));
       if (unanswered) await enqueueRespond(thread.id, thread.channel, { now: true });
       return { ok: true, answering: !!unanswered };
     });

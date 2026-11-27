@@ -67,6 +67,7 @@ export type Thread = {
   agent_switches: Array<{ at: string; to: Agent }>;
   msgs_since_summary: number;
   last_inbound_at: Date | null;
+  last_inbound_closing?: boolean | null;
   last_outbound_at: Date | null;
   last_bot_at: Date | null;
   ai_enabled?: boolean; // a IA deste numero responde este contato

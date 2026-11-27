@@ -9,6 +9,7 @@ import { respondWorker } from './respond.js';
 import { scheduleSentinel, sentinelWorker } from '../sentinela/worker.js';
 import { startSettingsRefresh } from '../lib/settings.js';
 import { trimFinishedJobs } from '../lib/queue-trim.js';
+import { backfillClosing } from '../lib/closing-backfill.js';
 
 const connection = redisOptions();
 
@@ -35,6 +36,7 @@ const workers = [
 startSettingsRefresh();
 await scheduleMaintenance();
 await scheduleSentinel();
+void backfillClosing().catch((e) => logger.warn({ err: String(e) }, 'marca de encerramento nao calculada'));
 await renewGmailWatch().catch((e) => logger.warn({ err: String(e) }, 'watch do Gmail nao iniciado'));
 logger.info('workers no ar');
 

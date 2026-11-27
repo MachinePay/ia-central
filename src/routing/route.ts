@@ -1,4 +1,5 @@
 import { generateObject } from 'ai';
+import { isClosingMessage } from '../lib/closing.js';
 import { z } from 'zod';
 import { fill, loadPrompt } from '../agents/prompts.js';
 import type { Agent, Specialist } from '../domain/types.js';
@@ -40,6 +41,7 @@ export async function preRoute(p: ContextPack): Promise<RouteDecision | { action
   if (thread.status === 'PAUSED') return { action: 'SILENT', reason: 'thread pausada' };
   if (contact.opted_out) return { action: 'SILENT', reason: 'opt-out' };
   if (!p.block.length) return { action: 'SILENT', reason: 'nada novo para responder' };
+  if (p.block.every((m) => isClosingMessage(m.content, (m.media ?? []).length > 0))) return { action: 'SILENT', reason: 'mensagem de encerramento (valeu, obrigado, ok)' };
 
   const rate = await redis.incr(keys.rate(contact.id));
   if (rate === 1) await redis.expire(keys.rate(contact.id), 3600);
