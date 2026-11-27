@@ -133,7 +133,7 @@ function tools(log: string[], here: string, where?: Where) {
       inputSchema: z.object({ busca: z.string().min(2), texto: z.string().min(1).max(2000), ditado_pelo_dono: z.boolean().describe('true só se o texto é exatamente o que o dono mandou escrever'), confirmado: z.boolean().default(false) }),
       execute: async ({ busca, texto, ditado_pelo_dono, confirmado }) => {
         // instrucao do dono ("verifique o que ela quer", "responde ela") nunca vai como mensagem para o contato
-        if (/(verifiw*|veja|v[eê] (o|oq|o que)|o que (ela|ele) quer|perguntw* (pra|para|a|o) (ela|ele)|respondew*|fala (pra|para) (ela|ele)|diz (pra|para) (ela|ele)|manda (pra|para) (ela|ele))/i.test(texto) && !confirmado)
+        if (/\b(verifi\w*|veja|v[eê] (o|oq|o que)|o que (ela|ele) quer|pergunt\w* (pra|para|a|o) (ela|ele)|respond\w*|fala (pra|para) (ela|ele)|diz (pra|para) (ela|ele)|manda (pra|para) (ela|ele))\b/i.test(texto) && !confirmado)
           return { erro: 'Isso parece uma instrução para você, não a mensagem. Leia a conversa (ler_conversa), escreva a resposta e mostre ao dono antes de mandar.' };
         if (!ditado_pelo_dono && !confirmado) return { confirmar: `Mando para ${busca}: "${texto}"?` };
         const found = await findThread(busca);
@@ -383,7 +383,7 @@ Ele pode pedir direto e já confirmado ("manda 5 reais na máquina 123, pode man
     // ------------------------------------------------------------ extrato em PDF, fechamento e desfazer (MachinePay e Machine Coin)
     maquina_extrato_pdf: tool({
       description: 'Gera o PDF do extrato de uma máquina da MachinePay ou Machine Coin (pagamentos, bruto, taxas, líquido e comissão) e manda aqui no WhatsApp. desde = AAAA-MM-DD (padrão: últimos 30 dias, como o painel).',
-      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^d{4}-d{2}-d{2}$/).optional() }),
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
       execute: async ({ busca, plataforma, desde }) => {
         const m = await umaMaquina(busca, plataforma);
         if ('erro' in m || 'varias' in m) return m;
@@ -394,7 +394,7 @@ Ele pode pedir direto e já confirmado ("manda 5 reais na máquina 123, pode man
     maquina_fechamento: tool({
       description: `Faz o FECHAMENTO de uma máquina da MachinePay ou Machine Coin (igual ao botão do painel): antes manda o PDF do extrato aqui no WhatsApp, depois fecha o período (desde, padrão últimos 30 dias, até agora). As vendas saem do bruto; dá para desfazer com maquina_desfazer_fechamento.
 Confirme antes em uma linha (máquina, número, período). Só chame com confirmado=true depois do sim. Se ele já pediu confirmando ("fecha a máquina X, pode fazer"), confirmado=true.`,
-      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(), confirmado: z.boolean().default(false) }),
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), confirmado: z.boolean().default(false) }),
       execute: async ({ busca, plataforma, desde, confirmado }) => {
         const m = await umaMaquina(busca, plataforma);
         if ('erro' in m || 'varias' in m) return m;
@@ -410,7 +410,7 @@ Confirme antes em uma linha (máquina, número, período). Só chame com confirm
     }),
     maquina_desfazer_fechamento: tool({
       description: 'DESFAZ o fechamento de uma máquina da MachinePay ou Machine Coin: as vendas do período voltam a contar no bruto. desde/ate = AAAA-MM-DD (use o mesmo início do fechamento; padrão últimos 30 dias até amanhã). Confirme antes; confirmado=true depois do sim.',
-      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(), ate: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(), confirmado: z.boolean().default(false) }),
+      inputSchema: z.object({ busca: z.string().min(1), plataforma: z.enum(['machinepay', 'machinecoin']).optional(), desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), confirmado: z.boolean().default(false) }),
       execute: async ({ busca, plataforma, desde, ate, confirmado }) => {
         const m = await umaMaquina(busca, plataforma);
         if ('erro' in m || 'varias' in m) return m;
