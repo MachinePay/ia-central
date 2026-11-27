@@ -3,10 +3,11 @@ import { normalizePhone, phoneVariants } from '../lib/phone.js';
 
 /**
  * Grupo GK (sistema financeiro): mensalidades e cobrancas dos clientes MachinePay e CompactPay.
- * So leitura. Entra com um usuario proprio do GK (GK_EMAIL / GK_SENHA no Render); o token fica em memoria.
+ * So leitura. Entra pela chave da IA (GK_API_KEY no Render, cabecalho X-API-Key), sem login.
+ * Sem a chave, usa o usuario proprio do GK (GK_EMAIL / GK_SENHA) como reserva; o token fica em memoria.
  */
 export type GkProduto = 'machinepay' | 'compactpay';
-export const gkEnabled = () => !!(env.GK_EMAIL && env.GK_SENHA);
+export const gkEnabled = () => !!(env.GK_API_KEY || (env.GK_EMAIL && env.GK_SENHA));
 
 let token: { value: string; at: number } | undefined;
 async function login(): Promise<string> {
@@ -21,8 +22,19 @@ async function login(): Promise<string> {
   return j.token;
 }
 
-async function gk<T = any>(path: string): Promise<T> {
-  if (!gkEnabled()) throw new Error('Grupo GK não configurado (faltam GK_EMAIL e GK_SENHA no Render)');
+export async function gk<T = any>(path: string, init?: { method: string; body?: unknown }): Promise<T> {
+  if (!gkEnabled()) throw new Error('Grupo GK não configurado (falta GK_API_KEY no Render)');
+  if (env.GK_API_KEY) {
+    const r = await fetch(`${env.GK_API_URL}${path}`, {
+      method: init?.method ?? 'GET', signal: AbortSignal.timeout(45_000),
+      headers: { 'x-api-key': env.GK_API_KEY, ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+    if (!r.ok) throw new Error(`Grupo GK respondeu ${r.status} em ${path.split('?')[0]}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+    const txt = await r.text();
+    return (txt ? JSON.parse(txt) : null) as T;
+  }
+  if (init && init.method !== 'GET') throw new Error('Grupo GK: escrever só com a chave de API (GK_API_KEY)');
   const t = token && Date.now() - token.at < 6 * 3600_000 ? token.value : await login();
   let r = await fetch(`${env.GK_API_URL}${path}`, { headers: { authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(45_000) });
   if (r.status === 401) r = await fetch(`${env.GK_API_URL}${path}`, { headers: { authorization: `Bearer ${await login()}` }, signal: AbortSignal.timeout(45_000) });

@@ -11,7 +11,7 @@ export type Plataforma = 'machinepay' | 'machinecoin' | 'compactpay';
 export const PLATAFORMAS: Record<Plataforma, string> = { machinepay: 'MachinePay', machinecoin: 'Machine Coin', compactpay: 'CompactPay' };
 
 export const plataformaLigada = (p: Plataforma) =>
-  p === 'compactpay' ? !!(process.env.COMPACT_PAY_LOGIN && process.env.COMPACT_PAY_PASSWORD)
+  p === 'compactpay' ? !!(process.env.COMPACT_PAY_API_KEY || (process.env.COMPACT_PAY_LOGIN && process.env.COMPACT_PAY_PASSWORD))
   : p === 'machinepay' ? !!(process.env.MACHINE_PAY_LOGIN && process.env.MACHINE_PAY_PASSWORD)
   : !!(process.env.MACHINE_COIN_LOGIN_URL && process.env.MACHINE_COIN_LOGIN && process.env.MACHINE_COIN_PASSWORD);
 

@@ -89,13 +89,17 @@ const extrairMensagemErro = (json, status) => {
   return `CompactPay respondeu com status ${status}`;
 };
 
+// Chave da IA (COMPACT_PAY_API_KEY, cabecalho X-API-Key): sem login e sem
+// token vencendo. Sem ela, entra com COMPACT_PAY_LOGIN / PASSWORD (reserva).
+const CHAVE_IA = () => process.env.COMPACT_PAY_API_KEY || "";
+
 const fetchCompactPay = async (path, options = {}, tentativa = 0) => {
-  const token = await login();
+  const auth = CHAVE_IA() ? { "X-API-Key": CHAVE_IA() } : { Authorization: `Bearer ${await login()}` };
   const response = await fetchComTimeout(`${getApiUrl()}${path}`, {
     method: options.method || "GET",
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${token}`,
+      ...auth,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
@@ -103,7 +107,7 @@ const fetchCompactPay = async (path, options = {}, tentativa = 0) => {
 
   // Token pode ter sido invalidado antes do TTL (ex: troca de SECRET_KEY);
   // tenta de novo uma vez com login novo.
-  if (response.status === 401 && tentativa === 0) {
+  if (response.status === 401 && tentativa === 0 && !CHAVE_IA()) {
     _tokenCache = null;
     return fetchCompactPay(path, options, 1);
   }
@@ -124,6 +128,9 @@ const fetchCompactPay = async (path, options = {}, tentativa = 0) => {
 
   return json;
 };
+
+// Qualquer rota (consulta e acoes do dono pela IA central).
+export const consultarCompactPay = (path, options = {}) => fetchCompactPay(path, options);
 
 // O CompactPay devolve datetimes em UTC sem sufixo de fuso
 // ("2026-09-23T14:00:00"); marca como UTC pro navegador converter certo.

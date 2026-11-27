@@ -1,9 +1,11 @@
 /**
  * AgarraMais (lojas de maquinas): faturamento, lucro, lojas e desempenho das maquinas. So leitura.
- * Login de um usuario ADMIN em AGARRAMAIS_EMAIL / AGARRAMAIS_SENHA (Render).
+ * Entra pela chave da IA (AGARRAMAIS_API_KEY no Render, cabecalho X-API-Key), sem login.
+ * Sem a chave, usa o login de um ADMIN em AGARRAMAIS_EMAIL / AGARRAMAIS_SENHA como reserva.
  */
 const BASE = () => (process.env.AGARRAMAIS_API_URL || 'https://backend-agarramais.onrender.com/api').replace(/\/+$/, '');
-export const agarramaisLigada = () => !!(process.env.AGARRAMAIS_EMAIL && process.env.AGARRAMAIS_SENHA);
+const CHAVE = () => process.env.AGARRAMAIS_API_KEY || '';
+export const agarramaisLigada = () => !!(CHAVE() || (process.env.AGARRAMAIS_EMAIL && process.env.AGARRAMAIS_SENHA));
 
 let token: { value: string; at: number } | undefined;
 async function login(): Promise<string> {
@@ -18,8 +20,19 @@ async function login(): Promise<string> {
   return j.token;
 }
 
-export async function agarramais<T = any>(path: string): Promise<T> {
-  if (!agarramaisLigada()) throw new Error('AgarraMais não configurada (faltam AGARRAMAIS_EMAIL e AGARRAMAIS_SENHA no Render)');
+export async function agarramais<T = any>(path: string, init?: { method: string; body?: unknown }): Promise<T> {
+  if (!agarramaisLigada()) throw new Error('AgarraMais não configurada (falta AGARRAMAIS_API_KEY no Render)');
+  if (CHAVE()) {
+    const r = await fetch(`${BASE()}${path}`, {
+      method: init?.method ?? 'GET', signal: AbortSignal.timeout(60_000),
+      headers: { 'x-api-key': CHAVE(), ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+    if (!r.ok) throw new Error(`AgarraMais respondeu ${r.status} em ${path.split('?')[0]}: ${(await r.text().catch(() => '')).slice(0, 300)}`);
+    const txt = await r.text();
+    return (txt ? JSON.parse(txt) : null) as T;
+  }
+  if (init && init.method !== 'GET') throw new Error('AgarraMais: escrever só com a chave de API (AGARRAMAIS_API_KEY)');
   const t = token && Date.now() - token.at < 3 * 86_400_000 ? token.value : await login();
   let r = await fetch(`${BASE()}${path}`, { headers: { authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(60_000) });
   if (r.status === 401) r = await fetch(`${BASE()}${path}`, { headers: { authorization: `Bearer ${await login()}` }, signal: AbortSignal.timeout(60_000) });

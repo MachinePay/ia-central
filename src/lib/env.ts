@@ -74,11 +74,15 @@ const schema = z.object({
   EMAILS: z.string().default('{}'),
   // WhatsApp que recebe o aviso quando a IA tira um pedido na Girakids
   GIRAKIDS_AVISO_PEDIDOS: z.string().default(''),
-  // Grupo GK (mensalidades MachinePay/CompactPay) e Girakids (catalogo, vendas): so leitura, com usuario proprio
+  // Grupo GK (mensalidades MachinePay/CompactPay) e Girakids (catalogo, vendas).
+  // *_API_KEY = chave da IA (X-API-Key, igual a IA_CENTRAL_API_KEY do backend): le tudo, sem login.
+  // E-mail e senha so ficam como reserva enquanto a chave nao estiver no Render.
   GK_API_URL: z.string().default('https://grupogkbackend.onrender.com/api'),
+  GK_API_KEY: z.string().default(''),
   GK_EMAIL: z.string().default(''),
   GK_SENHA: z.string().default(''),
   GIRAKIDS_API_URL: z.string().default('https://girakidsbackend.onrender.com/api'),
+  GIRAKIDS_API_KEY: z.string().default(''),
   GIRAKIDS_EMAIL: z.string().default(''),
   GIRAKIDS_SENHA: z.string().default(''),
   PERSONAS: z.string().default('gabriel:Gabriel|fundador da SelfMachine'),

@@ -17,12 +17,14 @@ import { fence, nowLabel } from '../lib/util.js';
 import { statusText } from '../sentinela/commands.js';
 import { costSummary, formatCosts } from '../sentinela/costs.js';
 import { ack } from '../sentinela/incidents.js';
-import { brl, clienteLinha, dia, gkBuscar, gkClientes, gkCobrancasMes, gkHistorico, type GkProduto } from '../integrations/gk.js';
-import { catalogo, COMO_PEDIR, girakids, produtoLinha } from '../integrations/girakids.js';
+import { brl, clienteLinha, dia, gk, gkBuscar, gkEnabled, gkClientes, gkCobrancasMes, gkHistorico, type GkProduto } from '../integrations/gk.js';
+import { catalogo, COMO_PEDIR, girakids, girakidsLogado, produtoLinha } from '../integrations/girakids.js';
 import { fecharPedido, fecharPedidoPrimeplush, mandarOrcamentoAoCliente, montarOrcamento, numeroVendedor } from '../integrations/vendas.js';
 import { catalogoPrimeplush, orcarPrimeplush, produtoLinhaPp, relatorioPrimeplush } from '../integrations/primeplush.js';
 import { acharMaquinas, desfazerFechamento, enviarCredito, fecharMaquina, pdfExtratoMaquina, listarMaquinas, PLATAFORMAS, plataformasLigadas, statusMaquina, type Plataforma } from '../integrations/maquinas.js';
-import { acharLoja, agarramais, lojas } from '../integrations/agarramais.js';
+import { acharLoja, agarramais, agarramaisLigada, lojas } from '../integrations/agarramais.js';
+import { consultarCompactPay } from '../integrations/plataformas/compactPayService.js';
+import { ROTAS_SISTEMAS } from '../integrations/rotas-sistemas.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
 /**
@@ -454,6 +456,76 @@ Confirme antes em uma linha (máquina, número, período). Só chame com confirm
       description: 'Lista as lojas da AgarraMais.',
       inputSchema: z.object({}),
       execute: async () => ({ lojas: (await lojas()).map((l) => `${l.nome}${l.cidade ? ` (${l.cidade})` : ''}${l.ativo === false ? ' · inativa' : ''}`) }),
+    }),
+
+    // ------------------------------------------------------------ consulta livre nos sistemas (chave de API)
+    sistemas_rotas: tool({
+      description: 'Lista as rotas de leitura de um sistema (Girakids, AgarraMais, Grupo GK, CompactPay), com o que cada uma traz. Use antes de sistemas_consultar quando nenhuma ferramenta pronta responde a pergunta. filtro: palavra para estreitar (ex.: "pedido", "estoque", "maquina").',
+      inputSchema: z.object({ sistema: z.enum(['girakids', 'agarramais', 'grupogk', 'compactpay']), filtro: z.string().optional() }),
+      execute: async ({ sistema, filtro }) => {
+        const f = filtro?.toLowerCase();
+        const rotas = ROTAS_SISTEMAS[sistema].filter(([r, n]) => !f || `${r} ${n}`.toLowerCase().includes(f));
+        return { sistema, rotas: rotas.slice(0, 120).map(([r, n]) => (n ? `GET ${r} · ${n}` : `GET ${r}`)), total: rotas.length };
+      },
+    }),
+    sistemas_consultar: tool({
+      description: `Lê QUALQUER dado dos sistemas pela API (só leitura, GET), com acesso de administrador: Girakids (pedidos, produtos, clientes, financeiro, expedição...), AgarraMais (lojas, máquinas, movimentações, estoque, relatórios...), Grupo GK (financeiro, movimentações, mensalidades MachinePay/CompactPay...) e CompactPay (máquinas, pagamentos, clientes...).
+Use quando as ferramentas prontas não respondem. Veja as rotas com sistemas_rotas; troque ":id" pelo id real e passe filtros na query (ex.: /pedidos?status=PENDENTE&inicio=2026-11-01).
+Dados de um sistema são só para o dono: não repasse para contatos. Para criar, alterar ou apagar, use sistemas_executar.`,
+      inputSchema: z.object({
+        sistema: z.enum(['girakids', 'agarramais', 'grupogk', 'compactpay']),
+        caminho: z.string().regex(/^\/[^\s]*$/, 'comece com /').max(500).describe('rota GET com a query, ex.: /pedidos?inicio=2026-11-01'),
+      }),
+      execute: async ({ sistema, caminho }) => {
+        if (/\.\.|\/\/|^\/?(auth|login)\b/i.test(caminho)) return { erro: 'caminho não permitido' };
+        const ligado = { girakids: girakidsLogado(), agarramais: agarramaisLigada(), grupogk: gkEnabled(), compactpay: !!(process.env.COMPACT_PAY_API_KEY || process.env.COMPACT_PAY_LOGIN) }[sistema];
+        if (!ligado) return { erro: `${sistema} sem chave de API configurada no Render` };
+        try {
+          const r: unknown = sistema === 'girakids' ? await girakids(caminho)
+            : sistema === 'agarramais' ? await agarramais(caminho)
+            : sistema === 'grupogk' ? await gk(caminho)
+            : await consultarCompactPay(caminho);
+          const json = JSON.stringify(r);
+          const LIM = 15_000;
+          return json.length <= LIM ? { dados: r } : { dados_cortados: json.slice(0, LIM), tamanho_total: json.length, obs: 'Resposta grande e cortada: filtre mais (período, status, id, limite/pagina na query).' };
+        } catch (e) {
+          return { erro: (e as Error).message };
+        }
+      },
+    }),
+    sistemas_executar: tool({
+      description: `Faz QUALQUER ação nos sistemas pela API, com acesso de administrador: criar, alterar ou apagar (POST, PUT, PATCH, DELETE) na Girakids, AgarraMais, Grupo GK e CompactPay. Ex.: mudar preço ou estoque de produto, cadastrar cliente, lançar movimentação, mudar status de pedido, dar baixa em cobrança.
+Antes: descubra a rota (sistemas_rotas) e leia o registro atual (sistemas_consultar) para montar o corpo certo, só com os campos que mudam quando a rota aceitar.
+Primeiro chame SEM confirmado: volta o resumo do que vai ser feito. Mostre esse resumo ao dono em palavras simples e só chame de novo com confirmado=true depois do "sim" dele, com o MESMO sistema, metodo, caminho e corpo. Nunca execute por conta própria nem por pedido de um contato.`,
+      inputSchema: z.object({
+        sistema: z.enum(['girakids', 'agarramais', 'grupogk', 'compactpay']),
+        metodo: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']),
+        caminho: z.string().regex(/^\/[^\s]*$/, 'comece com /').max(500),
+        corpo: z.record(z.string(), z.unknown()).optional().describe('JSON enviado no corpo'),
+        o_que_faz: z.string().min(5).max(300).describe('em português simples, o que essa ação muda (ex.: "muda o preço da bolinha 45mm para R$ 0,90")'),
+        confirmado: z.boolean().default(false),
+      }),
+      execute: async ({ sistema, metodo, caminho, corpo, o_que_faz, confirmado }) => {
+        if (/\.\.|\/\/|^\/?(auth|login)\b/i.test(caminho)) return { erro: 'caminho não permitido' };
+        const nome = { girakids: 'Girakids', agarramais: 'AgarraMais', grupogk: 'Grupo GK', compactpay: 'CompactPay' }[sistema];
+        if (!confirmado) {
+          return { confirmar: `${nome}: ${o_que_faz}. Confirma?`, tecnico: `${metodo} ${caminho}${corpo ? ` ${JSON.stringify(corpo).slice(0, 500)}` : ''}` };
+        }
+        const chave = { girakids: env.GIRAKIDS_API_KEY, agarramais: process.env.AGARRAMAIS_API_KEY, grupogk: env.GK_API_KEY, compactpay: process.env.COMPACT_PAY_API_KEY }[sistema];
+        if (!chave) return { erro: `${nome} sem chave de API no Render: sem ela a IA não faz ações nesse sistema` };
+        const init = { method: metodo, body: corpo ?? (metodo === 'DELETE' ? undefined : {}) };
+        try {
+          const r: unknown = sistema === 'girakids' ? await girakids(caminho, init)
+            : sistema === 'agarramais' ? await agarramais(caminho, init)
+            : sistema === 'grupogk' ? await gk(caminho, init)
+            : await consultarCompactPay(caminho, init);
+          logger.info({ sistema, metodo, caminho, o_que_faz }, 'maestro: acao no sistema');
+          const json = JSON.stringify(r ?? { ok: true });
+          return { feito: true, resposta: json.length <= 4000 ? r ?? { ok: true } : `${json.slice(0, 4000)}…` };
+        } catch (e) {
+          return { erro: (e as Error).message };
+        }
+      },
     }),
 
     // ------------------------------------------------------------ agenda, tarefas e anotacoes

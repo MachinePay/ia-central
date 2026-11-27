@@ -65,7 +65,8 @@ export function produtoLinha(p: GkProduto): string {
 }
 
 // ------------------------------------------------------------------ com login (so para o dono)
-export const girakidsLogado = () => !!(env.GIRAKIDS_EMAIL && env.GIRAKIDS_SENHA);
+// chave da IA (GIRAKIDS_API_KEY, cabecalho X-API-Key): sem login; e-mail e senha ficam de reserva
+export const girakidsLogado = () => !!(env.GIRAKIDS_API_KEY || (env.GIRAKIDS_EMAIL && env.GIRAKIDS_SENHA));
 let token: { value: string; at: number } | undefined;
 async function login() {
   const r = await fetch(`${BASE()}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: env.GIRAKIDS_EMAIL, senha: env.GIRAKIDS_SENHA }), signal: AbortSignal.timeout(30_000) });
@@ -76,21 +77,26 @@ async function login() {
   return j.token;
 }
 export async function girakids<T = any>(path: string, init?: { method: string; body?: unknown }): Promise<T> {
-  if (!girakidsLogado()) throw new Error('Girakids sem login configurado (faltam GIRAKIDS_EMAIL e GIRAKIDS_SENHA no Render)');
-  const t = token && Date.now() - token.at < 24 * 3600_000 ? token.value : await login();
-  const go = (tk: string) => fetch(`${BASE()}${path}`, {
+  if (!girakidsLogado()) throw new Error('Girakids sem acesso configurado (falta GIRAKIDS_API_KEY no Render)');
+  const go = (auth: Record<string, string>) => fetch(`${BASE()}${path}`, {
     method: init?.method ?? 'GET', signal: AbortSignal.timeout(45_000),
-    headers: { authorization: `Bearer ${tk}`, ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+    headers: { ...auth, ...(init?.body !== undefined ? { 'content-type': 'application/json' } : {}) },
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
-  let r = await go(t);
-  if (r.status === 401) r = await go(await login());
+  let r: Response;
+  if (env.GIRAKIDS_API_KEY) r = await go({ 'x-api-key': env.GIRAKIDS_API_KEY });
+  else {
+    const t = token && Date.now() - token.at < 24 * 3600_000 ? token.value : await login();
+    r = await go({ authorization: `Bearer ${t}` });
+    if (r.status === 401) r = await go({ authorization: `Bearer ${await login()}` });
+  }
   if (!r.ok) {
     const msg = await r.text().catch(() => '');
     let err = msg; try { err = JSON.parse(msg).error ?? JSON.parse(msg).message ?? msg; } catch { /* texto */ }
     throw new Error(`Girakids: ${String(err).slice(0, 200) || r.status}`);
   }
-  return r.json() as Promise<T>;
+  const txt = await r.text();
+  return (txt ? JSON.parse(txt) : null) as T;
 }
 
 // ------------------------------------------------------------------ orcamento -> pedido (usuario da IA com permissao VENDAS)
