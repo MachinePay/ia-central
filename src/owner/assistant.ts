@@ -25,6 +25,7 @@ import { acharMaquinas, desfazerFechamento, enviarCredito, fecharMaquina, pdfExt
 import { acharLoja, agarramais, agarramaisLigada, lojas } from '../integrations/agarramais.js';
 import { consultarCompactPay } from '../integrations/plataformas/compactPayService.js';
 import { ROTAS_SISTEMAS } from '../integrations/rotas-sistemas.js';
+import { compactar } from '../integrations/compactar.js';
 import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, removeItem, resolveInstance, updateItem } from './agenda.js';
 
 /**
@@ -517,7 +518,7 @@ Confirme antes em uma linha (máquina, número, período). Só chame com confirm
       execute: async ({ sistema, filtro }) => {
         const f = filtro?.toLowerCase();
         const rotas = ROTAS_SISTEMAS[sistema].filter(([r, n]) => !f || `${r} ${n}`.toLowerCase().includes(f));
-        return { sistema, rotas: rotas.slice(0, 120).map(([r, n]) => (n ? `GET ${r} · ${n}` : `GET ${r}`)), total: rotas.length };
+        return { sistema, rotas: rotas.slice(0, 60).map(([r, n]) => (n ? `GET ${r} · ${n}` : `GET ${r}`)), total: rotas.length };
       },
     }),
     sistemas_consultar: tool({
@@ -537,9 +538,7 @@ Dados de um sistema são só para o dono: não repasse para contatos. Para criar
             : sistema === 'agarramais' ? await agarramais(caminho)
             : sistema === 'grupogk' ? await gk(caminho)
             : await consultarCompactPay(caminho);
-          const json = JSON.stringify(r);
-          const LIM = 15_000;
-          return json.length <= LIM ? { dados: r } : { dados_cortados: json.slice(0, LIM), tamanho_total: json.length, obs: 'Resposta grande e cortada: filtre mais (período, status, id, limite/pagina na query).' };
+          return compactar(r);
         } catch (e) {
           return { erro: (e as Error).message };
         }
@@ -572,8 +571,7 @@ Primeiro chame SEM confirmado: volta o resumo do que vai ser feito. Mostre esse 
             : sistema === 'grupogk' ? await gk(caminho, init)
             : await consultarCompactPay(caminho, init);
           logger.info({ sistema, metodo, caminho, o_que_faz }, 'maestro: acao no sistema');
-          const json = JSON.stringify(r ?? { ok: true });
-          return { feito: true, resposta: json.length <= 4000 ? r ?? { ok: true } : `${json.slice(0, 4000)}…` };
+          return { feito: true, ...compactar(r ?? { ok: true }, 1500) };
         } catch (e) {
           return { erro: (e as Error).message };
         }
