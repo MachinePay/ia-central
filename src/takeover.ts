@@ -1,6 +1,7 @@
 import { handleGabrielReply, isGabrielPhone } from './approvals/approvals.js';
 import { deleteForEveryone } from './channels/whatsapp/evolution.js';
 import { normalizePhone } from './lib/phone.js';
+import { ownPhone } from './lib/owners.js';
 import { handleSentinelCommand } from './sentinela/commands.js';
 import { answerOwner, ownerReplyTarget } from './owner/assistant.js';
 import { findWaThread, saveOutbound, setThread, upsertContact, upsertThread } from './domain/repo.js';
@@ -60,7 +61,9 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
   if (old && !p.text) return;
   // conversa "Voce" do Gabriel (consigo mesmo, no numero dele): fala com a IA central (orquestrador)
   // (vale para o "Voce" de qualquer numero: cada numero recebe os proprios avisos e responde comandos ali)
-  const selfChat = ownerJid ? normalizePhone(ownerJid) === normalizePhone(p.jid) : isGabrielPhone(p.jid);
+  // sem o dono no webhook, usa o telefone conhecido deste numero (senao o "Voce" do Leo caia no atendimento comum, sem ferramentas)
+  const own = ownerJid ?? (await ownPhone(instance).catch(() => undefined));
+  const selfChat = own ? normalizePhone(own) === normalizePhone(p.jid) : isGabrielPhone(p.jid);
   if (selfChat) {
     if (old) return; // pedido antigo reenviado: nao responde de novo
     if (!p.text && p.media) p = { ...p, text: await mediaToText(instance, p.media) };

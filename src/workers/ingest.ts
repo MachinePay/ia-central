@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { handleGabrielReply, isGabrielPhone } from '../approvals/approvals.js';
+import { handleGabrielReply } from '../approvals/approvals.js';
 import { antiLoop, getAttachment, getMessage, gmailAccounts, gmailEnabled, gmailFor, toInboundEvent } from '../channels/gmail/gmail.js';
 import { getMediaBase64 } from '../channels/whatsapp/evolution.js';
 import { parseEvolution } from '../channels/whatsapp/parse.js';
@@ -9,12 +9,13 @@ import type { InboundEvent, MediaItem, Thread } from '../domain/types.js';
 import { one, q } from '../lib/db.js';
 import { approvalInstance, env, instanceRole } from '../lib/env.js';
 import { logger } from '../lib/logger.js';
+import { normalizePhone } from '../lib/phone.js';
 import { enqueueRespond, ingestQueue, mediaQueue } from '../lib/queues.js';
 import { describeMedia } from '../media.js';
 import { handleSentinelCommand } from '../sentinela/commands.js';
-import { answerOwner, ownerReplyTarget } from '../owner/assistant.js';
+import { answerOwner } from '../owner/assistant.js';
 import { applyTakeover, handleWhatsappFromMe, mediaToText } from '../takeover.js';
-import { rememberOwnPhone } from '../lib/owners.js';
+import { ownerInstanceOf, rememberOwnPhone } from '../lib/owners.js';
 import { mailAccounts, pollAccount } from '../channels/mail/imap.js';
 import { decideEmail, linkEmailThread } from '../mail/inbox.js';
 
@@ -40,18 +41,19 @@ async function ingestWhatsapp(instance: string, data: any, owner?: string) {
   const ev = p.event;
   // comando do Sentinela vindo de um contato de alertas (ok 42, /status...)
   if (await handleSentinelCommand(ev.sender.phone ?? '', ev.content)) return;
-  // resposta do Gabriel real a uma aprovacao (numero dele na allowlist)
-  if (isGabrielPhone(ev.sender.phone ?? '') && (await handleGabrielReply(ev.content, ev.metadata.quotedMessageId))) return;
-  // numero da IA (central): so conversa com o dono; o resto e ignorado
+  // donos (Gabriel e Leo): mesmas permissoes. Resposta a uma aprovacao vale de qualquer um deles
+  const ownerOf = await ownerInstanceOf(ev.sender.phone ?? '');
+  if (ownerOf !== undefined && (await handleGabrielReply(ev.content, ev.metadata.quotedMessageId))) return;
+  // numero da IA (central, o Maestro): conversa com os donos e responde para quem pediu; o resto e ignorado
   if (instanceRole(instance) === 'CENTRAL') {
-    if (isGabrielPhone(ev.sender.phone ?? '') && !ev.metadata.late) {
-      const where = ownerReplyTarget('central');
+    if (ownerOf !== undefined && !ev.metadata.late) {
+      const where = { instance, to: normalizePhone(ev.sender.phone ?? ''), owner: ownerOf || undefined };
       let text = ev.content;
       if (ev.needsMedia && ev.media[0]) {
         const raw = ev.metadata.raw as { key: unknown; message: unknown; base64?: string } | undefined;
         if (raw) text = [text, await mediaToText(instance, { item: ev.media[0], raw })].filter(Boolean).join('\n');
       }
-      if (where) await answerOwner(text || '(mandou um arquivo que não consegui abrir)', where);
+      await answerOwner(text || '(mandou um arquivo que não consegui abrir)', where);
     }
     return;
   }
@@ -72,12 +74,12 @@ async function persistAndQueue(ev: InboundEvent) {
   if (ev.metadata.late) return; // reenvio atrasado: so registra, nao responde horas depois
   if (ev.channel === 'WHATSAPP' && instanceRole(ev.instance) === 'OBSERVAR') {
     // so aprendendo: guarda a conversa (audio vira texto para o aprendiz), mas nunca gera resposta
-    if (ev.needsMedia) await mediaQueue.add('media', { messageId: saved.message.id, threadId: thread.id, channel: ev.channel, instance: ev.instance, raw, observeOnly: true }, { attempts: 2 });
+    if (ev.needsMedia) await mediaQueue.add('media', { messageId: saved.message.id, threadId: thread.id, channel: ev.channel, instance: ev.instance, raw, observeOnly: true }, { attempts: 2, removeOnComplete: true, removeOnFail: { count: 30, age: 86_400 } });
     return;
   }
   if (ev.needsMedia) {
     await mediaQueue.add('media', { messageId: saved.message.id, threadId: thread.id, channel: ev.channel, instance: ev.instance, raw },
-      { attempts: 2, backoff: { type: 'fixed', delay: 5000 } });
+      { attempts: 2, backoff: { type: 'fixed', delay: 5000 }, removeOnComplete: true, removeOnFail: { count: 30, age: 86_400 } });
     return;
   }
   await enqueueRespond(thread.id, ev.channel);

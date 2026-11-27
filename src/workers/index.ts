@@ -8,8 +8,13 @@ import { outboundWorker } from './outbound.js';
 import { respondWorker } from './respond.js';
 import { scheduleSentinel, sentinelWorker } from '../sentinela/worker.js';
 import { startSettingsRefresh } from '../lib/settings.js';
+import { trimFinishedJobs } from '../lib/queue-trim.js';
 
 const connection = redisOptions();
+
+// primeiro de tudo: libera o Redis (se ele encheu, nada mais funciona, nem o agendamento abaixo)
+await trimFinishedJobs().catch((e) => logger.warn({ err: String(e) }, 'limpeza inicial das filas falhou'));
+setInterval(() => void trimFinishedJobs().catch(() => undefined), 3_600_000).unref();
 
 function start(name: string, fn: Processor, concurrency: number) {
   const w = new Worker(name, fn, { connection, concurrency });

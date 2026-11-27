@@ -2,10 +2,12 @@ import { Queue } from 'bullmq';
 import { redis, keys, redisOptions } from './redis.js';
 
 const connection = redisOptions();
-const base = { connection, defaultJobOptions: { removeOnComplete: 1000, removeOnFail: 5000 } };
+// Redis tem 256 MB: guarda pouco historico de jobs (o que importa ja esta no Postgres)
+const base = { connection, defaultJobOptions: { removeOnComplete: { count: 200, age: 86_400 }, removeOnFail: { count: 300, age: 7 * 86_400 } } };
 
 export const ingestQueue = new Queue('ingest', base);
-export const mediaQueue = new Queue('media', base);
+// midia carrega o arquivo inteiro (base64, ate 16 MB por job): apaga assim que termina
+export const mediaQueue = new Queue('media', { connection, defaultJobOptions: { removeOnComplete: true, removeOnFail: { count: 30, age: 86_400 } } });
 export const respondQueue = new Queue('respond', base);
 export const summarizeQueue = new Queue('summarize', base);
 export const outboundQueue = new Queue('outbound', base);

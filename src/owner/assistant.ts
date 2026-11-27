@@ -34,7 +34,8 @@ import { addItem, fmtWhen, itemLine, listItems, parseLocal, remindersText, remov
 
 const HISTORY_KEY = 'owner-chat:history';
 
-type Where = { instance: string; to: string };
+/** owner: o numero pessoal de quem pediu (ex.: 'leo'), quando veio pelo Maestro */
+type Where = { instance: string; to: string; owner?: string };
 
 /** Onde responder: no numero da IA (central) ou na propria conversa "Voce". */
 export function ownerReplyTarget(cameFrom: 'central' | 'self', selfInstance?: string): Where | undefined {
@@ -584,7 +585,7 @@ ia: de quem é a agenda (nome da pessoa ou do número). Sem dizer, é a agenda d
 }
 
 /** Responde o dono. Retorna o texto enviado. */
-/** Gabriel, Leo (numeros de pessoa) e a IA central: tudo. Outros numeros (Joao, Suporte): so a agenda deles. */
+/** Gabriel, Leo (numeros de pessoa) e o Maestro: tudo, as mesmas ferramentas. Outros numeros (Joao, Suporte): so a agenda deles. */
 function allowedTools<T extends Record<string, unknown>>(all: T, full: boolean): T {
   if (full) return all;
   return Object.fromEntries(Object.entries(all).filter(([k]) => k.startsWith('agenda_'))) as T;
@@ -592,7 +593,10 @@ function allowedTools<T extends Record<string, unknown>>(all: T, full: boolean):
 
 export async function answerOwner(text: string, where: Where): Promise<string | undefined> {
   const isCentral = where.instance === centralInstance();
-  const here = isCentral ? ([...instanceRoles()].find(([n, r]) => r === 'GABRIEL' && n === 'gabriel')?.[0] ?? [...instanceRoles()].find(([, r]) => r === 'GABRIEL')?.[0] ?? where.instance) : where.instance;
+  // pelo Maestro: age no numero de quem pediu (Gabriel ou Leo), com historico, agenda e nome dele
+  const here = isCentral
+    ? (where.owner ?? [...instanceRoles()].find(([n, r]) => r === 'GABRIEL' && n === 'gabriel')?.[0] ?? [...instanceRoles()].find(([, r]) => r === 'GABRIEL')?.[0] ?? where.instance)
+    : where.instance;
   const historyKey = `${HISTORY_KEY}:${here}`;
   const history: ModelMessage[] = (await redis.lrange(historyKey, -16, -1)).map((h) => JSON.parse(h));
   const log: string[] = [];
