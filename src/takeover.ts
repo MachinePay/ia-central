@@ -97,7 +97,8 @@ export async function handleWhatsappFromMe(instance: string, p: { jid: string; t
 }
 
 /** Audio (ou imagem) mandado para a IA: vira texto (transcricao) para ela entender. */
+/** Audio/imagem de um DONO para o Maestro: sem mascarar (numero de telefone ditado precisa chegar inteiro). */
 export async function mediaToText(instance: string, media: { item: MediaItem; raw: { key: unknown; message: unknown; base64?: string } }): Promise<string> {
   const b64 = media.raw.base64 ?? (await getMediaBase64(instance, media.raw.key, media.raw.message).catch(() => undefined))?.base64;
-  return describeMedia(media.item, b64).catch(() => '');
+  return describeMedia(media.item, b64, { mask: false }).catch(() => '');
 }
