@@ -11,7 +11,7 @@ import { centralInstance, EDITABLE_SETTINGS, emailsByNumber, env, instanceRoles,
 import { buildContactTreatment, buildPersonaProfile, countPersonaMessages, getPersonaProfile, savePersonaProfile } from '../memory/persona.js';
 import { EVENTS_CHANNEL } from '../lib/events.js';
 import { costToday } from '../lib/llm.js';
-import { normalizePhone } from '../lib/phone.js';
+import { normalizePhone, phoneVariants } from '../lib/phone.js';
 import { cancelPendingRespond, enqueueRespond } from '../lib/queues.js';
 import { TAKEOVER_SECONDS } from '../takeover.js';
 import { keys, redis, redisOptions } from '../lib/redis.js';
@@ -46,10 +46,23 @@ async function nameResolver() {
 }
 const bad = (reply: any, msg: string, code = 400) => reply.code(code).send({ error: msg });
 
-/** Numeros pessoais (papel GABRIEL): as conversas deles so saem do servidor para quem entrou com o login do Gabriel. */
-const gabrielInstances = () => [...instanceRoles()].filter(([, r]) => r === 'GABRIEL').map(([n]) => n);
-const hiddenInstances = (req: any): string[] => (hasGabrielKey(req) ? [] : gabrielInstances());
-const lockedReply = (reply: any) => reply.code(403).send({ error: 'Conversa do Gabriel: só aparece entrando com o login do Gabriel.', locked: true });
+/**
+ * O numero do proprio Gabriel (so ele, nao os outros numeros pessoais como o do Leo):
+ * nome "gabriel", pessoa "Gabriel..." em PERSONAS, ou o aparelho conectado e o GABRIEL_PERSONAL_PHONE.
+ * Fora do login do Gabriel, esse numero some do painel inteiro.
+ */
+async function gabrielInstances(): Promise<string[]> {
+  const personal = env.GABRIEL_PERSONAL_PHONE ? phoneVariants(normalizePhone(env.GABRIEL_PERSONAL_PHONE)) : [];
+  const out: string[] = [];
+  for (const [name, role] of instanceRoles()) {
+    if (role === 'CENTRAL') continue;
+    const byName = name.toLowerCase() === 'gabriel' || /^gabriel\b/i.test(personaFor(name).name.trim());
+    const phone = personal.length ? await ownPhone(name).catch(() => undefined) : undefined;
+    if (byName || (phone && personal.includes(normalizePhone(phone)))) out.push(name);
+  }
+  return out;
+}
+const hiddenInstances = async (req: any): Promise<string[]> => (hasGabrielKey(req) ? [] : gabrielInstances());
 
 export async function panelRoutes(app: FastifyInstance) {
   // ------------------------------------------------------------------ login
@@ -95,27 +108,28 @@ export async function panelRoutes(app: FastifyInstance) {
   app.register(async (api) => {
     api.addHook('onRequest', requireAuth);
 
-    // conversas do Gabriel: fora do login do Gabriel, nada de conversa/mensagem/e-mail desses numeros sai daqui
+    // numero do Gabriel: fora do login do Gabriel, nada dele (conversa, mensagem, e-mail, agenda, numero) sai daqui
     api.addHook('preHandler', async (req, reply) => {
-      const hidden = hiddenInstances(req);
-      if (!hidden.length) return;
       const route = req.routeOptions.url ?? '';
       const p = (req.params ?? {}) as Record<string, string>;
+      if (!p.instance && !p.name && !(p.id && /^\/api\/(threads|messages)\/:id/.test(route))) return;
+      const hidden = await hiddenInstances(req);
+      if (!hidden.length) return;
       let instance: string | undefined;
+      if (p.instance && hidden.includes(p.instance)) return bad(reply, 'Número não encontrado.', 404);
+      if (p.name && hidden.includes(p.name)) return bad(reply, 'Número não encontrado.', 404);
       if (route.startsWith('/api/threads/:id')) {
         instance = (await one<{ instance: string }>(`SELECT instance FROM app.threads WHERE id::text = $1`, [p.id]).catch(() => undefined))?.instance;
       } else if (route.startsWith('/api/messages/:id')) {
         instance = (await one<{ instance: string }>(`SELECT t.instance FROM app.messages m JOIN app.threads t ON t.id = m.thread_id WHERE m.id::text = $1`, [p.id]).catch(() => undefined))?.instance;
-      } else if (route === '/api/numbers/:instance/contacts' || route === '/api/email/:instance/messages') {
-        instance = p.instance;
       }
-      if (instance && hidden.includes(instance)) return lockedReply(reply);
+      if (instance && hidden.includes(instance)) return bad(reply, 'Conversa não encontrada.', 404);
     });
 
 
     // ---------------------------------------------------------------- inicio
     api.get('/api/summary', async (req) => {
-      const hidden = hiddenInstances(req);
+      const hidden = await hiddenInstances(req);
       const [approvals, incidents, unanswered, promises, today, events, takeovers] = await Promise.all([
         q(`SELECT a.id, a.code, a.action, a.requested_by, a.created_at, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, a.thread_id
              FROM app.pending_approvals a JOIN app.threads t ON t.id = a.thread_id JOIN app.contacts c ON c.id = t.contact_id
@@ -147,8 +161,8 @@ export async function panelRoutes(app: FastifyInstance) {
 
     // ---------------------------------------------------------------- cena 3D do Inicio: cada numero e uma ilha com a sua "pessoa"
     api.get('/api/scene', async (req) => {
-      const hidden = hiddenInstances(req);
-      const roles = [...instanceRoles()].filter(([, r]) => r !== 'OFF' && r !== 'CENTRAL');
+      const hidden = await hiddenInstances(req);
+      const roles = [...instanceRoles()].filter(([n, r]) => r !== 'OFF' && r !== 'CENTRAL' && !hidden.includes(n));
       const central = centralInstance();
       const [threads, resources, monitors, approvals, incidents, numbers, runs] = await Promise.all([
         q(`SELECT * FROM (
@@ -164,7 +178,7 @@ export async function panelRoutes(app: FastifyInstance) {
         q(`SELECT id, name, url, last_status, last_latency_ms FROM sentinela.monitors WHERE enabled ORDER BY (last_status = 'FAIL') DESC, name LIMIT 6`),
         q(`SELECT thread_id FROM app.pending_approvals WHERE status = 'PENDING'`),
         q(`SELECT id, severity, title, resource_id FROM sentinela.incidents WHERE status <> 'RESOLVED'`),
-        Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([name, role]) => {
+        Promise.all([...instanceRoles()].filter(([n, r]) => r !== 'OFF' && !hidden.includes(n)).map(async ([name, role]) => {
           let state = 'desconhecido';
           try { state = await connectionState(name); } catch { /* Evolution fora */ }
           const c = await one<{ n24: number; threads: number }>(
@@ -241,7 +255,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const where: string[] = [];
       const params: unknown[] = [];
       const add = (sql: string, v: unknown) => { params.push(v); where.push(sql.replace('$?', `$${params.length}`)); };
-      add(`NOT (t.instance = ANY($?::text[]))`, hiddenInstances(req));
+      add(`NOT (t.instance = ANY($?::text[]))`, (await hiddenInstances(req)));
       if (f.channel) add(`t.channel = $?::app.channel`, f.channel);
       if (f.instance) add(`t.instance = ANY(string_to_array($?, ','))`, f.instance);
       if (f.agent) add(`t.active_agent::text = ANY(string_to_array($?, ','))`, f.agent);
@@ -395,7 +409,7 @@ export async function panelRoutes(app: FastifyInstance) {
         `SELECT a.*, coalesce((SELECT cn.name FROM app.contact_names cn WHERE cn.instance = t.instance AND cn.phone = c.phone), c.name, c.phone, c.email) AS contact, c.company, c.crm_stage, t.channel, t.instance, t.summary
            FROM app.pending_approvals a JOIN app.threads t ON t.id = a.thread_id JOIN app.contacts c ON c.id = t.contact_id
           WHERE ($1 = 'ALL' OR a.status = $1) AND NOT (t.instance = ANY($2::text[])) ORDER BY a.created_at DESC LIMIT 100`,
-        [status, hiddenInstances(req)],
+        [status, (await hiddenInstances(req))],
       );
     });
     api.post<{ Params: { id: string } }>('/api/approvals/:id/decide', async (req, reply) => {
@@ -473,7 +487,7 @@ export async function panelRoutes(app: FastifyInstance) {
       q(`SELECT g.*, (SELECT coalesce(c.name, c.phone) FROM app.threads t JOIN app.contacts c ON c.id = t.contact_id WHERE t.id = g.thread_id) AS contact
            FROM app.knowledge_gaps g WHERE resolved_at IS NULL
             AND NOT EXISTS (SELECT 1 FROM app.threads t WHERE t.id = g.thread_id AND t.instance = ANY($1::text[]))
-          ORDER BY created_at DESC LIMIT 100`, [hiddenInstances(req)]));
+          ORDER BY created_at DESC LIMIT 100`, [(await hiddenInstances(req))]));
     api.post<{ Params: { id: string } }>('/api/knowledge/gaps/:id/answer', async (req, reply) => {
       const b = z.object({ answer: z.string().min(2), instances: z.array(z.string().min(1)).optional() }).safeParse(req.body);
       if (!b.success) return bad(reply, 'Escreva a resposta.');
@@ -655,10 +669,10 @@ export async function panelRoutes(app: FastifyInstance) {
     });
 
     // ---------------------------------------------------------------- jeito de escrever de cada numero
-    api.get('/api/personas', async () => Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([instance, role]) => {
+    api.get('/api/personas', async (req) => { const hidden = await hiddenInstances(req); return Promise.all([...instanceRoles()].filter(([n, r]) => r !== 'OFF' && !hidden.includes(n)).map(async ([instance, role]) => {
       const p = await getPersonaProfile(instance);
       return { instance, role, persona: personaFor(instance), profile: p?.content ?? '', updatedAt: p?.updated_at ?? null, messages: await countPersonaMessages(instance) };
-    })));
+    })); });
     api.post<{ Params: { instance: string } }>('/api/personas/:instance/rebuild', async (req, reply) => {
       try {
         const guide = await buildPersonaProfile(req.params.instance);
@@ -676,7 +690,7 @@ export async function panelRoutes(app: FastifyInstance) {
     });
 
     // ---------------------------------------------------------------- cada IA (numero): regras e contatos liberados
-    api.get('/api/numbers', async () => Promise.all([...instanceRoles()].filter(([, r]) => r !== 'OFF').map(async ([instance, role]) => {
+    api.get('/api/numbers', async (req) => { const hidden = await hiddenInstances(req); return Promise.all([...instanceRoles()].filter(([n, r]) => r !== 'OFF' && !hidden.includes(n)).map(async ([instance, role]) => {
       const p = await getPersonaProfile(instance);
       const c = await one<{ total: number; marked: number; auto: number; active: number; msgs: number }>(
         `SELECT count(*)::int total, count(*) FILTER (WHERE ai_enabled)::int marked, count(*) FILTER (WHERE ai_auto)::int auto,
@@ -693,7 +707,7 @@ export async function panelRoutes(app: FastifyInstance) {
         profile: p?.content ?? '', profileAt: p?.updated_at ?? null, styleMessages: await countPersonaMessages(instance),
         contacts: c ?? { total: 0, marked: 0, auto: 0, active: 0, msgs: 0 },
       };
-    })));
+    })); });
 
     api.put<{ Params: { instance: string } }>('/api/numbers/:instance/rule', async (req, reply) => {
       const b = z.object({ reply: z.enum(['all', 'selected']), auto: z.boolean() }).safeParse(req.body);
@@ -887,13 +901,16 @@ export async function panelRoutes(app: FastifyInstance) {
     // ---------------------------------------------------------------- agenda de cada IA
     api.get('/api/agenda', async (req) => {
       const f = req.query as Record<string, string | undefined>;
-      return listItems({
+      const hidden = await hiddenInstances(req);
+      if (f.instance && hidden.includes(f.instance)) return [];
+      const items = await listItems({
         instance: f.instance || undefined,
         from: f.from ? parseLocal(`${f.from.slice(0, 10)}T00:00`)?.at : undefined,
         to: f.to ? parseLocal(`${f.to.slice(0, 10)}T23:59`)?.at : undefined,
         includeDone: f.done === '1',
         kind: (f.kind as AgendaKind) || undefined,
       });
+      return items.filter((it: any) => !hidden.includes(it.instance));
     });
     const AgendaBody = z.object({
       instance: z.string().min(1), kind: z.enum(['evento', 'tarefa', 'nota']), title: z.string().trim().min(1),
@@ -915,10 +932,11 @@ export async function panelRoutes(app: FastifyInstance) {
     api.delete<{ Params: { id: string } }>('/api/agenda/:id', async (req) => { await removeItem(Number(req.params.id)); return { ok: true }; });
 
     // ---------------------------------------------------------------- pagina E-mail
-    api.get('/api/email/accounts', async () => {
+    api.get('/api/email/accounts', async (req) => {
+      const hidden = await hiddenInstances(req);
       const google = new Set((await gmailAccounts()).map((a) => a.email));
       const imap = new Map((await mailAccounts()).map((a) => [a.email, a]));
-      return Object.entries(emailsByNumber()).map(([instance, mail]) => {
+      return Object.entries(emailsByNumber()).filter(([instance]) => !hidden.includes(instance)).map(([instance, mail]) => {
         const m = mail.toLowerCase();
         return {
           instance, email: m, persona: personaFor(instance),
@@ -979,7 +997,7 @@ export async function panelRoutes(app: FastifyInstance) {
       const term = String((req.query as any).q ?? '').trim();
       if (term.length < 2) return { contacts: [], messages: [], incidents: [], knowledge: [] };
       const like = `%${term}%`;
-      const hidden = hiddenInstances(req);
+      const hidden = await hiddenInstances(req);
       const [contacts, messages, incidents, knowledge] = await Promise.all([
         q(`SELECT c.id, coalesce(c.name, c.phone, c.email) AS name, c.phone, c.company,
                   (SELECT t.id FROM app.threads t WHERE t.contact_id = c.id AND NOT (t.instance = ANY($4::text[])) ORDER BY t.updated_at DESC LIMIT 1) AS thread_id
